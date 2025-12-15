@@ -77,7 +77,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
     // 为 sora-2 优化 prompt：增加构图、光影、细节描述
         const selectedModel = shot.videoModel || 'sora-2';
     if (selectedModel === 'sora-2') {
-      prompt = `${prompt}\n\n画面要求：高清晰度，电影级构图，16:9横屏宽屏格式。注重光影层次、色彩饱和度和景深效果。确保主体清晰、背景自然过渡。`;
+      prompt = `${prompt}\n\nVisual Requirements: High definition, cinematic composition, 16:9 widescreen format. Focus on lighting hierarchy, color saturation, and depth of field effects. Ensure the subject is clear and the background transitions naturally.`;
     }
     
     const taskType = type === 'start' ? 'kf_start' : 'kf_end';
