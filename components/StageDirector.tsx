@@ -679,7 +679,7 @@ Technical Requirements:
                                   * 未检测到结束帧，将使用单图生成模式 (Image-to-Video)
                                </div>
                            )}
-                           {endKf?.imageUrl && selectedModel === 'sora-2' && (
+                           {endKf?.imageUrl && (activeShot.videoModel || 'sora-2') === 'sora-2' && (
                                <div className="text-[9px] text-green-500 text-center font-mono flex items-center justify-center gap-1">
                                   <span className="w-1 h-1 rounded-full bg-green-500 animate-pulse"></span>
                                   已启用双帧过渡模式 (Start → End Transition)
