@@ -228,6 +228,46 @@ Technical Requirements:
     }
   };
 
+  const handleCopyPreviousEndFrame = () => {
+    if (activeShotIndex === 0) return; // 第一个镜头没有前一个镜头
+    
+    const previousShot = project.shots[activeShotIndex - 1];
+    const previousEndKf = previousShot?.keyframes?.find(k => k.type === 'end');
+    
+    if (!previousEndKf?.imageUrl) {
+      alert("上一个镜头还没有生成结束帧");
+      return;
+    }
+    
+    const currentShot = activeShot;
+    if (!currentShot) return;
+    
+    // 复制上一个镜头的结束帧作为当前镜头的起始帧
+    const existingStartKf = currentShot.keyframes?.find(k => k.type === 'start');
+    const newStartKfId = existingStartKf?.id || `kf-${currentShot.id}-start-${Date.now()}`;
+    
+    const newStartKf: Keyframe = {
+      id: newStartKfId,
+      type: 'start',
+      visualPrompt: previousEndKf.visualPrompt, // 继承前一帧的提示词
+      imageUrl: previousEndKf.imageUrl,
+      status: 'completed'
+    };
+    
+    updateShot(currentShot.id, (s) => {
+      const newKeyframes = [...(s.keyframes || [])];
+      const idx = newKeyframes.findIndex(k => k.type === 'start');
+      
+      if (idx >= 0) {
+        newKeyframes[idx] = newStartKf;
+      } else {
+        newKeyframes.push(newStartKf);
+      }
+      
+      return { ...s, keyframes: newKeyframes };
+    });
+  };
+
   const handleBatchGenerateImages = async () => {
       const isRegenerate = allStartFramesGenerated;
       
@@ -590,12 +630,24 @@ Technical Requirements:
                                <div className="space-y-2">
                                    <div className="flex justify-between items-center">
                                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">起始帧 (Start)</span>
-                                       <button 
-                                           onClick={() => handleGenerateKeyframe(activeShot, 'start')}
-                                           className="text-[10px] text-indigo-400 hover:text-white transition-colors"
-                                       >
-                                           {startKf?.imageUrl ? '重新生成' : '生成'}
-                                       </button>
+                                       <div className="flex items-center gap-1">
+                                           {activeShotIndex > 0 && (
+                                               <button 
+                                                   onClick={handleCopyPreviousEndFrame}
+                                                   disabled={!project.shots[activeShotIndex - 1]?.keyframes?.find(k => k.type === 'end')?.imageUrl}
+                                                   title="使用上一镜头的结束帧"
+                                                   className="text-[10px] text-emerald-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                               >
+                                                   ← 使用结束帧
+                                               </button>
+                                           )}
+                                           <button 
+                                               onClick={() => handleGenerateKeyframe(activeShot, 'start')}
+                                               className="text-[10px] text-indigo-400 hover:text-white transition-colors"
+                                           >
+                                               {startKf?.imageUrl ? '重新生成' : '生成'}
+                                           </button>
+                                       </div>
                                    </div>
                                    <div className="aspect-video bg-black rounded-lg border border-zinc-800 overflow-hidden relative group">
                                        {startKf?.imageUrl ? (
