@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrainCircuit, Wand2, ChevronRight, AlertCircle, Users, MapPin, List, TextQuote, Clock, BookOpen, PenTool, ArrowLeft, Languages, Aperture, AlignLeft, Plus, RotateCw } from 'lucide-react';
+import { BrainCircuit, Wand2, ChevronRight, AlertCircle, Users, MapPin, List, TextQuote, Clock, BookOpen, PenTool, ArrowLeft, Languages, Aperture, AlignLeft, Plus, RotateCw, Edit2, Check, X, UserPlus, UserMinus } from 'lucide-react';
 import { ProjectState } from '../types';
 import { parseScriptToData, generateShotList, continueScript, rewriteScript } from '../services/geminiService';
 
@@ -61,6 +61,13 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
   const [isContinuing, setIsContinuing] = useState(false);
   const [isRewriting, setIsRewriting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 编辑状态管理
+  const [editingCharacterId, setEditingCharacterId] = useState<string | null>(null);
+  const [editingCharacterPrompt, setEditingCharacterPrompt] = useState('');
+  const [editingShotId, setEditingShotId] = useState<string | null>(null);
+  const [editingShotPrompt, setEditingShotPrompt] = useState('');
+  const [editingShotCharactersId, setEditingShotCharactersId] = useState<string | null>(null);
 
   useEffect(() => {
     setLocalScript(project.rawScript);
@@ -229,6 +236,109 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
     } finally {
       setIsRewriting(false);
     }
+  };
+
+  // 编辑角色视觉提示词
+  const handleEditCharacter = (characterId: string, currentPrompt: string) => {
+    setEditingCharacterId(characterId);
+    setEditingCharacterPrompt(currentPrompt || '');
+  };
+
+  const handleSaveCharacter = () => {
+    if (!editingCharacterId || !project.scriptData) return;
+    
+    const updatedCharacters = project.scriptData.characters.map(c => 
+      c.id === editingCharacterId 
+        ? { ...c, visualPrompt: editingCharacterPrompt }
+        : c
+    );
+    
+    updateProject({
+      scriptData: {
+        ...project.scriptData,
+        characters: updatedCharacters
+      }
+    });
+    
+    setEditingCharacterId(null);
+    setEditingCharacterPrompt('');
+  };
+
+  const handleCancelCharacterEdit = () => {
+    setEditingCharacterId(null);
+    setEditingCharacterPrompt('');
+  };
+
+  // 编辑分镜画面提示词
+  const handleEditShot = (shotId: string, currentPrompt: string) => {
+    setEditingShotId(shotId);
+    setEditingShotPrompt(currentPrompt || '');
+  };
+
+  const handleSaveShot = () => {
+    if (!editingShotId) return;
+    
+    const updatedShots = project.shots.map(shot => {
+      if (shot.id === editingShotId && shot.keyframes.length > 0) {
+        return {
+          ...shot,
+          keyframes: shot.keyframes.map((kf, idx) => 
+            idx === 0 ? { ...kf, visualPrompt: editingShotPrompt } : kf
+          )
+        };
+      }
+      return shot;
+    });
+    
+    updateProject({ shots: updatedShots });
+    
+    setEditingShotId(null);
+    setEditingShotPrompt('');
+  };
+
+  const handleCancelShotEdit = () => {
+    setEditingShotId(null);
+    setEditingShotPrompt('');
+  };
+
+  // 编辑分镜角色列表
+  const handleEditShotCharacters = (shotId: string) => {
+    setEditingShotCharactersId(shotId);
+  };
+
+  const handleAddCharacterToShot = (shotId: string, characterId: string) => {
+    const updatedShots = project.shots.map(shot => {
+      if (shot.id === shotId) {
+        // 检查角色是否已存在
+        if (!shot.characters.includes(characterId)) {
+          return {
+            ...shot,
+            characters: [...shot.characters, characterId]
+          };
+        }
+      }
+      return shot;
+    });
+    
+    updateProject({ shots: updatedShots });
+  };
+
+  const handleRemoveCharacterFromShot = (shotId: string, characterId: string) => {
+    const updatedShots = project.shots.map(shot => {
+      if (shot.id === shotId) {
+        return {
+          ...shot,
+          characters: shot.characters.filter(cid => cid !== characterId)
+        };
+      }
+      return shot;
+    });
+    
+    updateProject({ shots: updatedShots });
+  };
+
+  const handleCloseShotCharactersEdit = () => {
+    setEditingShotCharactersId(null);
   };
 
   const renderStoryInput = () => (
@@ -555,11 +665,57 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
                     <h3 className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest mb-4 flex items-center gap-2">
                        <Users className="w-3 h-3" /> 演员表
                     </h3>
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                        {project.scriptData?.characters.map(c => (
-                         <div key={c.id} className="flex justify-between items-center group cursor-default p-2 rounded hover:bg-zinc-900/50 transition-colors">
-                            <span className="text-sm text-zinc-300 font-medium group-hover:text-white">{c.name}</span>
-                            <span className="text-[10px] text-zinc-600 font-mono">{c.gender}</span>
+                         <div key={c.id} className="group cursor-default p-3 rounded-lg hover:bg-zinc-900/50 transition-colors border border-transparent hover:border-zinc-800">
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm text-zinc-300 font-medium group-hover:text-white">{c.name}</span>
+                                  <span className="text-[10px] text-zinc-600 font-mono">{c.gender}</span>
+                                </div>
+                                {editingCharacterId === c.id ? (
+                                  <div className="mt-2 space-y-2">
+                                    <textarea
+                                      value={editingCharacterPrompt}
+                                      onChange={(e) => setEditingCharacterPrompt(e.target.value)}
+                                      className="w-full bg-[#141414] border border-zinc-700 text-zinc-300 px-2 py-2 text-xs rounded-md focus:border-zinc-500 focus:outline-none resize-none font-mono"
+                                      rows={4}
+                                      placeholder="输入角色视觉描述..."
+                                    />
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={handleSaveCharacter}
+                                        className="px-2 py-1 bg-white text-black text-xs font-bold rounded flex items-center gap-1 hover:bg-zinc-200 transition-colors"
+                                      >
+                                        <Check className="w-3 h-3" />
+                                        保存
+                                      </button>
+                                      <button
+                                        onClick={handleCancelCharacterEdit}
+                                        className="px-2 py-1 bg-zinc-800 text-zinc-400 text-xs font-bold rounded flex items-center gap-1 hover:bg-zinc-700 transition-colors"
+                                      >
+                                        <X className="w-3 h-3" />
+                                        取消
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-start gap-2">
+                                    <p className="text-[10px] text-zinc-500 leading-relaxed font-mono line-clamp-2 flex-1">
+                                      {c.visualPrompt || '暂无视觉描述'}
+                                    </p>
+                                    <button
+                                      onClick={() => handleEditCharacter(c.id, c.visualPrompt || '')}
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-zinc-800 rounded"
+                                      title="编辑角色描述"
+                                    >
+                                      <Edit2 className="w-3 h-3 text-zinc-500 hover:text-white" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                          </div>
                        ))}
                     </div>
@@ -640,26 +796,195 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
                                    )}
                                    
                                    {/* Tags/Characters */}
-                                   <div className="flex flex-wrap gap-2 pt-2 opacity-50 group-hover:opacity-100 transition-opacity">
-                                      {shot.characters.map(cid => {
-                                         const char = project.scriptData?.characters.find(c => c.id === cid);
-                                         return char ? (
-                                           <span key={cid} className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 border border-zinc-800 px-2 py-0.5 rounded-full bg-zinc-900">
-                                              {char.name}
-                                           </span>
-                                         ) : null;
-                                      })}
+                                   <div className="pt-2">
+                                     <div className="flex items-center gap-2 mb-2">
+                                       <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">角色</span>
+                                       <button
+                                         onClick={() => handleEditShotCharacters(shot.id)}
+                                         className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-zinc-800 rounded"
+                                         title="编辑角色列表"
+                                       >
+                                         <Edit2 className="w-3 h-3 text-zinc-500 hover:text-white" />
+                                       </button>
+                                     </div>
+                                     
+                                     {editingShotCharactersId === shot.id ? (
+                                       <div className="space-y-3 p-3 bg-[#0A0A0A] border border-zinc-800 rounded-lg">
+                                         {/* 当前角色列表 */}
+                                         <div className="space-y-2">
+                                           <div className="text-[10px] text-zinc-500 uppercase tracking-wider">当前角色</div>
+                                           <div className="flex flex-wrap gap-2">
+                                             {shot.characters.length === 0 ? (
+                                               <span className="text-xs text-zinc-600 italic">无角色</span>
+                                             ) : (
+                                               shot.characters.map(cid => {
+                                                 const char = project.scriptData?.characters.find(c => c.id === cid);
+                                                 return char ? (
+                                                   <div key={cid} className="flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider text-zinc-300 border border-zinc-700 px-2 py-1 rounded-md bg-zinc-900">
+                                                     <span>{char.name}</span>
+                                                     <button
+                                                       onClick={() => handleRemoveCharacterFromShot(shot.id, cid)}
+                                                       className="ml-1 hover:text-red-400 transition-colors"
+                                                       title="移除角色"
+                                                     >
+                                                       <X className="w-3 h-3" />
+                                                     </button>
+                                                   </div>
+                                                 ) : null;
+                                               })
+                                             )}
+                                           </div>
+                                         </div>
+                                         
+                                         {/* 可添加的角色 */}
+                                         <div className="space-y-2">
+                                           <div className="text-[10px] text-zinc-500 uppercase tracking-wider">添加角色</div>
+                                           <div className="flex flex-wrap gap-2">
+                                             {project.scriptData?.characters
+                                               .filter(char => !shot.characters.includes(char.id))
+                                               .map(char => (
+                                                 <button
+                                                   key={char.id}
+                                                   onClick={() => handleAddCharacterToShot(shot.id, char.id)}
+                                                   className="flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider text-zinc-500 border border-zinc-800 px-2 py-1 rounded-md bg-zinc-900 hover:bg-zinc-800 hover:text-white hover:border-zinc-600 transition-colors"
+                                                   title="添加角色"
+                                                 >
+                                                   <UserPlus className="w-3 h-3" />
+                                                   <span>{char.name}</span>
+                                                 </button>
+                                               ))}
+                                             {project.scriptData?.characters.filter(char => !shot.characters.includes(char.id)).length === 0 && (
+                                               <span className="text-xs text-zinc-600 italic">所有角色已添加</span>
+                                             )}
+                                           </div>
+                                         </div>
+                                         
+                                         {/* 关闭按钮 */}
+                                         <div className="pt-2 border-t border-zinc-800">
+                                           <button
+                                             onClick={handleCloseShotCharactersEdit}
+                                             className="px-3 py-1.5 bg-zinc-800 text-zinc-300 text-xs font-bold rounded flex items-center gap-1 hover:bg-zinc-700 transition-colors"
+                                           >
+                                             <Check className="w-3 h-3" />
+                                             完成
+                                           </button>
+                                         </div>
+                                       </div>
+                                     ) : (
+                                       <div className="flex flex-wrap gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
+                                         {shot.characters.length === 0 ? (
+                                           <span className="text-[10px] text-zinc-700 italic">无角色</span>
+                                         ) : (
+                                           shot.characters.map(cid => {
+                                             const char = project.scriptData?.characters.find(c => c.id === cid);
+                                             return char ? (
+                                               <span key={cid} className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 border border-zinc-800 px-2 py-0.5 rounded-full bg-zinc-900">
+                                                 {char.name}
+                                               </span>
+                                             ) : null;
+                                           })
+                                         )}
+                                       </div>
+                                     )}
+                                   </div>
+
+                                   {/* Mobile Prompt Editor (visible on screens < xl) */}
+                                   <div className="xl:hidden pt-4 border-t border-zinc-800/50">
+                                     <div className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest mb-2 flex items-center gap-2 justify-between">
+                                       <span className="flex items-center gap-2">
+                                         <Aperture className="w-3 h-3" /> 画面提示词
+                                       </span>
+                                       {editingShotId !== shot.id && (
+                                         <button
+                                           onClick={() => handleEditShot(shot.id, shot.keyframes[0]?.visualPrompt || '')}
+                                           className="p-1.5 bg-zinc-800 hover:bg-zinc-700 rounded transition-colors"
+                                           title="编辑提示词"
+                                         >
+                                           <Edit2 className="w-3 h-3 text-zinc-400" />
+                                         </button>
+                                       )}
+                                     </div>
+                                     {editingShotId === shot.id ? (
+                                       <div className="space-y-2">
+                                         <textarea
+                                           value={editingShotPrompt}
+                                           onChange={(e) => setEditingShotPrompt(e.target.value)}
+                                           className="w-full bg-[#141414] border border-zinc-700 text-zinc-300 px-3 py-2 text-xs rounded-md focus:border-zinc-500 focus:outline-none resize-none font-mono"
+                                           rows={4}
+                                           placeholder="输入画面提示词..."
+                                         />
+                                         <div className="flex gap-2">
+                                           <button
+                                             onClick={handleSaveShot}
+                                             className="px-3 py-1.5 bg-white text-black text-xs font-bold rounded flex items-center gap-1 hover:bg-zinc-200 transition-colors"
+                                           >
+                                             <Check className="w-3 h-3" />
+                                             保存
+                                           </button>
+                                           <button
+                                             onClick={handleCancelShotEdit}
+                                             className="px-3 py-1.5 bg-zinc-800 text-zinc-400 text-xs font-bold rounded flex items-center gap-1 hover:bg-zinc-700 transition-colors"
+                                           >
+                                             <X className="w-3 h-3" />
+                                             取消
+                                           </button>
+                                         </div>
+                                       </div>
+                                     ) : (
+                                       <p className="text-[10px] text-zinc-500 font-mono leading-relaxed bg-zinc-900/30 p-2 rounded">
+                                         {shot.keyframes[0]?.visualPrompt}
+                                       </p>
+                                     )}
                                    </div>
                                 </div>
 
                                 {/* Prompt Preview */}
                                 <div className="w-64 hidden xl:block pl-6 border-l border-zinc-900">
-                                   <div className="text-[10px] font-bold text-zinc-700 uppercase tracking-widest mb-2 flex items-center gap-2">
-                                      <Aperture className="w-3 h-3" /> 画面提示词 (AI Prompt)
+                                   <div className="text-[10px] font-bold text-zinc-700 uppercase tracking-widest mb-2 flex items-center gap-2 justify-between">
+                                      <span className="flex items-center gap-2">
+                                        <Aperture className="w-3 h-3" /> 画面提示词
+                                      </span>
+                                      {editingShotId !== shot.id && (
+                                        <button
+                                          onClick={() => handleEditShot(shot.id, shot.keyframes[0]?.visualPrompt || '')}
+                                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-zinc-800 rounded"
+                                          title="编辑提示词"
+                                        >
+                                          <Edit2 className="w-3 h-3 text-zinc-500 hover:text-white" />
+                                        </button>
+                                      )}
                                    </div>
-                                   <p className="text-[10px] text-zinc-600 font-mono leading-relaxed line-clamp-4 hover:line-clamp-none hover:text-zinc-400 transition-all cursor-text bg-zinc-900/30 p-2 rounded">
-                                     {shot.keyframes[0]?.visualPrompt}
-                                   </p>
+                                   {editingShotId === shot.id ? (
+                                     <div className="space-y-2">
+                                       <textarea
+                                         value={editingShotPrompt}
+                                         onChange={(e) => setEditingShotPrompt(e.target.value)}
+                                         className="w-full bg-[#141414] border border-zinc-700 text-zinc-300 px-2 py-2 text-xs rounded-md focus:border-zinc-500 focus:outline-none resize-none font-mono"
+                                         rows={6}
+                                         placeholder="输入画面提示词..."
+                                       />
+                                       <div className="flex gap-2">
+                                         <button
+                                           onClick={handleSaveShot}
+                                           className="px-2 py-1 bg-white text-black text-xs font-bold rounded flex items-center gap-1 hover:bg-zinc-200 transition-colors"
+                                         >
+                                           <Check className="w-3 h-3" />
+                                           保存
+                                         </button>
+                                         <button
+                                           onClick={handleCancelShotEdit}
+                                           className="px-2 py-1 bg-zinc-800 text-zinc-400 text-xs font-bold rounded flex items-center gap-1 hover:bg-zinc-700 transition-colors"
+                                         >
+                                           <X className="w-3 h-3" />
+                                           取消
+                                         </button>
+                                       </div>
+                                     </div>
+                                   ) : (
+                                     <p className="text-[10px] text-zinc-600 font-mono leading-relaxed line-clamp-4 hover:line-clamp-none hover:text-zinc-400 transition-all cursor-text bg-zinc-900/30 p-2 rounded">
+                                       {shot.keyframes[0]?.visualPrompt}
+                                     </p>
+                                   )}
                                 </div>
 
                              </div>
