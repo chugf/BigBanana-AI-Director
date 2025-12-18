@@ -68,6 +68,9 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
   const [editingShotId, setEditingShotId] = useState<string | null>(null);
   const [editingShotPrompt, setEditingShotPrompt] = useState('');
   const [editingShotCharactersId, setEditingShotCharactersId] = useState<string | null>(null);
+  const [editingShotActionId, setEditingShotActionId] = useState<string | null>(null);
+  const [editingShotActionText, setEditingShotActionText] = useState('');
+  const [editingShotDialogueText, setEditingShotDialogueText] = useState('');
 
   useEffect(() => {
     setLocalScript(project.rawScript);
@@ -339,6 +342,40 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
 
   const handleCloseShotCharactersEdit = () => {
     setEditingShotCharactersId(null);
+  };
+
+  // 编辑分镜动作描述和台词
+  const handleEditShotAction = (shotId: string, actionSummary: string, dialogue?: string) => {
+    setEditingShotActionId(shotId);
+    setEditingShotActionText(actionSummary);
+    setEditingShotDialogueText(dialogue || '');
+  };
+
+  const handleSaveShotAction = () => {
+    if (!editingShotActionId) return;
+    
+    const updatedShots = project.shots.map(shot => {
+      if (shot.id === editingShotActionId) {
+        return {
+          ...shot,
+          actionSummary: editingShotActionText,
+          dialogue: editingShotDialogueText.trim() || undefined
+        };
+      }
+      return shot;
+    });
+    
+    updateProject({ shots: updatedShots });
+    
+    setEditingShotActionId(null);
+    setEditingShotActionText('');
+    setEditingShotDialogueText('');
+  };
+
+  const handleCancelShotActionEdit = () => {
+    setEditingShotActionId(null);
+    setEditingShotActionText('');
+    setEditingShotDialogueText('');
   };
 
   const renderStoryInput = () => (
@@ -785,14 +822,71 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
 
                                 {/* Main Action */}
                                 <div className="flex-1 space-y-4">
-                                   <p className="text-zinc-200 text-sm leading-7 font-medium max-w-2xl">
-                                     {shot.actionSummary}
-                                   </p>
-                                   
-                                   {shot.dialogue && (
-                                      <div className="pl-6 border-l-2 border-zinc-800 group-hover:border-zinc-600 transition-colors py-1">
-                                         <p className="text-zinc-400 font-serif italic text-sm">"{shot.dialogue}"</p>
-                                      </div>
+                                   {editingShotActionId === shot.id ? (
+                                     <div className="space-y-3 p-4 bg-[#0A0A0A] border border-zinc-800 rounded-lg">
+                                       {/* 动作描述编辑 */}
+                                       <div className="space-y-2">
+                                         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">动作描述</label>
+                                         <textarea
+                                           value={editingShotActionText}
+                                           onChange={(e) => setEditingShotActionText(e.target.value)}
+                                           className="w-full bg-[#141414] border border-zinc-700 text-zinc-300 px-3 py-2 text-sm rounded-md focus:border-zinc-500 focus:outline-none resize-none"
+                                           rows={3}
+                                           placeholder="输入动作描述..."
+                                         />
+                                       </div>
+                                       
+                                       {/* 台词编辑 */}
+                                       <div className="space-y-2">
+                                         <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">台词（可选）</label>
+                                         <textarea
+                                           value={editingShotDialogueText}
+                                           onChange={(e) => setEditingShotDialogueText(e.target.value)}
+                                           className="w-full bg-[#141414] border border-zinc-700 text-zinc-300 px-3 py-2 text-sm rounded-md focus:border-zinc-500 focus:outline-none resize-none font-serif italic"
+                                           rows={2}
+                                           placeholder="输入台词（留空表示无台词）..."
+                                         />
+                                       </div>
+                                       
+                                       {/* 操作按钮 */}
+                                       <div className="flex gap-2 pt-2 border-t border-zinc-800">
+                                         <button
+                                           onClick={handleSaveShotAction}
+                                           className="px-3 py-1.5 bg-white text-black text-xs font-bold rounded flex items-center gap-1 hover:bg-zinc-200 transition-colors"
+                                         >
+                                           <Check className="w-3 h-3" />
+                                           保存
+                                         </button>
+                                         <button
+                                           onClick={handleCancelShotActionEdit}
+                                           className="px-3 py-1.5 bg-zinc-800 text-zinc-400 text-xs font-bold rounded flex items-center gap-1 hover:bg-zinc-700 transition-colors"
+                                         >
+                                           <X className="w-3 h-3" />
+                                           取消
+                                         </button>
+                                       </div>
+                                     </div>
+                                   ) : (
+                                     <div className="relative group/action">
+                                       <div className="flex items-start gap-2">
+                                         <p className="text-zinc-200 text-sm leading-7 font-medium max-w-2xl flex-1">
+                                           {shot.actionSummary}
+                                         </p>
+                                         <button
+                                           onClick={() => handleEditShotAction(shot.id, shot.actionSummary, shot.dialogue)}
+                                           className="opacity-0 group-hover/action:opacity-100 transition-opacity p-1.5 hover:bg-zinc-800 rounded flex-shrink-0"
+                                           title="编辑动作和台词"
+                                         >
+                                           <Edit2 className="w-3.5 h-3.5 text-zinc-500 hover:text-white" />
+                                         </button>
+                                       </div>
+                                       
+                                       {shot.dialogue && (
+                                         <div className="pl-6 border-l-2 border-zinc-800 group-hover:border-zinc-600 transition-colors py-1 mt-3">
+                                           <p className="text-zinc-400 font-serif italic text-sm">"{shot.dialogue}"</p>
+                                         </div>
+                                       )}
+                                     </div>
                                    )}
                                    
                                    {/* Tags/Characters */}
