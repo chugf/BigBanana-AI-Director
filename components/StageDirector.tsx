@@ -144,8 +144,6 @@ const getCameraMovementCompositionGuide = (cameraMovement: string, frameType: 's
 
 const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError }) => {
   const [activeShotId, setActiveShotId] = useState<string | null>(null);
-  // 改为数组以支持多个任务同时进行
-  const [processingTasks, setProcessingTasks] = useState<Array<{shotId: string, type: 'kf_start'|'kf_end'|'video'}>>([]);
   const [batchProgress, setBatchProgress] = useState<{current: number, total: number, message: string} | null>(null);
   const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
 
@@ -233,11 +231,30 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
     const selectedModel = shot.videoModel || 'sora-2';
     prompt = `${prompt}\n\nVisual Style: ${stylePrompt}\n\nCamera Movement: ${shot.cameraMovement} (${type === 'start' ? 'Initial' : 'Final'} frame)\n${cameraMovementGuide}\n\nVisual Requirements: High definition, cinematic composition, 16:9 widescreen format. Focus on lighting hierarchy, color saturation, and depth of field effects. Ensure the subject is clear and the background transitions naturally.`;
     
-    const taskType = type === 'start' ? 'kf_start' : 'kf_end';
-    const taskIdentifier = { shotId: shot.id, type: taskType };
-    
-    // 添加任务到处理列表
-    setProcessingTasks(prev => [...prev, taskIdentifier]);
+    // 先设置状态为generating，这样即使切换页面状态也会保留
+    updateProject((prevProject: ProjectState) => ({
+      ...prevProject,
+      shots: prevProject.shots.map(s => {
+        if (s.id !== shot.id) return s;
+        
+        const newKeyframes = [...(s.keyframes || [])];
+        const idx = newKeyframes.findIndex(k => k.type === type);
+        const generatingKf: Keyframe = {
+          id: kfId,
+          type,
+          visualPrompt: prompt,
+          status: 'generating'
+        };
+        
+        if (idx >= 0) {
+          newKeyframes[idx] = generatingKf;
+        } else {
+          newKeyframes.push(generatingKf);
+        }
+        
+        return { ...s, keyframes: newKeyframes };
+      })
+    }));
     
     try {
       const referenceImages = getRefImagesForShot(shot);
@@ -270,14 +287,27 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
       }));
     } catch (e: any) {
       console.error(e);
+      // 设置状态为failed
+      updateProject((prevProject: ProjectState) => ({
+        ...prevProject,
+        shots: prevProject.shots.map(s => {
+          if (s.id !== shot.id) return s;
+          
+          const newKeyframes = [...(s.keyframes || [])];
+          const idx = newKeyframes.findIndex(k => k.type === type);
+          if (idx >= 0) {
+            newKeyframes[idx] = { ...newKeyframes[idx], status: 'failed' };
+          }
+          
+          return { ...s, keyframes: newKeyframes };
+        })
+      }));
+      
       // Check if it's an API Key error
       if (onApiKeyError && onApiKeyError(e)) {
         return; // Error handled by parent
       }
       alert(`生成失败: ${e.message}`);
-    } finally {
-      // 从处理列表中移除该任务
-      setProcessingTasks(prev => prev.filter(t => !(t.shotId === shot.id && t.type === taskType)));
     }
   };
 
@@ -357,7 +387,19 @@ Technical Requirements:
     }
     
     const intervalId = shot.interval?.id || `int-${shot.id}-${Date.now()}`;
-    setProcessingTasks(prev => [...prev, { shotId: shot.id, type: 'video' }]);
+    
+    // 设置视频生成状态为generating
+    updateShot(shot.id, (s) => ({
+      ...s,
+      interval: s.interval ? { ...s.interval, status: 'generating' } : {
+        id: intervalId,
+        startKeyframeId: sKf.id,
+        endKeyframeId: eKf?.id || '',
+        duration: 10,
+        motionStrength: 5,
+        status: 'generating'
+      }
+    }));
     
     try {
       const videoUrl = await generateVideo(
@@ -381,13 +423,17 @@ Technical Requirements:
       }));
     } catch (e: any) {
       console.error(e);
+      // 设置状态为failed
+      updateShot(shot.id, (s) => ({
+        ...s,
+        interval: s.interval ? { ...s.interval, status: 'failed' } : undefined
+      }));
+      
       // Check if it's an API Key error
       if (onApiKeyError && onApiKeyError(e)) {
         return; // Error handled by parent
       }
       alert(`视频生成失败: ${e.message}`);
-    } finally {
-      setProcessingTasks(prev => prev.filter(t => !(t.shotId === shot.id && t.type === 'video')));
     }
   };
 
@@ -825,7 +871,7 @@ Technical Requirements:
                                            </div>
                                        )}
                                        {/* Loading State */}
-                                       {processingTasks.some(t => t.shotId === activeShot.id && t.type === 'kf_start') && (
+                                       {startKf?.status === 'generating' && (
                                             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
                                                 <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
                                             </div>
@@ -857,7 +903,7 @@ Technical Requirements:
                                            </div>
                                        )}
                                        {/* Loading State */}
-                                       {processingTasks.some(t => t.shotId === activeShot.id && t.type === 'kf_end') && (
+                                       {endKf?.status === 'generating' && (
                                             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
                                                 <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
                                             </div>
@@ -912,14 +958,14 @@ Technical Requirements:
 
                            <button
                              onClick={() => handleGenerateVideo(activeShot)}
-                             disabled={!startKf?.imageUrl || processingTasks.some(t => t.shotId === activeShot.id && t.type === 'video')}
+                             disabled={!startKf?.imageUrl || activeShot.interval?.status === 'generating'}
                              className={`w-full py-3 rounded-lg font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
                                activeShot.interval?.videoUrl 
                                  ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
                                  : 'bg-indigo-600 text-white hover:bg-indigo-500 shadow-lg shadow-indigo-600/20'
                              } ${(!startKf?.imageUrl) ? 'opacity-50 cursor-not-allowed' : ''}`}
                            >
-                             {processingTasks.some(t => t.shotId === activeShot.id && t.type === 'video') ? (
+                             {activeShot.interval?.status === 'generating' ? (
                                 <>
                                   <Loader2 className="w-4 h-4 animate-spin" />
                                   生成视频中...
