@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, SkipForward, SkipBack, Loader2, Video, Image as ImageIcon, ArrowRight, LayoutGrid, Maximize2, Sparkles, AlertCircle, MapPin, User, Clock, ChevronLeft, ChevronRight, ArrowLeft, MessageSquare, X, Film, Aperture, Shirt } from 'lucide-react';
+import { Play, SkipForward, SkipBack, Loader2, Video, Image as ImageIcon, ArrowRight, LayoutGrid, Maximize2, Sparkles, AlertCircle, MapPin, User, Clock, ChevronLeft, ChevronRight, ArrowLeft, MessageSquare, X, Film, Aperture, Shirt, Edit2, Check } from 'lucide-react';
 import { ProjectState, Shot, Keyframe } from '../types';
 import { generateImage, generateVideo } from '../services/geminiService';
 
@@ -146,6 +146,12 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
   const [activeShotId, setActiveShotId] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<{current: number, total: number, message: string} | null>(null);
   const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
+  
+  // 编辑状态管理
+  const [editingKeyframeId, setEditingKeyframeId] = useState<string | null>(null);
+  const [editingKeyframePrompt, setEditingKeyframePrompt] = useState('');
+  const [editingVideoPrompt, setEditingVideoPrompt] = useState(false);
+  const [editingVideoPromptText, setEditingVideoPromptText] = useState('');
 
   const activeShotIndex = project.shots.findIndex(s => s.id === activeShotId);
   const activeShot = project.shots[activeShotIndex];
@@ -867,6 +873,19 @@ Technical Requirements:
                                                </button>
                                            )}
                                            <button 
+                                               onClick={() => {
+                                                   if (startKf) {
+                                                       setEditingKeyframeId(startKf.id);
+                                                       setEditingKeyframePrompt(startKf.visualPrompt || '');
+                                                   }
+                                               }}
+                                               disabled={!startKf}
+                                               className="p-1 text-yellow-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                               title="编辑提示词"
+                                           >
+                                               <Edit2 className="w-3 h-3" />
+                                           </button>
+                                           <button 
                                                onClick={() => handleGenerateKeyframe(activeShot, 'start')}
                                                className="text-[10px] text-indigo-400 hover:text-white transition-colors"
                                            >
@@ -899,12 +918,27 @@ Technical Requirements:
                                <div className="space-y-2">
                                    <div className="flex justify-between items-center">
                                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">结束帧 (End)</span>
-                                       <button 
-                                           onClick={() => handleGenerateKeyframe(activeShot, 'end')}
-                                           className="text-[10px] text-indigo-400 hover:text-white transition-colors"
-                                       >
-                                           {endKf?.imageUrl ? '重新生成' : '生成'}
-                                       </button>
+                                       <div className="flex items-center gap-1">
+                                           <button 
+                                               onClick={() => {
+                                                   if (endKf) {
+                                                       setEditingKeyframeId(endKf.id);
+                                                       setEditingKeyframePrompt(endKf.visualPrompt || '');
+                                                   }
+                                               }}
+                                               disabled={!endKf}
+                                               className="p-1 text-yellow-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                               title="编辑提示词"
+                                           >
+                                               <Edit2 className="w-3 h-3" />
+                                           </button>
+                                           <button 
+                                               onClick={() => handleGenerateKeyframe(activeShot, 'end')}
+                                               className="text-[10px] text-indigo-400 hover:text-white transition-colors"
+                                           >
+                                               {endKf?.imageUrl ? '重新生成' : '生成'}
+                                           </button>
+                                       </div>
                                    </div>
                                    <div className="aspect-video bg-black rounded-lg border border-zinc-800 overflow-hidden relative group">
                                        {endKf?.imageUrl ? (
@@ -935,6 +969,17 @@ Technical Requirements:
                                <h4 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
                                   <Video className="w-3 h-3 text-indigo-500" />
                                   视频生成
+                                  <button 
+                                      onClick={() => {
+                                          setEditingVideoPrompt(true);
+                                          setEditingVideoPromptText(activeShot.interval?.videoPrompt || '');
+                                      }}
+                                      disabled={!activeShot.interval?.videoPrompt}
+                                      className="p-1 text-yellow-400 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                      title="编辑视频提示词"
+                                  >
+                                      <Edit2 className="w-3 h-3" />
+                                  </button>
                                </h4>
                                {activeShot.interval?.status === 'completed' && <span className="text-[10px] text-green-500 font-mono flex items-center gap-1">● READY</span>}
                            </div>
@@ -1009,6 +1054,131 @@ Technical Requirements:
               </div>
           )}
       </div>
+
+      {/* 编辑关键帧提示词弹窗 */}
+      {editingKeyframeId && (
+          <div 
+              className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+              onClick={() => setEditingKeyframeId(null)}
+          >
+              <div 
+                  className="bg-[#1A1A1A] border border-zinc-700 rounded-xl p-6 max-w-2xl w-full space-y-4 shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+              >
+                  <div className="flex items-center justify-between">
+                      <h3 className="text-white font-bold flex items-center gap-2">
+                          <Edit2 className="w-4 h-4 text-indigo-400" />
+                          编辑关键帧提示词
+                      </h3>
+                      <button 
+                          onClick={() => setEditingKeyframeId(null)}
+                          className="p-2 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white transition-colors"
+                      >
+                          <X className="w-4 h-4" />
+                      </button>
+                  </div>
+                  
+                  <textarea
+                      value={editingKeyframePrompt}
+                      onChange={(e) => setEditingKeyframePrompt(e.target.value)}
+                      className="w-full h-64 bg-black text-white border border-zinc-700 rounded-lg p-4 text-sm font-mono outline-none focus:border-indigo-500 transition-colors resize-none"
+                      placeholder="输入关键帧的提示词..."
+                  />
+                  
+                  <div className="flex justify-end gap-3">
+                      <button
+                          onClick={() => setEditingKeyframeId(null)}
+                          className="px-4 py-2 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded-lg text-sm font-bold transition-colors"
+                      >
+                          取消
+                      </button>
+                      <button
+                          onClick={() => {
+                              if (!activeShot) return;
+                              
+                              updateShot(activeShot.id, (s) => ({
+                                  ...s,
+                                  keyframes: s.keyframes?.map(kf => 
+                                      kf.id === editingKeyframeId 
+                                          ? { ...kf, visualPrompt: editingKeyframePrompt }
+                                          : kf
+                                  ) || []
+                              }));
+                              
+                              setEditingKeyframeId(null);
+                              setEditingKeyframePrompt('');
+                          }}
+                          className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-500 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+                      >
+                          <Check className="w-4 h-4" />
+                          保存
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* 编辑视频提示词弹窗 */}
+      {editingVideoPrompt && (
+          <div 
+              className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+              onClick={() => setEditingVideoPrompt(false)}
+          >
+              <div 
+                  className="bg-[#1A1A1A] border border-zinc-700 rounded-xl p-6 max-w-2xl w-full space-y-4 shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+              >
+                  <div className="flex items-center justify-between">
+                      <h3 className="text-white font-bold flex items-center gap-2">
+                          <Edit2 className="w-4 h-4 text-indigo-400" />
+                          编辑视频提示词
+                      </h3>
+                      <button 
+                          onClick={() => setEditingVideoPrompt(false)}
+                          className="p-2 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white transition-colors"
+                      >
+                          <X className="w-4 h-4" />
+                      </button>
+                  </div>
+                  
+                  <textarea
+                      value={editingVideoPromptText}
+                      onChange={(e) => setEditingVideoPromptText(e.target.value)}
+                      className="w-full h-64 bg-black text-white border border-zinc-700 rounded-lg p-4 text-sm font-mono outline-none focus:border-indigo-500 transition-colors resize-none"
+                      placeholder="输入视频生成的提示词..."
+                  />
+                  
+                  <div className="flex justify-end gap-3">
+                      <button
+                          onClick={() => setEditingVideoPrompt(false)}
+                          className="px-4 py-2 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded-lg text-sm font-bold transition-colors"
+                      >
+                          取消
+                      </button>
+                      <button
+                          onClick={() => {
+                              if (!activeShot || !activeShot.interval) return;
+                              
+                              updateShot(activeShot.id, (s) => ({
+                                  ...s,
+                                  interval: s.interval ? {
+                                      ...s.interval,
+                                      videoPrompt: editingVideoPromptText
+                                  } : undefined
+                              }));
+                              
+                              setEditingVideoPrompt(false);
+                              setEditingVideoPromptText('');
+                          }}
+                          className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-500 rounded-lg text-sm font-bold transition-colors flex items-center gap-2"
+                      >
+                          <Check className="w-4 h-4" />
+                          保存
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
 
       {/* Image Preview Modal */}
       {previewImage && (
