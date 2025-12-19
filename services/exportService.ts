@@ -2,9 +2,23 @@ import { ProjectState } from '../types';
 
 /**
  * 下载单个文件并转换为 Blob
+ * 支持URL和base64两种格式
  */
-async function downloadFile(url: string): Promise<Blob> {
-  const response = await fetch(url);
+async function downloadFile(urlOrBase64: string): Promise<Blob> {
+  // 检查是否为base64格式
+  if (urlOrBase64.startsWith('data:video/')) {
+    // 从base64 data URL中提取数据
+    const base64Data = urlOrBase64.split(',')[1];
+    const binaryString = atob(base64Data);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: 'video/mp4' });
+  }
+  
+  // 原有的URL下载逻辑
+  const response = await fetch(urlOrBase64);
   if (!response.ok) {
     throw new Error(`下载失败: ${response.statusText}`);
   }

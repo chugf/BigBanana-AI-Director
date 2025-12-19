@@ -643,16 +643,51 @@ export const generateImage = async (prompt: string, referenceImages: string[] = 
 };
 
 /**
- * 生成视频（Agent 8）
+ * 将视频URL转换为base64格式
+ * @param url - 视频文件的URL
+ * @returns 返回base64编码的视频数据
+ * @throws 如果下载或转换失败则抛出错误
+ */
+const convertVideoUrlToBase64 = async (url: string): Promise<string> => {
+  try {
+    // 下载视频文件
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`下载视频失败: HTTP ${response.status}`);
+    }
+    
+    // 获取视频blob
+    const blob = await response.blob();
+    
+    // 转换为base64
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        resolve(base64String);
+      };
+      reader.onerror = () => {
+        reject(new Error('转换视频为base64失败'));
+      };
+      reader.readAsDataURL(blob);
+    });
+  } catch (error: any) {
+    console.error('视频URL转base64失败:', error);
+    throw new Error(`视频转换失败: ${error.message}`);
+  }
+};
+
+/**
+ * 生成视频(Agent 8)
  * 使用antsk流式视频生成API (veo_3_1_i2v_s_fast_fl_landscape 或 sora-2)
  * 通过起始帧和结束帧生成10秒视频片段
  * @param prompt - 视频生成提示词
- * @param startImageBase64 - 起始关键帧图像（base64格式）
- * @param endImageBase64 - 结束关键帧图像（base64格式）
- * @param model - 使用的视频生成模型，默认'veo_3_1_i2v_s_fast_fl_landscape'
- * @returns 返回生成的视频URL
+ * @param startImageBase64 - 起始关键帧图像(base64格式)
+ * @param endImageBase64 - 结束关键帧图像(base64格式)
+ * @param model - 使用的视频生成模型,默认'veo_3_1_i2v_s_fast_fl_landscape'
+ * @returns 返回生成的视频base64编码(而非URL),用于存储到indexedDB
  * @throws 如果视频生成失败则抛出错误
- * @note 这是简化版本，实际可能需要轮询/流式处理
+ * @note 视频URL会过期,因此转换为base64存储
  */
 export const generateVideo = async (prompt: string, startImageBase64?: string, endImageBase64?: string, model: string = 'veo_3_1_i2v_s_fast_fl_landscape'): Promise<string> => {
   const apiKey = checkApiKey();
@@ -761,7 +796,18 @@ export const generateVideo = async (prompt: string, startImageBase64?: string, e
     throw new Error("视频生成失败 (No video URL returned)");
   }
 
-  return videoUrl;
+  console.log('🎬 视频URL获取成功,正在转换为base64...');
+  
+  // 将视频URL转换为base64,避免URL过期问题
+  try {
+    const videoBase64 = await convertVideoUrlToBase64(videoUrl);
+    console.log('✅ 视频已转换为base64格式,可安全存储到IndexedDB');
+    return videoBase64;
+  } catch (error: any) {
+    console.error('❌ 视频转base64失败,返回原始URL:', error);
+    // 如果转换失败,返回原始URL作为降级方案
+    return videoUrl;
+  }
 };
 
 /**

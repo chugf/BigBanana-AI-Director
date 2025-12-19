@@ -39,7 +39,7 @@ export interface VideoInterval {
   endKeyframeId: string;
   duration: number;
   motionStrength: number;
-  videoUrl?: string;
+  videoUrl?: string; // 视频数据，存储为base64格式（data:video/mp4;base64,...），避免URL过期问题
   status: 'pending' | 'generating' | 'completed' | 'failed';
 }
 
