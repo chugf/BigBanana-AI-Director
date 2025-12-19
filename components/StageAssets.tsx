@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { User, MapPin, Check, Sparkles, Loader2, Users, RefreshCw, Shirt, Plus, X, Camera, ChevronRight, Edit3, Save, AlertCircle } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { User, MapPin, Check, Sparkles, Loader2, Users, RefreshCw, Shirt, Plus, X, Camera, ChevronRight, Edit3, Save, AlertCircle, Upload } from 'lucide-react';
 import { ProjectState, Character, CharacterVariation } from '../types';
 import { generateImage, generateVisualPrompts } from '../services/geminiService';
+import { convertImageToBase64 } from '../services/storageService';
 
 interface Props {
   project: ProjectState;
@@ -233,6 +234,64 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
     setEditingPromptSceneId(null);
     setEditedScenePrompt("");
   };
+
+  // 角色图片上传处理
+  const handleUploadCharacterImage = async (charId: string, file: File) => {
+    try {
+      const base64 = await convertImageToBase64(file);
+      
+      if (project.scriptData) {
+        const newData = { ...project.scriptData };
+        const char = newData.characters.find(c => c.id === charId);
+        if (char) {
+          char.referenceImage = base64;
+        }
+        updateProject({ scriptData: newData });
+      }
+    } catch (e: any) {
+      console.error('图片上传失败:', e);
+      alert(e.message || '图片上传失败');
+    }
+  };
+
+  // 场景图片上传处理
+  const handleUploadSceneImage = async (sceneId: string, file: File) => {
+    try {
+      const base64 = await convertImageToBase64(file);
+      
+      if (project.scriptData) {
+        const newData = { ...project.scriptData };
+        const scene = newData.scenes.find(s => s.id === sceneId);
+        if (scene) {
+          scene.referenceImage = base64;
+        }
+        updateProject({ scriptData: newData });
+      }
+    } catch (e: any) {
+      console.error('图片上传失败:', e);
+      alert(e.message || '图片上传失败');
+    }
+  };
+
+  // 角色变体图片上传处理
+  const handleUploadVariationImage = async (charId: string, varId: string, file: File) => {
+    try {
+      const base64 = await convertImageToBase64(file);
+      
+      if (project.scriptData) {
+        const newData = { ...project.scriptData };
+        const char = newData.characters.find(c => c.id === charId);
+        const variation = char?.variations?.find(v => v.id === varId);
+        if (variation) {
+          variation.referenceImage = base64;
+        }
+        updateProject({ scriptData: newData });
+      }
+    } catch (e: any) {
+      console.error('图片上传失败:', e);
+      alert(e.message || '图片上传失败');
+    }
+  };
   if (!project.scriptData) return (
       <div className="h-full flex flex-col items-center justify-center bg-[#121212] text-zinc-500">
          <p>请先完成 Phase 01 剧本分析</p>
@@ -357,14 +416,32 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                                                   <button onClick={() => handleDeleteVariation(selectedChar.id, variation.id)} className="text-zinc-600 hover:text-red-500"><X className="w-3 h-3"/></button>
                                               </div>
                                               <p className="text-[10px] text-zinc-500 line-clamp-2 mb-3 font-mono">{variation.visualPrompt}</p>
-                                              <button 
-                                                  onClick={() => handleGenerateVariation(selectedChar.id, variation.id)}
-                                                  disabled={generatingIds.has(variation.id)}
-                                                  className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 hover:text-white flex items-center gap-1 transition-colors"
-                                              >
-                                                  <RefreshCw className={`w-3 h-3 ${generatingIds.has(variation.id) ? 'animate-spin' : ''}`} />
-                                                  {variation.referenceImage ? 'Regenerate' : 'Generate Look'}
-                                              </button>
+                                              <div className="flex gap-3">
+                                                <button 
+                                                    onClick={() => handleGenerateVariation(selectedChar.id, variation.id)}
+                                                    disabled={generatingIds.has(variation.id)}
+                                                    className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 hover:text-white flex items-center gap-1 transition-colors"
+                                                >
+                                                    <RefreshCw className={`w-3 h-3 ${generatingIds.has(variation.id) ? 'animate-spin' : ''}`} />
+                                                    {variation.referenceImage ? 'Regenerate' : 'Generate Look'}
+                                                </button>
+                                                <label className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:text-white flex items-center gap-1 transition-colors cursor-pointer">
+                                                    <Upload className="w-3 h-3" />
+                                                    Upload
+                                                    <input
+                                                      type="file"
+                                                      accept="image/*"
+                                                      className="hidden"
+                                                      onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) {
+                                                          handleUploadVariationImage(selectedChar.id, variation.id, file);
+                                                          e.target.value = '';
+                                                        }
+                                                      }}
+                                                    />
+                                                </label>
+                                              </div>
                                           </div>
                                       </div>
                                   ))}
@@ -465,14 +542,32 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                       ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center text-zinc-700 p-2 text-center">
                           <User className="w-8 h-8 mb-2 opacity-10" />
-                          <button
-                            onClick={() => handleGenerateAsset('character', char.id)}
-                            disabled={generatingIds.has(char.id)}
-                            className="px-3 py-1.5 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded text-[10px] font-bold transition-all border border-zinc-700 flex items-center gap-1"
-                          >
-                            {generatingIds.has(char.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                            生成
-                          </button>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => handleGenerateAsset('character', char.id)}
+                              disabled={generatingIds.has(char.id)}
+                              className="px-3 py-1.5 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded text-[10px] font-bold transition-all border border-zinc-700 flex items-center gap-1"
+                            >
+                              {generatingIds.has(char.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                              生成
+                            </button>
+                            <label className="px-3 py-1.5 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded text-[10px] font-bold transition-all border border-zinc-700 flex items-center gap-1 cursor-pointer">
+                              <Upload className="w-3 h-3" />
+                              上传
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    handleUploadCharacterImage(char.id, file);
+                                    e.target.value = '';
+                                  }
+                                }}
+                              />
+                            </label>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -485,16 +580,34 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                       服装变体
                     </button>
 
-                    {/* Regenerate Button moved below wardrobe */}
+                    {/* Regenerate and Upload Buttons moved below wardrobe */}
                     {char.referenceImage && (
-                      <button
-                        onClick={() => handleGenerateAsset('character', char.id)}
-                        disabled={generatingIds.has(char.id)}
-                        className="w-full mt-2 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border border-zinc-800 transition-colors"
-                      >
-                        {generatingIds.has(char.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                        {generatingIds.has(char.id) ? '生成中...' : '重新生成图片'}
-                      </button>
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => handleGenerateAsset('character', char.id)}
+                          disabled={generatingIds.has(char.id)}
+                          className="flex-1 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border border-zinc-800 transition-colors"
+                        >
+                          {generatingIds.has(char.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                          {generatingIds.has(char.id) ? '生成中...' : '重新生成'}
+                        </button>
+                        <label className="flex-1 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border border-zinc-800 transition-colors cursor-pointer">
+                          <Upload className="w-3 h-3" />
+                          上传图片
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                handleUploadCharacterImage(char.id, file);
+                                e.target.value = '';
+                              }
+                            }}
+                          />
+                        </label>
+                      </div>
                     )}
                   </div>
 
@@ -643,14 +756,32 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                   ) : (
                      <div className="w-full h-full flex flex-col items-center justify-center text-zinc-700 p-4 text-center">
                        <MapPin className="w-10 h-10 mb-3 opacity-10" />
-                       <button
-                          onClick={() => handleGenerateAsset('scene', scene.id)}
-                          disabled={generatingIds.has(scene.id)}
-                          className="px-4 py-2 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded text-xs font-bold transition-all border border-zinc-700 flex items-center gap-2"
-                       >
-                          {generatingIds.has(scene.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                          生成
-                       </button>
+                       <div className="flex gap-2">
+                         <button
+                            onClick={() => handleGenerateAsset('scene', scene.id)}
+                            disabled={generatingIds.has(scene.id)}
+                            className="px-4 py-2 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded text-xs font-bold transition-all border border-zinc-700 flex items-center gap-2"
+                         >
+                            {generatingIds.has(scene.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                            生成
+                         </button>
+                         <label className="px-4 py-2 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded text-xs font-bold transition-all border border-zinc-700 flex items-center gap-2 cursor-pointer">
+                            <Upload className="w-3 h-3" />
+                            上传
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  handleUploadSceneImage(scene.id, file);
+                                  e.target.value = '';
+                                }
+                              }}
+                            />
+                         </label>
+                       </div>
                      </div>
                   )}
                 </div>
@@ -723,17 +854,35 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                     )}
                   </div>
 
-                  {/* Regenerate Button */}
+                  {/* Regenerate and Upload Buttons */}
                   {scene.referenceImage && (
                     <div className="mt-3 pt-3 border-t border-zinc-800">
-                      <button
-                        onClick={() => handleGenerateAsset('scene', scene.id)}
-                        disabled={generatingIds.has(scene.id)}
-                        className="w-full py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border border-zinc-800 transition-colors"
-                      >
-                        {generatingIds.has(scene.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                        {generatingIds.has(scene.id) ? '生成中...' : '重新生成场景'}
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleGenerateAsset('scene', scene.id)}
+                          disabled={generatingIds.has(scene.id)}
+                          className="flex-1 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border border-zinc-800 transition-colors"
+                        >
+                          {generatingIds.has(scene.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                          {generatingIds.has(scene.id) ? '生成中...' : '重新生成'}
+                        </button>
+                        <label className="flex-1 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border border-zinc-800 transition-colors cursor-pointer">
+                          <Upload className="w-3 h-3" />
+                          上传图片
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                handleUploadSceneImage(scene.id, file);
+                                e.target.value = '';
+                              }
+                            }}
+                          />
+                        </label>
+                      </div>
                     </div>
                   )}
                 </div>

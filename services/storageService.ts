@@ -154,6 +154,41 @@ export const deleteProjectFromDB = async (id: string): Promise<void> => {
   });
 };
 
+/**
+ * Convert a File object (image) to Base64 data URL
+ * @param file - Image file to convert
+ * @returns Promise<string> - Base64 data URL (e.g., "data:image/png;base64,...")
+ */
+export const convertImageToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      reject(new Error('只支持图片文件'));
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      reject(new Error('图片大小不能超过 10MB'));
+      return;
+    }
+
+    const reader = new FileReader();
+    
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result);
+    };
+    
+    reader.onerror = () => {
+      reject(new Error('图片读取失败'));
+    };
+    
+    reader.readAsDataURL(file);
+  });
+};
+
 // Initial template for new projects
 export const createNewProjectState = (): ProjectState => {
   const id = 'proj_' + Date.now().toString(36);
