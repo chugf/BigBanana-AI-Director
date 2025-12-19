@@ -2,7 +2,7 @@ export interface CharacterVariation {
   id: string;
   name: string; // e.g., "Casual", "Tactical Gear", "Injured"
   visualPrompt: string;
-  referenceImage?: string;
+  referenceImage?: string; // 角色变体参考图，存储为base64格式（data:image/png;base64,...）
 }
 
 export interface Character {
@@ -12,7 +12,7 @@ export interface Character {
   age: string;
   personality: string;
   visualPrompt?: string;
-  referenceImage?: string; // Base URL
+  referenceImage?: string; // 角色基础参考图，存储为base64格式（data:image/png;base64,...）
   variations: CharacterVariation[]; // Added: List of alternative looks
 }
 
@@ -22,14 +22,14 @@ export interface Scene {
   time: string;
   atmosphere: string;
   visualPrompt?: string;
-  referenceImage?: string; // URL
+  referenceImage?: string; // 场景参考图，存储为base64格式（data:image/png;base64,...）
 }
 
 export interface Keyframe {
   id: string;
   type: 'start' | 'end';
   visualPrompt: string;
-  imageUrl?: string;
+  imageUrl?: string; // 关键帧图像，存储为base64格式（data:image/png;base64,...）
   status: 'pending' | 'generating' | 'completed' | 'failed';
 }
 

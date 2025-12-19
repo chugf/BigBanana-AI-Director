@@ -2,11 +2,13 @@
 
 ## 问题背景
 
-之前系统生成的视频在IndexedDB中存储的是URL链接。这些URL链接会有过期时间，导致用户重新打开项目时视频无法播放。
+系统生成的视频在IndexedDB中存储的是URL链接。这些URL链接会有过期时间，导致用户重新打开项目时视频无法播放。
+
+**注**：图片资源（角色参考图、场景参考图、关键帧）从一开始就使用Base64格式存储，不存在过期问题。本次优化主要针对视频资源。
 
 ## 解决方案
 
-将视频URL转换为Base64格式后再存储到IndexedDB，实现永久保存。
+将视频URL转换为Base64格式后再存储到IndexedDB，实现永久保存。使所有媒体资源（图片和视频）统一使用Base64格式存储。
 
 ## 实现细节
 
@@ -69,14 +71,29 @@ async function downloadFile(urlOrBase64: string): Promise<Blob> {
 }
 ```
 
-### 4. 数据结构更新（types.ts）
+## 数据结构更新（types.ts）
 
-更新 `VideoInterval` 接口注释：
+更新所有图片和视频字段的注释，明确说明使用base64格式：
 
 ```typescript
+export interface CharacterVariation {
+  referenceImage?: string; // 角色变体参考图，存储为base64格式（data:image/png;base64,...）
+}
+
+export interface Character {
+  referenceImage?: string; // 角色基础参考图，存储为base64格式（data:image/png;base64,...）
+}
+
+export interface Scene {
+  referenceImage?: string; // 场景参考图，存储为base64格式（data:image/png;base64,...）
+}
+
+export interface Keyframe {
+  imageUrl?: string; // 关键帧图像，存储为base64格式（data:image/png;base64,...）
+}
+
 export interface VideoInterval {
   videoUrl?: string; // 视频数据，存储为base64格式（data:video/mp4;base64,...），避免URL过期问题
-  // ... 其他字段 ...
 }
 ```
 
@@ -92,10 +109,21 @@ export interface VideoInterval {
 - 无需修改任何前端显示代码
 - StageDirector.tsx 和 StageExport.tsx 中的视频预览功能自动兼容
 
-## 优势
+## 优势所有媒体数据（图片+视频）存储在本地数据库，不依赖外部URL
+2. **离线可用**：无网络时也能查看所有已生成的资源
+3. **无过期问题**：不受API生成的临时URL时效限制
+4. **无缝迁移**：视频支持新旧两种格式，平滑过渡
+5. **统一管理**：所有媒体资源使用相同的Base64存储方案
 
-1. **永久保存**：视频数据存储在本地数据库，不依赖外部URL
-2. **离线可用**：无网络时也能查看已生成的视频
+## 媒体资源存储总览
+
+| 资源类型 | 字段名 | 存储格式 | 说明 |
+|---------|-------|---------|------|
+| 角色基础参考图 | Character.referenceImage | Base64 | 从API直接获取base64 |
+| 角色变体参考图 | CharacterVariation.referenceImage | Base64 | 从API直接获取base64 |
+| 场景参考图 | Scene.referenceImage | Base64 | 从API直接获取base64 |
+| 关键帧图像 | Keyframe.imageUrl | Base64 | 从API直接获取base64 |
+| 视频片段 | VideoInterval.videoUrl | Base64 | URL→Base64转换 |频
 3. **无过期问题**：不受API生成的临时URL时效限制
 4. **无缝迁移**：支持新旧两种格式，平滑过渡
 
