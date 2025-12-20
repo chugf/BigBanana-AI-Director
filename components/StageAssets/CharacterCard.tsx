@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, Check, Sparkles, Loader2, Shirt } from 'lucide-react';
+import { User, Check, Sparkles, Loader2, Shirt, Trash2 } from 'lucide-react';
 import { Character } from '../../types';
 import PromptEditor from './PromptEditor';
 import ImageUploadButton from './ImageUploadButton';
@@ -12,6 +12,7 @@ interface CharacterCardProps {
   onPromptSave: (newPrompt: string) => void;
   onOpenWardrobe: () => void;
   onImageClick: (imageUrl: string) => void;
+  onDelete: () => void;
 }
 
 const CharacterCard: React.FC<CharacterCardProps> = ({
@@ -22,6 +23,7 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
   onPromptSave,
   onOpenWardrobe,
   onImageClick,
+  onDelete,
 }) => {
   return (
     <div className="bg-[#141414] border border-zinc-800 rounded-xl overflow-hidden flex flex-col group hover:border-zinc-600 transition-all hover:shadow-lg">
@@ -131,6 +133,16 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
               {character.referenceImage ? '重新生成图片' : '生成角色图片'}
             </>
           )}
+        </button>
+
+        {/* Delete Button */}
+        <button
+          onClick={onDelete}
+          disabled={isGenerating}
+          className="w-full py-2 mt-2 bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 border border-red-900/50 rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <Trash2 className="w-3 h-3" />
+          删除角色
         </button>
       </div>
     </div>

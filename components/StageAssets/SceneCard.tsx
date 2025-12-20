@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, Check, Sparkles, Loader2, Upload } from 'lucide-react';
+import { MapPin, Check, Sparkles, Loader2, Upload, Trash2 } from 'lucide-react';
 import PromptEditor from './PromptEditor';
 import ImageUploadButton from './ImageUploadButton';
 
@@ -17,6 +17,7 @@ interface SceneCardProps {
   onUpload: (file: File) => void;
   onPromptSave: (newPrompt: string) => void;
   onImageClick: (imageUrl: string) => void;
+  onDelete: () => void;
 }
 
 const SceneCard: React.FC<SceneCardProps> = ({
@@ -26,6 +27,7 @@ const SceneCard: React.FC<SceneCardProps> = ({
   onUpload,
   onPromptSave,
   onImageClick,
+  onDelete,
 }) => {
   return (
     <div className="bg-[#141414] border border-zinc-800 rounded-xl overflow-hidden flex flex-col group hover:border-zinc-600 transition-all hover:shadow-lg">
@@ -89,6 +91,18 @@ const SceneCard: React.FC<SceneCardProps> = ({
             />
           </div>
         )}
+
+        {/* Delete Button */}
+        <div className="mt-3 pt-3 border-t border-zinc-800">
+          <button
+            onClick={onDelete}
+            disabled={isGenerating}
+            className="w-full py-2 bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 border border-red-900/50 rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <Trash2 className="w-3 h-3" />
+            删除场景
+          </button>
+        </div>
       </div>
     </div>
   );

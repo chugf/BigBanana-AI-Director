@@ -7,6 +7,10 @@ interface AlertOptions {
   title?: string;
   type?: AlertType;
   onConfirm?: () => void;
+  onCancel?: () => void;
+  confirmText?: string;
+  cancelText?: string;
+  showCancel?: boolean;
 }
 
 interface AlertContextType {
@@ -30,6 +34,10 @@ interface AlertState {
   title?: string;
   type: AlertType;
   onConfirm?: () => void;
+  onCancel?: () => void;
+  confirmText?: string;
+  cancelText?: string;
+  showCancel?: boolean;
 }
 
 export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -45,13 +53,24 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       message,
       title: options?.title,
       type: options?.type || 'info',
-      onConfirm: options?.onConfirm
+      onConfirm: options?.onConfirm,
+      onCancel: options?.onCancel,
+      confirmText: options?.confirmText || '确定',
+      cancelText: options?.cancelText || '取消',
+      showCancel: options?.showCancel || false
     });
   }, []);
 
   const closeAlert = useCallback(() => {
     if (alertState.onConfirm) {
       alertState.onConfirm();
+    }
+    setAlertState(prev => ({ ...prev, isOpen: false }));
+  }, [alertState]);
+
+  const handleCancel = useCallback(() => {
+    if (alertState.onCancel) {
+      alertState.onCancel();
     }
     setAlertState(prev => ({ ...prev, isOpen: false }));
   }, [alertState]);
@@ -81,7 +100,7 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       {alertState.isOpen && (
         <div 
           className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-          onClick={closeAlert}
+          onClick={alertState.showCancel ? handleCancel : closeAlert}
         >
           <div 
             className="bg-[#1A1A1A] border border-zinc-700 rounded-xl p-6 max-w-sm w-full space-y-4 shadow-2xl animate-in fade-in zoom-in duration-200"
@@ -93,7 +112,7 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 <h3 className="text-lg font-semibold text-white">{getTitle()}</h3>
               </div>
               <button 
-                onClick={closeAlert}
+                onClick={alertState.showCancel ? handleCancel : closeAlert}
                 className="text-zinc-400 hover:text-white transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -104,12 +123,20 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               {alertState.message}
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end gap-2 pt-2">
+              {alertState.showCancel && (
+                <button
+                  onClick={handleCancel}
+                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  {alertState.cancelText}
+                </button>
+              )}
               <button
                 onClick={closeAlert}
                 className="px-4 py-2 bg-white hover:bg-zinc-200 text-black rounded-lg text-sm font-medium transition-colors"
               >
-                确定
+                {alertState.confirmText}
               </button>
             </div>
           </div>

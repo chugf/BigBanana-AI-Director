@@ -241,6 +241,58 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
   };
 
   /**
+   * 删除角色
+   */
+  const handleDeleteCharacter = (charId: string) => {
+    if (!project.scriptData) return;
+    const char = project.scriptData.characters.find(c => compareIds(c.id, charId));
+    if (!char) return;
+
+    showAlert(
+      `确定要删除角色 "${char.name}" 吗？\n\n注意：这将会影响所有使用该角色的分镜，可能导致分镜关联错误。`,
+      {
+        type: 'warning',
+        title: '删除角色',
+        showCancel: true,
+        confirmText: '删除',
+        cancelText: '取消',
+        onConfirm: () => {
+          const newData = { ...project.scriptData! };
+          newData.characters = newData.characters.filter(c => !compareIds(c.id, charId));
+          updateProject({ scriptData: newData });
+          showAlert(`角色 "${char.name}" 已删除`, { type: 'success' });
+        }
+      }
+    );
+  };
+
+  /**
+   * 删除场景
+   */
+  const handleDeleteScene = (sceneId: string) => {
+    if (!project.scriptData) return;
+    const scene = project.scriptData.scenes.find(s => compareIds(s.id, sceneId));
+    if (!scene) return;
+
+    showAlert(
+      `确定要删除场景 "${scene.location}" 吗？\n\n注意：这将会影响所有使用该场景的分镜，可能导致分镜关联错误。`,
+      {
+        type: 'warning',
+        title: '删除场景',
+        showCancel: true,
+        confirmText: '删除',
+        cancelText: '取消',
+        onConfirm: () => {
+          const newData = { ...project.scriptData! };
+          newData.scenes = newData.scenes.filter(s => !compareIds(s.id, sceneId));
+          updateProject({ scriptData: newData });
+          showAlert(`场景 "${scene.location}" 已删除`, { type: 'success' });
+        }
+      }
+    );
+  };
+
+  /**
    * 添加角色变体
    */
   const handleAddVariation = (charId: string, name: string, prompt: string) => {
@@ -452,6 +504,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                 onPromptSave={(newPrompt) => handleSaveCharacterPrompt(char.id, newPrompt)}
                 onOpenWardrobe={() => setSelectedCharId(char.id)}
                 onImageClick={setPreviewImage}
+                onDelete={() => handleDeleteCharacter(char.id)}
               />
             ))}
           </div>
@@ -487,6 +540,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                 onUpload={(file) => handleUploadSceneImage(scene.id, file)}
                 onPromptSave={(newPrompt) => handleSaveScenePrompt(scene.id, newPrompt)}
                 onImageClick={setPreviewImage}
+                onDelete={() => handleDeleteScene(scene.id)}
               />
             ))}
           </div>
