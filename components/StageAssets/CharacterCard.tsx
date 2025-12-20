@@ -25,7 +25,7 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
 }) => {
   return (
     <div className="bg-[#141414] border border-zinc-800 rounded-xl overflow-hidden flex flex-col group hover:border-zinc-600 transition-all hover:shadow-lg">
-      <div className="flex gap-4 p-4">
+      <div className="flex gap-4 p-4 pb-0">
         {/* Character Image */}
         <div className="w-48 flex-shrink-0">
           <div 
@@ -54,35 +54,12 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
               </div>
             )}
           </div>
-          
-          {/* Manage Wardrobe Button */}
-          <button 
-            onClick={onOpenWardrobe}
-            className="w-full mt-2 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border border-zinc-800 transition-colors"
-          >
-            <Shirt className="w-3 h-3" />
-            服装变体
-          </button>
-
-          {/* Regenerate and Upload Buttons */}
-          {character.referenceImage && (
-            <div className="mt-2">
-              <ImageUploadButton
-                variant="separate"
-                hasImage={true}
-                onUpload={onUpload}
-                onGenerate={onGenerate}
-                isGenerating={isGenerating}
-                uploadLabel="上传图片"
-              />
-            </div>
-          )}
         </div>
 
-        {/* Character Info & Prompt */}
-        <div className="flex-1 flex flex-col min-w-0">
+        {/* Character Info & Actions */}
+        <div className="flex-1 flex flex-col min-w-0 justify-between">
           {/* Header */}
-          <div className="mb-3">
+          <div>
             <h3 className="font-bold text-white text-base mb-1">{character.name}</h3>
             <div className="flex items-center gap-2">
               <span className="text-[10px] text-zinc-500 font-mono uppercase bg-zinc-900 px-2 py-0.5 rounded">
@@ -97,37 +74,64 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
             </div>
           </div>
 
-          {/* Prompt Section */}
-          <div className="flex-1">
-            <PromptEditor
-              prompt={character.visualPrompt || ''}
-              onSave={onPromptSave}
-              label="角色提示词"
-              placeholder="输入角色的视觉描述..."
-            />
-          </div>
-
-          {/* Quick Generate Button */}
-          <div className="mt-3 pt-3 border-t border-zinc-800">
-            <button
-              onClick={onGenerate}
-              disabled={isGenerating || !character.visualPrompt}
-              className="w-full py-2 bg-white hover:bg-zinc-200 text-black rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-white"
+          {/* Actions Row */}
+          <div className="flex flex-col gap-2 mt-2">
+            {/* Manage Wardrobe Button */}
+            <button 
+              onClick={onOpenWardrobe}
+              className="w-full py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border border-zinc-800 transition-colors"
             >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  生成中...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-3 h-3" />
-                  {character.referenceImage ? '重新生成图片' : '生成角色图片'}
-                </>
-              )}
+              <Shirt className="w-3 h-3" />
+              服装变体
             </button>
+
+            {/* Upload Button */}
+            {character.referenceImage && (
+              <div className="w-full">
+                <ImageUploadButton
+                  variant="separate"
+                  hasImage={true}
+                  onUpload={onUpload}
+                  onGenerate={onGenerate}
+                  isGenerating={isGenerating}
+                  uploadLabel="上传"
+                />
+              </div>
+            )}
           </div>
         </div>
+      </div>
+
+      {/* Prompt Section & Generate Button */}
+      <div className="p-4 flex-1 flex flex-col">
+        {/* Prompt Section */}
+        <div className="flex-1 mb-3">
+          <PromptEditor
+            prompt={character.visualPrompt || ''}
+            onSave={onPromptSave}
+            label="角色提示词"
+            placeholder="输入角色的视觉描述..."
+          />
+        </div>
+
+        {/* Quick Generate Button */}
+        <button
+          onClick={onGenerate}
+          disabled={isGenerating || !character.visualPrompt}
+          className="w-full py-2 bg-white hover:bg-zinc-200 text-black rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-white"
+        >
+          {isGenerating ? (
+            <>
+              <Loader2 className="w-3 h-3 animate-spin" />
+              生成中...
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3 h-3" />
+              {character.referenceImage ? '重新生成图片' : '生成角色图片'}
+            </>
+          )}
+        </button>
       </div>
     </div>
   );
