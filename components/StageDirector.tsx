@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, SkipForward, SkipBack, Loader2, Video, Image as ImageIcon, ArrowRight, LayoutGrid, Maximize2, Sparkles, AlertCircle, MapPin, User, Clock, ChevronLeft, ChevronRight, ArrowLeft, MessageSquare, X, Film, Aperture, Shirt, Edit2, Check } from 'lucide-react';
+import { Play, SkipForward, SkipBack, Loader2, Video, Image as ImageIcon, ArrowRight, LayoutGrid, Maximize2, Sparkles, AlertCircle, MapPin, User, Clock, ChevronLeft, ChevronRight, ArrowLeft, MessageSquare, X, Film, Aperture, Shirt, Edit2, Check, Upload } from 'lucide-react';
 import { ProjectState, Shot, Keyframe } from '../types';
 import { generateImage, generateVideo } from '../services/geminiService';
 
@@ -207,6 +207,67 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
         }
       }
       return referenceImages;
+  };
+
+  const handleUploadKeyframeImage = (shot: Shot, type: 'start' | 'end') => {
+    // 创建文件输入元素
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    
+    input.onchange = (e: any) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      
+      // 验证文件类型
+      if (!file.type.startsWith('image/')) {
+        alert('请选择图片文件！');
+        return;
+      }
+      
+      // 读取文件并转换为base64
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64Url = event.target?.result as string;
+        
+        // 更新或创建关键帧
+        const existingKf = shot.keyframes?.find(k => k.type === type);
+        const kfId = existingKf?.id || `kf-${shot.id}-${type}-${Date.now()}`;
+        
+        updateProject((prevProject: ProjectState) => ({
+          ...prevProject,
+          shots: prevProject.shots.map(s => {
+            if (s.id !== shot.id) return s;
+            
+            const newKeyframes = [...(s.keyframes || [])];
+            const idx = newKeyframes.findIndex(k => k.type === type);
+            const newKf: Keyframe = {
+              id: kfId,
+              type,
+              visualPrompt: existingKf?.visualPrompt || shot.actionSummary,
+              imageUrl: base64Url,
+              status: 'completed'
+            };
+            
+            if (idx >= 0) {
+              newKeyframes[idx] = newKf;
+            } else {
+              newKeyframes.push(newKf);
+            }
+            
+            return { ...s, keyframes: newKeyframes };
+          })
+        }));
+      };
+      
+      reader.onerror = () => {
+        alert('读取文件失败！');
+      };
+      
+      reader.readAsDataURL(file);
+    };
+    
+    input.click();
   };
 
   const handleGenerateKeyframe = async (shot: Shot, type: 'start' | 'end') => {
@@ -924,6 +985,13 @@ Technical Requirements:
                                                </button>
                                            )}
                                            <button 
+                                               onClick={() => handleUploadKeyframeImage(activeShot, 'start')}
+                                               className="p-1 text-green-400 hover:text-white transition-colors"
+                                               title="上传图片"
+                                           >
+                                               <Upload className="w-3 h-3" />
+                                           </button>
+                                           <button 
                                                onClick={() => {
                                                    if (startKf) {
                                                        setEditingKeyframeId(startKf.id);
@@ -970,6 +1038,13 @@ Technical Requirements:
                                    <div className="flex justify-between items-center">
                                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">结束帧 (End)</span>
                                        <div className="flex items-center gap-1">
+                                           <button 
+                                               onClick={() => handleUploadKeyframeImage(activeShot, 'end')}
+                                               className="p-1 text-green-400 hover:text-white transition-colors"
+                                               title="上传图片"
+                                           >
+                                               <Upload className="w-3 h-3" />
+                                           </button>
                                            <button 
                                                onClick={() => {
                                                    if (endKf) {
