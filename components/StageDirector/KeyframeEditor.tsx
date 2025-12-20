@@ -57,7 +57,7 @@ const KeyframeEditor: React.FC<KeyframeEditorProps> = ({
                 onClick={() => onImageClick(keyframe.imageUrl!, `${label} - 关键帧`)}
                 alt={label}
               />
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                 <span className="text-white text-xs font-mono">点击预览</span>
               </div>
             </>
