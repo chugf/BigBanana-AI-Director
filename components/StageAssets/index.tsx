@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Users, Sparkles, RefreshCw, Loader2 } from 'lucide-react';
-import { ProjectState, CharacterVariation } from '../../types';
+import { Users, Sparkles, RefreshCw, Loader2, MapPin } from 'lucide-react';
+import { ProjectState, CharacterVariation, Character, Scene } from '../../types';
 import { generateImage, generateVisualPrompts } from '../../services/geminiService';
 import { 
   getRegionalPrefix, 
@@ -228,6 +228,22 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
   };
 
   /**
+   * 更新角色基本信息
+   */
+  const handleUpdateCharacterInfo = (charId: string, updates: { name?: string; gender?: string; age?: string; personality?: string }) => {
+    if (!project.scriptData) return;
+    const newData = { ...project.scriptData };
+    const char = newData.characters.find(c => compareIds(c.id, charId));
+    if (char) {
+      if (updates.name !== undefined) char.name = updates.name;
+      if (updates.gender !== undefined) char.gender = updates.gender;
+      if (updates.age !== undefined) char.age = updates.age;
+      if (updates.personality !== undefined) char.personality = updates.personality;
+      updateProject({ scriptData: newData });
+    }
+  };
+
+  /**
    * 保存场景提示词
    */
   const handleSaveScenePrompt = (sceneId: string, newPrompt: string) => {
@@ -238,6 +254,44 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
       scene.visualPrompt = newPrompt;
       updateProject({ scriptData: newData });
     }
+  };
+
+  /**
+   * 更新场景基本信息
+   */
+  const handleUpdateSceneInfo = (sceneId: string, updates: { location?: string; time?: string; atmosphere?: string }) => {
+    if (!project.scriptData) return;
+    const newData = { ...project.scriptData };
+    const scene = newData.scenes.find(s => compareIds(s.id, sceneId));
+    if (scene) {
+      if (updates.location !== undefined) scene.location = updates.location;
+      if (updates.time !== undefined) scene.time = updates.time;
+      if (updates.atmosphere !== undefined) scene.atmosphere = updates.atmosphere;
+      updateProject({ scriptData: newData });
+    }
+  };
+
+  /**
+   * 新建角色
+   */
+  const handleAddCharacter = () => {
+    if (!project.scriptData) return;
+    
+    const newChar: Character = {
+      id: generateId('char'),
+      name: '新角色',
+      gender: '未设定',
+      age: '未设定',
+      personality: '待补充',
+      visualPrompt: '',
+      variations: [],
+      status: 'pending'
+    };
+
+    const newData = { ...project.scriptData };
+    newData.characters.push(newChar);
+    updateProject({ scriptData: newData });
+    showAlert('新角色已创建，请编辑提示词并生成图片', { type: 'success' });
   };
 
   /**
@@ -264,6 +318,27 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
         }
       }
     );
+  };
+
+  /**
+   * 新建场景
+   */
+  const handleAddScene = () => {
+    if (!project.scriptData) return;
+    
+    const newScene: Scene = {
+      id: generateId('scene'),
+      location: '新场景',
+      time: '未设定',
+      atmosphere: '待补充',
+      visualPrompt: '',
+      status: 'pending'
+    };
+
+    const newData = { ...project.scriptData };
+    newData.scenes.push(newScene);
+    updateProject({ scriptData: newData });
+    showAlert('新场景已创建，请编辑提示词并生成图片', { type: 'success' });
   };
 
   /**
@@ -483,14 +558,24 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
               </h3>
               <p className="text-xs text-zinc-500 mt-1 pl-3.5">为剧本中的角色生成一致的参考形象</p>
             </div>
-            <button 
-              onClick={() => handleBatchGenerate('character')}
-              disabled={!!batchProgress}
-              className={allCharactersReady ? STYLES.secondaryButton : STYLES.primaryButton}
-            >
-              {allCharactersReady ? <RefreshCw className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
-              {allCharactersReady ? '重新生成所有角色' : '一键生成所有角色'}
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={handleAddCharacter}
+                disabled={!!batchProgress}
+                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <Users className="w-3 h-3" />
+                新建角色
+              </button>
+              <button 
+                onClick={() => handleBatchGenerate('character')}
+                disabled={!!batchProgress}
+                className={allCharactersReady ? STYLES.secondaryButton : STYLES.primaryButton}
+              >
+                {allCharactersReady ? <RefreshCw className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
+                {allCharactersReady ? '重新生成所有角色' : '一键生成所有角色'}
+              </button>
+            </div>
           </div>
 
           <div className={GRID_LAYOUTS.cards}>
@@ -505,6 +590,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                 onOpenWardrobe={() => setSelectedCharId(char.id)}
                 onImageClick={setPreviewImage}
                 onDelete={() => handleDeleteCharacter(char.id)}
+                onUpdateInfo={(updates) => handleUpdateCharacterInfo(char.id, updates)}
               />
             ))}
           </div>
@@ -520,14 +606,24 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
               </h3>
               <p className="text-xs text-zinc-500 mt-1 pl-3.5">为剧本场景生成环境参考图</p>
             </div>
-            <button 
-              onClick={() => handleBatchGenerate('scene')}
-              disabled={!!batchProgress}
-              className={allScenesReady ? STYLES.secondaryButton : STYLES.primaryButton}
-            >
-              {allScenesReady ? <RefreshCw className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
-              {allScenesReady ? '重新生成所有场景' : '一键生成所有场景'}
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={handleAddScene}
+                disabled={!!batchProgress}
+                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <MapPin className="w-3 h-3" />
+                新建场景
+              </button>
+              <button 
+                onClick={() => handleBatchGenerate('scene')}
+                disabled={!!batchProgress}
+                className={allScenesReady ? STYLES.secondaryButton : STYLES.primaryButton}
+              >
+                {allScenesReady ? <RefreshCw className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
+                {allScenesReady ? '重新生成所有场景' : '一键生成所有场景'}
+              </button>
+            </div>
           </div>
 
           <div className={GRID_LAYOUTS.cards}>
@@ -541,6 +637,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                 onPromptSave={(newPrompt) => handleSaveScenePrompt(scene.id, newPrompt)}
                 onImageClick={setPreviewImage}
                 onDelete={() => handleDeleteScene(scene.id)}
+                onUpdateInfo={(updates) => handleUpdateSceneInfo(scene.id, updates)}
               />
             ))}
           </div>

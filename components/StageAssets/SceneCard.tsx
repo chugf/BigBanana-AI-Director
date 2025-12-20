@@ -1,5 +1,5 @@
-import React from 'react';
-import { MapPin, Check, Sparkles, Loader2, Upload, Trash2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { MapPin, Check, Sparkles, Loader2, Upload, Trash2, Edit2 } from 'lucide-react';
 import PromptEditor from './PromptEditor';
 import ImageUploadButton from './ImageUploadButton';
 
@@ -18,6 +18,7 @@ interface SceneCardProps {
   onPromptSave: (newPrompt: string) => void;
   onImageClick: (imageUrl: string) => void;
   onDelete: () => void;
+  onUpdateInfo: (updates: { location?: string; time?: string; atmosphere?: string }) => void;
 }
 
 const SceneCard: React.FC<SceneCardProps> = ({
@@ -28,7 +29,36 @@ const SceneCard: React.FC<SceneCardProps> = ({
   onPromptSave,
   onImageClick,
   onDelete,
+  onUpdateInfo,
 }) => {
+  const [isEditingLocation, setIsEditingLocation] = useState(false);
+  const [isEditingTime, setIsEditingTime] = useState(false);
+  const [isEditingAtmosphere, setIsEditingAtmosphere] = useState(false);
+  const [editLocation, setEditLocation] = useState(scene.location);
+  const [editTime, setEditTime] = useState(scene.time);
+  const [editAtmosphere, setEditAtmosphere] = useState(scene.atmosphere);
+
+  const handleSaveLocation = () => {
+    if (editLocation.trim()) {
+      onUpdateInfo({ location: editLocation.trim() });
+      setIsEditingLocation(false);
+    }
+  };
+
+  const handleSaveTime = () => {
+    if (editTime.trim()) {
+      onUpdateInfo({ time: editTime.trim() });
+      setIsEditingTime(false);
+    }
+  };
+
+  const handleSaveAtmosphere = () => {
+    if (editAtmosphere.trim()) {
+      onUpdateInfo({ atmosphere: editAtmosphere.trim() });
+      setIsEditingAtmosphere(false);
+    }
+  };
+
   return (
     <div className="bg-[#141414] border border-zinc-800 rounded-xl overflow-hidden flex flex-col group hover:border-zinc-600 transition-all hover:shadow-lg">
       <div 
@@ -60,12 +90,73 @@ const SceneCard: React.FC<SceneCardProps> = ({
       
       <div className="p-3 border-t border-zinc-800 bg-[#111]">
         <div className="flex justify-between items-center mb-1">
-          <h3 className="font-bold text-zinc-200 text-sm truncate">{scene.location}</h3>
-          <span className="px-1.5 py-0.5 bg-zinc-900 text-zinc-500 text-[9px] rounded border border-zinc-800 uppercase font-mono">
-            {scene.time}
-          </span>
+          {isEditingLocation ? (
+            <input
+              type="text"
+              value={editLocation}
+              onChange={(e) => setEditLocation(e.target.value)}
+              onBlur={handleSaveLocation}
+              onKeyPress={(e) => e.key === 'Enter' && handleSaveLocation()}
+              autoFocus
+              className="font-bold text-zinc-200 text-sm bg-zinc-800 border border-zinc-600 rounded px-2 py-1 flex-1 mr-2 focus:outline-none focus:border-indigo-500"
+            />
+          ) : (
+            <div className="flex items-center gap-2 flex-1 group/location">
+              <h3 className="font-bold text-zinc-200 text-sm truncate">{scene.location}</h3>
+              <button
+                onClick={() => {
+                  setEditLocation(scene.location);
+                  setIsEditingLocation(true);
+                }}
+                className="opacity-0 group-hover/location:opacity-100 text-zinc-500 hover:text-zinc-300 transition-opacity flex-shrink-0"
+              >
+                <Edit2 className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+          {isEditingTime ? (
+            <input
+              type="text"
+              value={editTime}
+              onChange={(e) => setEditTime(e.target.value)}
+              onBlur={handleSaveTime}
+              onKeyPress={(e) => e.key === 'Enter' && handleSaveTime()}
+              autoFocus
+              className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-600 text-zinc-300 text-[9px] rounded uppercase font-mono focus:outline-none focus:border-indigo-500 w-24"
+            />
+          ) : (
+            <span
+              onClick={() => {
+                setEditTime(scene.time);
+                setIsEditingTime(true);
+              }}
+              className="px-1.5 py-0.5 bg-zinc-900 text-zinc-500 text-[9px] rounded border border-zinc-800 uppercase font-mono cursor-pointer hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
+            >
+              {scene.time}
+            </span>
+          )}
         </div>
-        <p className="text-[10px] text-zinc-500 line-clamp-1 mb-3">{scene.atmosphere}</p>
+        {isEditingAtmosphere ? (
+          <input
+            type="text"
+            value={editAtmosphere}
+            onChange={(e) => setEditAtmosphere(e.target.value)}
+            onBlur={handleSaveAtmosphere}
+            onKeyPress={(e) => e.key === 'Enter' && handleSaveAtmosphere()}
+            autoFocus
+            className="text-[10px] text-zinc-300 w-full bg-zinc-800 border border-zinc-600 rounded px-2 py-1 mb-3 focus:outline-none focus:border-indigo-500"
+          />
+        ) : (
+          <p
+            onClick={() => {
+              setEditAtmosphere(scene.atmosphere);
+              setIsEditingAtmosphere(true);
+            }}
+            className="text-[10px] text-zinc-500 line-clamp-1 mb-3 cursor-pointer hover:text-zinc-300 transition-colors"
+          >
+            {scene.atmosphere}
+          </p>
+        )}
 
         {/* Scene Prompt Section */}
         <div className="mt-3 pt-3 border-t border-zinc-800">

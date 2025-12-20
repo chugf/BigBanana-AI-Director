@@ -1,5 +1,5 @@
-import React from 'react';
-import { User, Check, Sparkles, Loader2, Shirt, Trash2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { User, Check, Sparkles, Loader2, Shirt, Trash2, Edit2 } from 'lucide-react';
 import { Character } from '../../types';
 import PromptEditor from './PromptEditor';
 import ImageUploadButton from './ImageUploadButton';
@@ -13,6 +13,7 @@ interface CharacterCardProps {
   onOpenWardrobe: () => void;
   onImageClick: (imageUrl: string) => void;
   onDelete: () => void;
+  onUpdateInfo: (updates: { name?: string; gender?: string; age?: string; personality?: string }) => void;
 }
 
 const CharacterCard: React.FC<CharacterCardProps> = ({
@@ -24,7 +25,36 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
   onOpenWardrobe,
   onImageClick,
   onDelete,
+  onUpdateInfo,
 }) => {
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [isEditingGender, setIsEditingGender] = useState(false);
+  const [isEditingAge, setIsEditingAge] = useState(false);
+  const [editName, setEditName] = useState(character.name);
+  const [editGender, setEditGender] = useState(character.gender);
+  const [editAge, setEditAge] = useState(character.age);
+
+  const handleSaveName = () => {
+    if (editName.trim()) {
+      onUpdateInfo({ name: editName.trim() });
+      setIsEditingName(false);
+    }
+  };
+
+  const handleSaveGender = () => {
+    if (editGender.trim()) {
+      onUpdateInfo({ gender: editGender.trim() });
+      setIsEditingGender(false);
+    }
+  };
+
+  const handleSaveAge = () => {
+    if (editAge.trim()) {
+      onUpdateInfo({ age: editAge.trim() });
+      setIsEditingAge(false);
+    }
+  };
+
   return (
     <div className="bg-[#141414] border border-zinc-800 rounded-xl overflow-hidden flex flex-col group hover:border-zinc-600 transition-all hover:shadow-lg">
       <div className="flex gap-4 p-4 pb-0">
@@ -62,12 +92,73 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
         <div className="flex-1 flex flex-col min-w-0 justify-between">
           {/* Header */}
           <div>
-            <h3 className="font-bold text-white text-base mb-1">{character.name}</h3>
+            {isEditingName ? (
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onBlur={handleSaveName}
+                onKeyPress={(e) => e.key === 'Enter' && handleSaveName()}
+                autoFocus
+                className="font-bold text-white text-base mb-1 bg-zinc-800 border border-zinc-600 rounded px-2 py-1 w-full focus:outline-none focus:border-indigo-500"
+              />
+            ) : (
+              <div className="flex items-center gap-2 mb-1 group/name">
+                <h3 className="font-bold text-white text-base">{character.name}</h3>
+                <button
+                  onClick={() => {
+                    setEditName(character.name);
+                    setIsEditingName(true);
+                  }}
+                  className="opacity-0 group-hover/name:opacity-100 text-zinc-500 hover:text-zinc-300 transition-opacity"
+                >
+                  <Edit2 className="w-3 h-3" />
+                </button>
+              </div>
+            )}
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-zinc-500 font-mono uppercase bg-zinc-900 px-2 py-0.5 rounded">
-                {character.gender}
-              </span>
-              <span className="text-[10px] text-zinc-500">{character.age}</span>
+              {isEditingGender ? (
+                <input
+                  type="text"
+                  value={editGender}
+                  onChange={(e) => setEditGender(e.target.value)}
+                  onBlur={handleSaveGender}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSaveGender()}
+                  autoFocus
+                  className="text-[10px] text-white font-mono uppercase bg-zinc-800 border border-zinc-600 px-2 py-0.5 rounded focus:outline-none focus:border-indigo-500 w-20"
+                />
+              ) : (
+                <span
+                  onClick={() => {
+                    setEditGender(character.gender);
+                    setIsEditingGender(true);
+                  }}
+                  className="text-[10px] text-zinc-500 font-mono uppercase bg-zinc-900 px-2 py-0.5 rounded cursor-pointer hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
+                >
+                  {character.gender}
+                </span>
+              )}
+              {isEditingAge ? (
+                <input
+                  type="text"
+                  value={editAge}
+                  onChange={(e) => setEditAge(e.target.value)}
+                  onBlur={handleSaveAge}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSaveAge()}
+                  autoFocus
+                  className="text-[10px] text-white bg-zinc-800 border border-zinc-600 px-2 py-0.5 rounded focus:outline-none focus:border-indigo-500 w-20"
+                />
+              ) : (
+                <span
+                  onClick={() => {
+                    setEditAge(character.age);
+                    setIsEditingAge(true);
+                  }}
+                  className="text-[10px] text-zinc-500 cursor-pointer hover:text-zinc-300 transition-colors"
+                >
+                  {character.age}
+                </span>
+              )}
               {character.variations && character.variations.length > 0 && (
                 <span className="text-[9px] text-zinc-400 font-mono flex items-center gap-1 bg-zinc-900 px-1.5 py-0.5 rounded">
                   <Shirt className="w-2.5 h-2.5" /> +{character.variations.length}
