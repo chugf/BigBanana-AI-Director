@@ -112,7 +112,7 @@ const ConfigPanel: React.FC<Props> = ({
           onCustomInputChange={onCustomModelChange}
           customPlaceholder="输入模型名称 (如: gpt-4o)"
           gridCols={1}
-          helpText="可以在"
+          helpText="查看更多模型："
           helpLink={{
             text: 'https://api.antsk.cn/pricing',
             url: 'https://api.antsk.cn/pricing'

@@ -47,12 +47,28 @@ const ShotRow: React.FC<Props> = ({
   onSaveAction,
   onCancelAction
 }) => {
+  // 从shot.id中提取显示编号
+  // 例如：shot-1 → "SHOT 001", shot-1-1 → "SHOT 001-1"
+  const getShotDisplayNumber = () => {
+    const idParts = shot.id.split('-').slice(1); // 移除 "shot" 前缀
+    if (idParts.length === 1) {
+      // 主镜头：shot-1 → "SHOT 001"
+      return `SHOT ${String(idParts[0]).padStart(3, '0')}`;
+    } else if (idParts.length === 2) {
+      // 子镜头：shot-1-1 → "SHOT 001-1"
+      return `SHOT ${String(idParts[0]).padStart(3, '0')}-${idParts[1]}`;
+    } else {
+      // 降级方案：使用传入的shotNumber
+      return `SHOT ${shotNumber.toString().padStart(3, '0')}`;
+    }
+  };
+
   return (
     <div className="group bg-[#050505] hover:bg-[#0A0A0A] transition-colors p-8 flex gap-8">
       {/* Shot ID & Tech Data */}
       <div className="w-32 flex-shrink-0 flex flex-col gap-4">
         <div className="text-xs font-mono text-zinc-500 group-hover:text-white transition-colors">
-          SHOT {shotNumber.toString().padStart(3, '0')}
+          {getShotDisplayNumber()}
         </div>
         
         <div className="flex flex-col gap-2">

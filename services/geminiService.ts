@@ -143,13 +143,26 @@ const cleanJsonString = (str: string): string => {
  * @param model - 使用的模型名称，默认'gpt-5.1'
  * @param temperature - 温度参数，控制随机性，默认0.7
  * @param maxTokens - 最大生成token数，默认8192
+ * @param responseFormat - 响应格式，'json_object'表示返回JSON格式，undefined为默认文本格式
  * @returns 返回AI生成的文本内容
  * @throws 如果API调用失败则抛出错误
  */
-const chatCompletion = async (prompt: string, model: string = 'gpt-5.1', temperature: number = 0.7, maxTokens: number = 8192): Promise<string> => {
+const chatCompletion = async (prompt: string, model: string = 'gpt-5.1', temperature: number = 0.7, maxTokens: number = 8192, responseFormat?: 'json_object'): Promise<string> => {
   const apiKey = checkApiKey();
   
   // console.log('🌐 API请求 - 模型:', model, '| 温度:', temperature);
+  
+  const requestBody: any = {
+    model: model,
+    messages: [{ role: 'user', content: prompt }],
+    temperature: temperature,
+    max_tokens: maxTokens
+  };
+  
+  // 如果指定了响应格式为json_object，添加response_format参数
+  if (responseFormat === 'json_object') {
+    requestBody.response_format = { type: 'json_object' };
+  }
   
   const response = await fetch(`${ANTSK_API_BASE}/v1/chat/completions`, {
     method: 'POST',
@@ -157,12 +170,7 @@ const chatCompletion = async (prompt: string, model: string = 'gpt-5.1', tempera
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`
     },
-    body: JSON.stringify({
-      model: model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: temperature,
-      max_tokens: maxTokens
-    })
+    body: JSON.stringify(requestBody)
   });
 
   if (!response.ok) {
@@ -213,7 +221,7 @@ export const parseScriptToData = async (rawText: string, language: string = '中
   `;
 
   try {
-    const responseText = await retryOperation(() => chatCompletion(prompt, model, 0.7, 8192));
+    const responseText = await retryOperation(() => chatCompletion(prompt, model, 0.7, 8192, 'json_object'));
 
   let parsed: any = {};
   try {
@@ -433,7 +441,7 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
 
     try {
       console.log(`  📡 场景 ${index + 1} API调用 - 模型:`, model);
-      const responseText = await retryOperation(() => chatCompletion(prompt, model, 0.7, 8192));
+      const responseText = await retryOperation(() => chatCompletion(prompt, model, 0.7, 8192, 'json_object'));
       const text = cleanJsonString(responseText);
       const shots = JSON.parse(text);
       
@@ -1162,7 +1170,7 @@ ${styleDesc}
 `;
 
   try {
-    const result = await retryOperation(() => chatCompletion(prompt, model, 0.7, 2048));
+    const result = await retryOperation(() => chatCompletion(prompt, model, 0.7, 2048, 'json_object'));
     const duration = Date.now() - startTime;
     
     // 解析JSON响应
@@ -1472,7 +1480,9 @@ export const splitShotIntoSubShots = async (
 **原始动作描述：**
 ${shot.actionSummary}
 
-${shot.dialogue ? `**对白：** "${shot.dialogue}"` : ''}
+${shot.dialogue ? `**对白：** "${shot.dialogue}"
+
+⚠️ **对白处理说明**：原始镜头包含对白。请在拆分时，将对白放在最合适的子镜头中（通常是角色说话的中景或近景镜头），并在该子镜头的actionSummary中明确提及对白内容。其他子镜头不需要包含对白。` : ''}
 
 ## 拆分要求
 
@@ -1511,6 +1521,10 @@ ${shot.dialogue ? `**对白：** "${shot.dialogue}"` : ''}
 2. **cameraMovement**（镜头运动）：描述镜头如何移动（静止、推进、跟踪、环绕等）
 3. **actionSummary**（动作描述）：清晰、具体的动作和画面内容描述（60-100字）
 4. **visualFocus**（视觉焦点）：这个镜头的视觉重点是什么（如"人物移动轨迹"、"手部特写"、"面部表情变化"等）
+5. **keyframes**（关键帧数组）：包含起始帧(start)和结束帧(end)的视觉描述
+   - 每个关键帧必须包含：
+     - **type**: "start" 或 "end"
+     - **visualPrompt**: 详细的画面视觉描述（用于AI图像生成），包含场景、人物、光影、构图等细节（100-150字）
 
 ### 专业镜头运动参考
 
@@ -1535,29 +1549,76 @@ ${shot.dialogue ? `**对白：** "${shot.dialogue}"` : ''}
       "shotSize": "全景 Wide Shot",
       "cameraMovement": "静止镜头 Static Shot",
       "actionSummary": "镜头从书房门口的角度，展示整个书房空间，我从门口缓步走向位于房间中央的书桌，背景可见书架、窗户和温暖的灯光。",
-      "visualFocus": "整体环境布局和人物移动轨迹"
+      "visualFocus": "整体环境布局和人物移动轨迹",
+      "keyframes": [
+        {
+          "type": "start",
+          "visualPrompt": "书房全景，${styleDesc}，我站在门口，身体朝向书桌方向，准备迈步。房间中央是深色木质书桌，背后是装满书籍的书架，窗户透进柔和的自然光，营造温馨的学习氛围。构图采用三分法，人物位于左侧，书桌位于画面中心。"
+        },
+        {
+          "type": "end",
+          "visualPrompt": "书房全景，${styleDesc}，我已走到书桌旁边，身体靠近椅子，手即将触碰椅背。画面保持整体环境视角，展示完整的移动轨迹。光线保持一致，强调空间的纵深感。"
+        }
+      ]
     },
     {
       "shotSize": "中景 Medium Shot",
       "cameraMovement": "跟踪镜头 Tracking Shot",
       "actionSummary": "镜头跟随我走到书桌前，拍摄腰部以上，我伸手拉开椅子，身体微微前倾准备坐下。",
-      "visualFocus": "人物上半身动作和与椅子的互动"
+      "visualFocus": "人物上半身动作和与椅子的互动",
+      "keyframes": [
+        {
+          "type": "start",
+          "visualPrompt": "中景人物镜头，${styleDesc}，拍摄腰部以上，我正在接近书桌，手臂自然摆动，表情专注。背景虚化的书架和窗户，突出人物主体。侧面光勾勒人物轮廓。"
+        },
+        {
+          "type": "end",
+          "visualPrompt": "中景人物镜头，${styleDesc}，我的手已抓住椅背，身体微微前倾，准备坐下的姿态。表情放松，眼神看向座位。背景保持虚化，强调动作细节。"
+        }
+      ]
     },
     {
       "shotSize": "特写 Close-up",
       "cameraMovement": "静止镜头 Static Shot",
       "actionSummary": "特写镜头聚焦在我的臀部和椅子座面，捕捉我坐下的瞬间，椅子轻微下沉的动作。",
-      "visualFocus": "身体与椅子接触的细节瞬间"
+      "visualFocus": "身体与椅子接触的细节瞬间",
+      "keyframes": [
+        {
+          "type": "start",
+          "visualPrompt": "特写镜头，${styleDesc}，聚焦椅子座面和我即将坐下的臀部位置，椅子为深色皮革材质，反射柔和光线。身体正在下降，距离椅面约10厘米。浅景深，背景完全虚化。"
+        },
+        {
+          "type": "end",
+          "visualPrompt": "特写镜头，${styleDesc}，身体已完全坐在椅子上，座面轻微凹陷，皮革产生自然的皱褶。捕捉接触瞬间的微妙变化，展现材质质感和重量感。"
+        }
+      ]
     },
     {
       "shotSize": "近景 Close Shot",
       "cameraMovement": "推镜头 Dolly In",
       "actionSummary": "镜头从侧面推进，拍摄我端坐在椅子上，手伸向电脑，按下开机键，屏幕亮起微光照亮脸部。",
-      "visualFocus": "手部按键动作和屏幕亮起的瞬间"
+      "visualFocus": "手部按键动作和屏幕亮起的瞬间",
+      "keyframes": [
+        {
+          "type": "start",
+          "visualPrompt": "近景侧面镜头，${styleDesc}，我端坐在椅子上，上半身和电脑在画面中。手臂伸向笔记本电脑，手指即将触碰键盘或电源键。电脑屏幕暗黑，面部被环境光照亮，表情期待。"
+        },
+        {
+          "type": "end",
+          "visualPrompt": "近景侧面镜头，${styleDesc}，镜头推进更近，手指已按下开机键，屏幕亮起柔和的蓝白色光芒，照亮我的脸部轮廓和手部。表情专注，眼神看向屏幕，营造科技氛围。"
+        }
+      ]
     }
   ]
 }
 \`\`\`
+
+**关键帧visualPrompt要求**：
+- 必须包含视觉风格标记（${styleDesc}）
+- 详细描述画面构图、光影、色彩、景深等视觉元素
+- 起始帧和结束帧要有明显的视觉差异，体现动作过程
+- 长度控制在100-150字，既详细又不过于冗长
+- 使用专业的摄影和美术术语
 
 ## 重要提示
 
@@ -1577,7 +1638,7 @@ ${shot.dialogue ? `**对白：** "${shot.dialogue}"` : ''}
 `;
 
   try {
-    const result = await retryOperation(() => chatCompletion(prompt, model, 0.7, 4096));
+    const result = await retryOperation(() => chatCompletion(prompt, model, 0.7, 4096, 'json_object'));
     const duration = Date.now() - startTime;
     
     // 清理和解析JSON
@@ -1592,6 +1653,21 @@ ${shot.dialogue ? `**对白：** "${shot.dialogue}"` : ''}
     for (const subShot of parsed.subShots) {
       if (!subShot.shotSize || !subShot.cameraMovement || !subShot.actionSummary || !subShot.visualFocus) {
         throw new Error('子镜头缺少必需字段（shotSize、cameraMovement、actionSummary、visualFocus）');
+      }
+      
+      // 验证关键帧数组
+      if (!subShot.keyframes || !Array.isArray(subShot.keyframes) || subShot.keyframes.length === 0) {
+        throw new Error('子镜头缺少关键帧数组（keyframes）');
+      }
+      
+      // 验证每个关键帧
+      for (const kf of subShot.keyframes) {
+        if (!kf.type || !kf.visualPrompt) {
+          throw new Error('关键帧缺少必需字段（type、visualPrompt）');
+        }
+        if (kf.type !== 'start' && kf.type !== 'end') {
+          throw new Error('关键帧type必须是"start"或"end"');
+        }
       }
     }
     

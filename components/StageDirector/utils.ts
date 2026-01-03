@@ -258,16 +258,31 @@ export const createSubShot = (
   subShotData: any,
   subShotId: string
 ): Shot => {
+  // 处理关键帧数组
+  const keyframes: any[] = [];
+  if (subShotData.keyframes && Array.isArray(subShotData.keyframes)) {
+    subShotData.keyframes.forEach((kf: any) => {
+      if (kf.type && kf.visualPrompt) {
+        keyframes.push({
+          id: `${subShotId}-${kf.type}`, // 如 "shot-1-1-start", "shot-1-1-end"
+          type: kf.type,
+          visualPrompt: kf.visualPrompt,
+          status: 'pending' // 初始状态为pending，等待用户生成图像
+        });
+      }
+    });
+  }
+  
   return {
     id: subShotId,
     sceneId: originalShot.sceneId, // 继承原镜头的场景ID
     actionSummary: subShotData.actionSummary, // 使用AI生成的动作描述
-    dialogue: originalShot.dialogue, // 继承对白（如果有）
+    dialogue: undefined, // 不继承对白 - 对白通常只在特定子镜头中出现，由AI在actionSummary中体现
     cameraMovement: subShotData.cameraMovement, // 使用AI生成的镜头运动
     shotSize: subShotData.shotSize, // 使用AI生成的景别
     characters: [...originalShot.characters], // 继承角色列表
     characterVariations: { ...originalShot.characterVariations }, // 继承角色变体映射
-    keyframes: [], // 初始化空的关键帧数组
+    keyframes: keyframes, // 使用AI生成的关键帧（包含visualPrompt）
     videoModel: originalShot.videoModel // 继承视频模型设置
   };
 };

@@ -14,6 +14,22 @@ const ShotCard: React.FC<ShotCardProps> = ({ shot, index, isActive, onClick }) =
   const hasImage = !!sKf?.imageUrl;
   const hasVideo = !!shot.interval?.videoUrl;
 
+  // 从shot.id中提取显示编号
+  // 例如：shot-1 → "SHOT 001", shot-1-1 → "SHOT 001-1", shot-1-2 → "SHOT 001-2"
+  const getShotDisplayNumber = () => {
+    const idParts = shot.id.split('-').slice(1); // 移除 "shot" 前缀
+    if (idParts.length === 1) {
+      // 主镜头：shot-1 → "SHOT 001"
+      return `SHOT ${String(idParts[0]).padStart(3, '0')}`;
+    } else if (idParts.length === 2) {
+      // 子镜头：shot-1-1 → "SHOT 001-1"
+      return `SHOT ${String(idParts[0]).padStart(3, '0')}-${idParts[1]}`;
+    } else {
+      // 降级方案：使用index
+      return `SHOT ${String(index + 1).padStart(3, '0')}`;
+    }
+  };
+
   return (
     <div 
       onClick={onClick}
@@ -25,7 +41,7 @@ const ShotCard: React.FC<ShotCardProps> = ({ shot, index, isActive, onClick }) =
       {/* Header */}
       <div className="px-3 py-2 bg-[#151515] border-b border-zinc-800 flex justify-between items-center">
         <span className={`font-mono text-[10px] font-bold ${isActive ? 'text-indigo-400' : 'text-zinc-500'}`}>
-          SHOT {String(index + 1).padStart(2, '0')}
+          {getShotDisplayNumber()}
         </span>
         <span className="text-[9px] px-1.5 py-0.5 bg-zinc-800 text-zinc-400 rounded uppercase">
           {shot.cameraMovement}
