@@ -422,28 +422,39 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
       6. 'actionSummary': Detailed description of what happens in the shot (in ${lang}).
       7. 'visualPrompt': Detailed description for image generation in ${visualStyle} style (OUTPUT IN ${lang}). Include style-specific keywords. Keep it under 50 words.
       
-      Output ONLY a valid JSON array like:
-      [
-        {
-          "id": "string",
-          "sceneId": "${scene.id}",
-          "actionSummary": "string",
-          "dialogue": "string (empty if none)",
-          "cameraMovement": "string",
-          "shotSize": "string",
-          "characters": ["string"],
-          "keyframes": [
-            {"id": "string", "type": "start|end", "visualPrompt": "string (MUST include ${visualStyle} style keywords)"}
-          ]
-        }
-      ]
+      Output ONLY a valid JSON OBJECT with this exact structure (no markdown, no extra text):
+      {
+        "shots": [
+          {
+            "id": "string",
+            "sceneId": "${scene.id}",
+            "actionSummary": "string",
+            "dialogue": "string (empty if none)",
+            "cameraMovement": "string",
+            "shotSize": "string",
+            "characters": ["string"],
+            "keyframes": [
+              {"id": "string", "type": "start|end", "visualPrompt": "string (MUST include ${visualStyle} style keywords)"}
+            ]
+          }
+        ]
+      }
     `;
 
+    let responseText = '';
     try {
       console.log(`  📡 场景 ${index + 1} API调用 - 模型:`, model);
-      const responseText = await retryOperation(() => chatCompletion(prompt, model, 0.7, 8192, 'json_object'));
+      responseText = await retryOperation(() => chatCompletion(prompt, model, 0.7, 8192, 'json_object'));
       const text = cleanJsonString(responseText);
-      const shots = JSON.parse(text);
+      const parsed = JSON.parse(text);
+
+      // IMPORTANT:
+      // When using response_format: { type: 'json_object' }, the model is forced to return a JSON object.
+      // Older prompt versions asked for a top-level array, but providers will often wrap it as { "shots": [...] }.
+      // We accept both formats for compatibility.
+      const shots = Array.isArray(parsed)
+        ? parsed
+        : (parsed && Array.isArray((parsed as any).shots) ? (parsed as any).shots : []);
       
       // FIX: Explicitly override the sceneId to match the source scene
       // This prevents the AI from hallucinating incorrect scene IDs
@@ -468,6 +479,12 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
 
     } catch (e: any) {
       console.error(`Failed to generate shots for scene ${scene.id}`, e);
+      // Provide extra debug context without dumping huge payloads
+      try {
+        console.error(`  ↳ sceneId=${scene.id}, sceneIndex=${index}, responseText(snippet)=`, String(responseText || '').slice(0, 500));
+      } catch {
+        // ignore
+      }
       
       // Log failed shot generation for this scene
       addRenderLogWithTokens({
@@ -498,6 +515,11 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
       batch.map((scene, idx) => processScene(scene, i + idx))
     );
     batchResults.forEach(shots => allShots.push(...shots));
+  }
+
+  // If we generated nothing, surface the failure to the UI instead of silently showing an empty page.
+  if (allShots.length === 0) {
+    throw new Error('分镜生成失败：AI返回为空（可能是 JSON 结构不匹配或场景内容未被识别）。请打开控制台查看分镜生成日志。');
   }
 
   // Re-index shots to be sequential globally and set initial status
