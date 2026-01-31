@@ -5,6 +5,7 @@
 [![中文](https://img.shields.io/badge/Language-中文-gray.svg)](./README.md)
 [![English](https://img.shields.io/badge/Language-English-blue.svg)](./README_EN.md)
 [![日本語](https://img.shields.io/badge/Language-日本語-gray.svg)](./README_JA.md)
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 **BigBanana AI Director** is an **AI-powered, one-stop platform** for **short dramas** and **motion comics**, built for creators who want to go from idea to final video fast.
 
@@ -137,6 +138,18 @@ For **quick one-off creative tasks**, try our online tool platform:
 3.  **Art Direction**: Go to Phase 02, generate character sheets and scene concepts.
 4.  **Shot Production**: Go to Phase 03, generate keyframes for each shot.
 5.  **Motion Generation**: Once keyframes are approved, batch generate the video clips.
+
+---
+
+## 📋 License
+
+This project is licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+- ✅ Personal learning and non-commercial use allowed
+- ✅ Modification and derivative works allowed (under the same license)
+- ❌ Commercial use prohibited (requires commercial license)
+
+For commercial licensing, please contact: antskpro@qq.com
 
 ---
 *Built for Creators, by BigBanana.*

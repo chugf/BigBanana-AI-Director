@@ -6,6 +6,7 @@
 [![中文](https://img.shields.io/badge/Language-中文-blue.svg)](./README.md)
 [![English](https://img.shields.io/badge/Language-English-gray.svg)](./README_EN.md)
 [![日本語](https://img.shields.io/badge/Language-日本語-gray.svg)](./README_JA.md)
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 **BigBanana AI Director** 是一个 **AI 一站式短剧/漫剧平台**，面向创作者,实现从灵感到成片的高效生产。
 
@@ -142,4 +143,18 @@
 3.  **美术设定**: 进入 Phase 02，生成主角定妆照和核心场景图。
 4.  **分镜制作**: 进入 Phase 03，逐个生成镜头的关键帧。
 5.  **动效生成**: 确认关键帧无误后，批量生成视频片段。
+---
 
+## 📋 许可证
+
+本项目采用 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 许可证。
+
+- ✅ 允许个人学习和非商业用途
+- ✅ 允许修改和二次创作（需使用相同许可证）
+- ❌ 禁止商业用途（需获得商业授权）
+
+如需商业授权，请联系：antskpro@qq.com
+
+---
+
+*Built for Creators, by BigBanana.*

@@ -6,6 +6,7 @@
 [![中文](https://img.shields.io/badge/Language-中文-gray.svg)](./README.md)
 [![English](https://img.shields.io/badge/Language-English-gray.svg)](./README_EN.md)
 [![日本語](https://img.shields.io/badge/Language-日本語-blue.svg)](./README_JA.md)
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 **BigBanana AI Director** は、**AI 一站式の短編ドラマ／モーションコミックプラットフォーム**です。アイデアから完成動画までを高速に制作したいクリエイター向けに設計されています。
 
@@ -140,6 +141,18 @@ QRコードをスキャンして **BigBanana プロダクト体験グループ**
 3.  **美術設定**: Phase 02 に進み、キャラクターシートとシーンコンセプトを生成します。
 4.  **ショット制作**: Phase 03 に進み、各ショットのキーフレームを生成します。
 5.  **動画生成**: キーフレームを確認した後、動画クリップを一括生成します。
+
+---
+
+## 📋 ライセンス
+
+本プロジェクトは [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) ライセンスの下で提供されています。
+
+- ✅ 個人学習および非商用利用が許可されています
+- ✅ 同じライセンスの下での改変と二次的著作物が許可されています
+- ❌ 商用利用は禁止されています（商用ライセンスが必要です）
+
+商用ライセンスについては、お問い合わせください：antskpro@qq.com
 
 ---
 *Built for Creators, by BigBanana.*
