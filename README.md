@@ -91,7 +91,7 @@
 本项目深度集成 [**AntSK API 平台**](https://api.antsk.cn/)，为创作者提供极致性价比的 AI 能力：
 
 ### 🎯 全模型覆盖
-* **文本模型**: GPT-4o、GPT-5.1、Claude 3.5 Sonnet
+* **文本模型**: GPT-5.2、GPT-5.1、Claude 3.5 Sonnet
 * **视觉模型**: Gemini 3 Pro、Nano Banana Pro
 * **视频模型**: Sora 2、Veo 3.1 (支持关键帧插值)
 * **一站式调用**：统一 API 接口，无需多平台切换

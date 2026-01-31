@@ -70,7 +70,7 @@ Traditional Text-to-Video models often struggle with specific camera movements a
 
 *   **Frontend**: React 19, Tailwind CSS (Sony Industrial Design Style)
 *   **AI Models**:
-    *   **Logic/Text**: `gpt-4o`
+    *   **Logic/Text**: `GPT-5.2`
     *   **Vision**: `gemini-3-pro-image-preview`
     *   **Video**: `veo_3_1_i2v_s_fast_fl_landscape` / `sora-2`
     *   **Video**: `veo-3.1-fast-generate-preview`
@@ -81,7 +81,7 @@ Traditional Text-to-Video models often struggle with specific camera movements a
 This project deeply integrates [**AntSK API Platform**](https://api.antsk.cn/), delivering exceptional value for creators:
 
 ### 🎯 Full Model Coverage
-* **Text Models**: GPT-4o, GPT-5.1, Claude 3.5 Sonnet
+* **Text Models**: GPT-5.2, GPT-5.1, Claude 3.5 Sonnet
 * **Vision Models**: Gemini 3 Pro, Nano Banana Pro
 * **Video Models**: Sora 2, Veo 3.1 (with keyframe interpolation)
 * **Unified Access**: Single API for all models, no platform switching

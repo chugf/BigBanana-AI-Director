@@ -16,7 +16,7 @@
 - 改用原生 `fetch` API 直接调用 antsk 接口
 - 实现的功能：
   - `chatCompletion()` - 使用 `/v1/chat/completions` 端点
-  - `parseScriptToData()` - 剧本解析 (使用 gpt-4o)
+  - `parseScriptToData()` - 剧本解析 (使用 GPT-5.2)
   - `generateShotList()` - 分镜列表生成
   - `generateVisualPrompts()` - 视觉提示词生成
   - `generateImage()` - 图片生成 (使用 gemini-3-pro-image-preview)
@@ -48,7 +48,7 @@
 
 ### 聊天和文本生成
 - **端点**: `https://api.antsk.cn/v1/chat/completions`
-- **模型**: `gpt-4o`
+- **模型**: `GPT-5.2`
 - **用途**: 剧本分析、分镜生成、提示词生成
 
 ### 图片生成

@@ -73,7 +73,7 @@
 
 *   **Frontend**: React 19, Tailwind CSS (Sony Industrial Design Style)
 *   **AI Models**:
-    *   **Logic/Text**: `gpt-4o` (脚本分析)
+    *   **Logic/Text**: `GPT-5.2` (脚本分析)
     *   **Vision**: `gemini-3-pro-image-preview` (高速描画)
     *   **Video**: `veo_3_1_i2v_s_fast_fl_landscape` / `sora-2`
     *   **Video**: `veo-3.1-fast-generate-preview` (動画補間)
@@ -84,7 +84,7 @@
 本プロジェクトは [**AntSK API プラットフォーム**](https://api.antsk.cn/) を深く統合し、クリエイターに最高のコストパフォーマンスを提供します：
 
 ### 🎯 全モデル対応
-* **テキストモデル**: GPT-4o、GPT-5.1、Claude 3.5 Sonnet
+* **テキストモデル**: GPT-5.2、GPT-5.1、Claude 3.5 Sonnet
 * **ビジョンモデル**: Gemini 3 Pro、Nano Banana Pro
 * **ビデオモデル**: Sora 2、Veo 3.1（キーフレーム補間対応）
 * **統一アクセス**：単一 API ですべてのモデルを利用可能、プラットフォーム切り替え不要
