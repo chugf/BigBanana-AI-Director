@@ -222,7 +222,7 @@ docker-compose up -d --force-recreate
 
 ---
 
-## � プロジェクトの起源
+## プロジェクトの起源
 
 本プロジェクトは [CineGen-AI](https://github.com/Will-Water/CineGen-AI) をベースに二次開発を行い、機能強化と最適化を実施しました。
 
@@ -230,7 +230,7 @@ docker-compose up -d --force-recreate
 
 ---
 
-## �📋 ライセンス
+## ライセンス
 
 本プロジェクトは [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) ライセンスの下で提供されています。
 

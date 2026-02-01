@@ -219,7 +219,7 @@ docker-compose up -d --force-recreate
 
 ---
 
-## � Project Origin
+## Project Origin
 
 This project is based on [CineGen-AI](https://github.com/Will-Water/CineGen-AI) and has been further developed with enhanced features and optimizations.
 
@@ -227,7 +227,7 @@ Thanks to the original author for their open-source contribution!
 
 ---
 
-## �📋 License
+## License
 
 This project is licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
 
