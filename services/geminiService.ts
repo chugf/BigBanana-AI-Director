@@ -821,6 +821,41 @@ const convertVideoUrlToBase64 = async (url: string): Promise<string> => {
 };
 
 /**
+ * 调整图片尺寸到指定宽高
+ * @param base64Data - 原始图片base64数据（不含前缀）
+ * @param targetWidth - 目标宽度
+ * @param targetHeight - 目标高度
+ * @returns 调整后的图片base64数据（不含前缀）
+ */
+const resizeImageToSize = async (base64Data: string, targetWidth: number, targetHeight: number): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('无法创建canvas上下文'));
+        return;
+      }
+      // 使用 cover 模式填充，保持比例并居中裁剪
+      const scale = Math.max(targetWidth / img.width, targetHeight / img.height);
+      const scaledWidth = img.width * scale;
+      const scaledHeight = img.height * scale;
+      const offsetX = (targetWidth - scaledWidth) / 2;
+      const offsetY = (targetHeight - scaledHeight) / 2;
+      ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
+      // 返回不含前缀的base64
+      const result = canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+      resolve(result);
+    };
+    img.onerror = () => reject(new Error('图片加载失败'));
+    img.src = `data:image/png;base64,${base64Data}`;
+  });
+};
+
+/**
  * sora-2专用：使用异步API生成视频
  * 流程：1. 创建任务 -> 2. 轮询状态 -> 3. 下载视频
  * @param prompt - 视频生成提示词
@@ -831,18 +866,27 @@ const convertVideoUrlToBase64 = async (url: string): Promise<string> => {
 const generateVideoWithSora2 = async (prompt: string, startImageBase64: string | undefined, apiKey: string): Promise<string> => {
   console.log('🎬 使用sora-2异步模式生成视频...');
   
+  // 视频目标尺寸
+  const VIDEO_WIDTH = 1280;
+  const VIDEO_HEIGHT = 720;
+  
   // Step 1: 创建视频任务
   const formData = new FormData();
   formData.append('model', 'sora-2');
   formData.append('prompt', prompt);
   formData.append('seconds', '8');
-  formData.append('size', '1280x720'); // 横屏尺寸
+  formData.append('size', `${VIDEO_WIDTH}x${VIDEO_HEIGHT}`); // 横屏尺寸
   
-  // 如果有参考图片，添加到FormData
+  // 如果有参考图片，调整尺寸后添加到FormData
   if (startImageBase64) {
     const cleanBase64 = startImageBase64.replace(/^data:image\/(png|jpeg|jpg);base64,/, '');
+    
+    // 调整图片尺寸以匹配视频尺寸要求
+    console.log(`📐 调整参考图片尺寸至 ${VIDEO_WIDTH}x${VIDEO_HEIGHT}...`);
+    const resizedBase64 = await resizeImageToSize(cleanBase64, VIDEO_WIDTH, VIDEO_HEIGHT);
+    
     // 将base64转换为Blob
-    const byteCharacters = atob(cleanBase64);
+    const byteCharacters = atob(resizedBase64);
     const byteNumbers = new Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
       byteNumbers[i] = byteCharacters.charCodeAt(i);
@@ -850,6 +894,7 @@ const generateVideoWithSora2 = async (prompt: string, startImageBase64: string |
     const byteArray = new Uint8Array(byteNumbers);
     const blob = new Blob([byteArray], { type: 'image/png' });
     formData.append('input_reference', blob, 'reference.png');
+    console.log('✅ 参考图片已调整尺寸并添加');
   }
   
   // 创建任务
