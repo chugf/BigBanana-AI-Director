@@ -223,7 +223,15 @@ docker-compose up -d --force-recreate
 5.  **动效生成**: 确认关键帧无误后，批量生成视频片段。
 ---
 
-## 📋 许可证
+## � 项目来源
+
+本项目基于 [CineGen-AI](https://github.com/Will-Water/CineGen-AI) 进行二次开发，在原项目基础上进行了功能增强和优化。
+
+感谢原作者的开源贡献！
+
+---
+
+## �📋 许可证
 
 本项目采用 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 许可证。
 
