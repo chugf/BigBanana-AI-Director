@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, FileText, Users, Clapperboard, Film, Settings, ChevronLeft, ListTree } from 'lucide-react';
+import { LayoutDashboard, FileText, Users, Clapperboard, Film, Settings, ChevronLeft, ListTree, HelpCircle } from 'lucide-react';
 import logoImg from '../logo.png';
 
 interface SidebarProps {
@@ -7,9 +7,10 @@ interface SidebarProps {
   setStage: (stage: 'script' | 'assets' | 'director' | 'export' | 'prompts') => void;
   onExit: () => void;
   projectName?: string;
+  onShowOnboarding?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentStage, setStage, onExit, projectName }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentStage, setStage, onExit, projectName, onShowOnboarding }) => {
   const navItems = [
     { id: 'script', label: '剧本与故事', icon: FileText, sub: 'Phase 01' },
     { id: 'assets', label: '角色与场景', icon: Users, sub: 'Phase 02' },
@@ -70,7 +71,16 @@ const Sidebar: React.FC<SidebarProps> = ({ currentStage, setStage, onExit, proje
       </nav>
 
       {/* Footer */}
-      <div className="p-6 border-t border-zinc-900">
+      <div className="p-6 border-t border-zinc-900 space-y-4">
+        {onShowOnboarding && (
+          <button 
+            onClick={onShowOnboarding}
+            className="w-full flex items-center justify-between text-zinc-600 hover:text-white cursor-pointer transition-colors"
+          >
+            <span className="font-mono text-[10px] uppercase tracking-widest">新手引导</span>
+            <HelpCircle className="w-4 h-4" />
+          </button>
+        )}
         <div className="flex items-center justify-between text-zinc-600 hover:text-white cursor-pointer transition-colors">
           <span className="font-mono text-[10px] uppercase tracking-widest">系统设置</span>
           <Settings className="w-4 h-4" />

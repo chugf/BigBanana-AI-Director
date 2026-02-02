@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Trash2, Loader2, Folder, ChevronRight, Calendar, AlertTriangle, X } from 'lucide-react';
+import { Plus, Trash2, Loader2, Folder, ChevronRight, Calendar, AlertTriangle, X, HelpCircle } from 'lucide-react';
 import { ProjectState } from '../types';
 import { getAllProjectsMetadata, createNewProjectState, deleteProjectFromDB } from '../services/storageService';
 import { useAlert } from './GlobalAlert';
 
 interface Props {
   onOpenProject: (project: ProjectState) => void;
+  onShowOnboarding?: () => void;
 }
 
-const Dashboard: React.FC<Props> = ({ onOpenProject }) => {
+const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding }) => {
   const { showAlert } = useAlert();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -84,13 +85,25 @@ const Dashboard: React.FC<Props> = ({ onOpenProject }) => {
               <span className="text-zinc-600 text-sm font-mono tracking-widest uppercase">Projects Database</span>
             </h1>
           </div>
-          <button 
-            onClick={handleCreate}
-            className="group flex items-center gap-3 px-6 py-3 bg-white text-black hover:bg-zinc-200 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="font-bold text-xs tracking-widest uppercase">新建项目</span>
-          </button>
+          <div className="flex items-center gap-3">
+            {onShowOnboarding && (
+              <button 
+                onClick={onShowOnboarding}
+                className="group flex items-center gap-2 px-4 py-3 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-600 transition-colors"
+                title="查看新手引导"
+              >
+                <HelpCircle className="w-4 h-4" />
+                <span className="font-medium text-xs tracking-widest uppercase">帮助</span>
+              </button>
+            )}
+            <button 
+              onClick={handleCreate}
+              className="group flex items-center gap-3 px-6 py-3 bg-white text-black hover:bg-zinc-200 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="font-bold text-xs tracking-widest uppercase">新建项目</span>
+            </button>
+          </div>
         </header>
 
         {isLoading ? (

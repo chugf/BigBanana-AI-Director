@@ -6,6 +6,7 @@ import StageDirector from './components/StageDirector';
 import StageExport from './components/StageExport';
 import StagePrompts from './components/StagePrompts';
 import Dashboard from './components/Dashboard';
+import Onboarding, { shouldShowOnboarding, resetOnboarding } from './components/Onboarding';
 import { ProjectState } from './types';
 import { Key, Save, CheckCircle, ArrowRight, ShieldCheck, Loader2, X } from 'lucide-react';
 import { saveProjectToDB } from './services/storageService';
@@ -23,6 +24,7 @@ function App() {
   const [verifyError, setVerifyError] = useState<string>('');
   const [showQrCode, setShowQrCode] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   
   // Ref to hold debounce timer
   const saveTimeoutRef = useRef<any>(null);
@@ -47,8 +49,31 @@ function App() {
     if (storedKey) {
       setApiKey(storedKey);
       setGlobalApiKey(storedKey);
+      // 检查是否需要显示首次引导
+      if (shouldShowOnboarding()) {
+        setShowOnboarding(true);
+      }
     }
   }, []);
+
+  // 处理引导完成
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+  };
+
+  // 处理快速开始选项
+  const handleOnboardingQuickStart = (option: 'script' | 'example') => {
+    setShowOnboarding(false);
+    // 如果选择"从剧本开始"，可以后续扩展为创建新项目
+    // 如果选择"看看示例项目"，可以后续扩展为打开示例项目
+    console.log('Quick start option:', option);
+  };
+
+  // 重新显示引导（供帮助菜单调用）
+  const handleShowOnboarding = () => {
+    resetOnboarding();
+    setShowOnboarding(true);
+  };
 
   // Global error handler to catch API Key errors
   useEffect(() => {
@@ -461,7 +486,13 @@ function App() {
          <button onClick={handleClearKey} className="fixed top-4 right-4 z-50 text-[10px] text-zinc-600 hover:text-red-500 transition-colors uppercase font-mono tracking-widest">
             Sign Out
          </button>
-         <Dashboard onOpenProject={handleOpenProject} />
+         <Dashboard onOpenProject={handleOpenProject} onShowOnboarding={handleShowOnboarding} />
+         {showOnboarding && (
+           <Onboarding 
+             onComplete={handleOnboardingComplete}
+             onQuickStart={handleOnboardingQuickStart}
+           />
+         )}
        </>
     );
   }
@@ -474,6 +505,7 @@ function App() {
         setStage={setStage} 
         onExit={handleExitProject} 
         projectName={project.title}
+        onShowOnboarding={handleShowOnboarding}
       />
       
       <main className="ml-72 flex-1 h-screen overflow-hidden relative">
@@ -510,6 +542,14 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Onboarding Modal */}
+      {showOnboarding && (
+        <Onboarding 
+          onComplete={handleOnboardingComplete}
+          onQuickStart={handleOnboardingQuickStart}
+        />
       )}
     </div>
   );
