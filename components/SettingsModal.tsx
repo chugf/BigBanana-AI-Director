@@ -135,17 +135,30 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
 
             {/* 帮助文字 */}
-            <p className="mt-3 text-[10px] text-zinc-600 leading-relaxed">
-              需要 BigBanana API 支持图片和视频生成功能。
-              <a 
-                href="https://api.antsk.cn" 
-                target="_blank" 
-                rel="noreferrer" 
-                className="text-indigo-400 hover:underline inline-flex items-center gap-1 ml-1"
-              >
-                立即购买 <ExternalLink className="w-2.5 h-2.5" />
-              </a>
-            </p>
+            <div className="mt-3 text-[10px] text-zinc-600 leading-relaxed space-y-1">
+              <p>
+                需要 BigBanana API 支持图片和视频生成功能。
+              </p>
+              <div className="flex items-center gap-3">
+                <a 
+                  href="https://api.antsk.cn" 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="text-indigo-400 hover:underline inline-flex items-center gap-1"
+                >
+                  立即购买 <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+                <span className="text-zinc-700">|</span>
+                <a 
+                  href="https://ocnf8yod3ljg.feishu.cn/wiki/MgFVw2EoQieTLKktaf2cHvu6nY3" 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="text-indigo-400 hover:underline inline-flex items-center gap-1"
+                >
+                  使用教程 <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </div>
+            </div>
           </div>
 
           {/* 操作按钮 */}
