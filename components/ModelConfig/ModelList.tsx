@@ -15,6 +15,7 @@ import {
   registerModel,
   removeModel,
 } from '../../services/modelRegistry';
+import { useAlert } from '../GlobalAlert';
 import ModelCard from './ModelCard';
 import AddModelForm from './AddModelForm';
 
@@ -33,6 +34,7 @@ const ModelList: React.FC<ModelListProps> = ({ type, onRefresh }) => {
   const [models, setModels] = useState<ModelDefinition[]>([]);
   const [isAddingModel, setIsAddingModel] = useState(false);
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
+  const { showAlert } = useAlert();
 
   useEffect(() => {
     loadModels();
@@ -60,10 +62,15 @@ const ModelList: React.FC<ModelListProps> = ({ type, onRefresh }) => {
   };
 
   const handleAddModel = (model: Omit<ModelDefinition, 'id' | 'isBuiltIn'>) => {
-    registerModel(model);
-    setIsAddingModel(false);
-    loadModels();
-    onRefresh();
+    try {
+      registerModel(model);
+      setIsAddingModel(false);
+      loadModels();
+      onRefresh();
+      showAlert('模型添加成功', { type: 'success' });
+    } catch (error) {
+      showAlert(error instanceof Error ? error.message : '添加模型失败', { type: 'error' });
+    }
   };
 
   const handleToggleExpand = (modelId: string) => {
