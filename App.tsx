@@ -7,7 +7,6 @@ import StageExport from './components/StageExport';
 import StagePrompts from './components/StagePrompts';
 import Dashboard from './components/Dashboard';
 import Onboarding, { shouldShowOnboarding, resetOnboarding } from './components/Onboarding';
-import SettingsModal from './components/SettingsModal';
 import ModelConfigModal from './components/ModelConfig';
 import { ProjectState } from './types';
 import { Save, CheckCircle, X } from 'lucide-react';
@@ -24,7 +23,6 @@ function App() {
   const [showQrCode, setShowQrCode] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [showModelConfig, setShowModelConfig] = useState(false);
   
   // Ref to hold debounce timer
@@ -89,9 +87,9 @@ function App() {
     }
   };
 
-  // 显示设置弹窗
-  const handleShowSettings = () => {
-    setShowSettings(true);
+  // 显示模型配置弹窗
+  const handleShowModelConfig = () => {
+    setShowModelConfig(true);
   };
 
   // Global error handler to catch API Key errors
@@ -102,7 +100,7 @@ function App() {
           event.error?.message?.includes('API Key missing') ||
           event.error?.message?.includes('AntSK API Key')) {
         console.warn('🔐 检测到 API Key 错误，请配置 API Key...');
-        setShowSettings(true); // 打开设置弹窗让用户配置
+        setShowModelConfig(true); // 打开模型配置弹窗让用户配置
         event.preventDefault(); // Prevent default error display
       }
     };
@@ -113,7 +111,7 @@ function App() {
           event.reason?.message?.includes('API Key missing') ||
           event.reason?.message?.includes('AntSK API Key')) {
         console.warn('🔐 检测到 API Key 错误，请配置 API Key...');
-        setShowSettings(true); // 打开设置弹窗让用户配置
+        setShowModelConfig(true); // 打开模型配置弹窗让用户配置
         event.preventDefault(); // Prevent default error display
       }
     };
@@ -265,7 +263,7 @@ function App() {
          <Dashboard 
            onOpenProject={handleOpenProject} 
            onShowOnboarding={handleShowOnboarding}
-           onShowSettings={handleShowSettings}
+           onShowModelConfig={handleShowModelConfig}
          />
          {showOnboarding && (
            <Onboarding 
@@ -275,11 +273,9 @@ function App() {
              onSaveApiKey={handleSaveApiKey}
            />
          )}
-         <SettingsModal
-           isOpen={showSettings}
-           onClose={() => setShowSettings(false)}
-           currentApiKey={apiKey}
-           onSaveApiKey={handleSaveApiKey}
+         <ModelConfigModal
+           isOpen={showModelConfig}
+           onClose={() => setShowModelConfig(false)}
          />
        </>
     );
@@ -294,7 +290,6 @@ function App() {
         onExit={handleExitProject} 
         projectName={project.title}
         onShowOnboarding={handleShowOnboarding}
-        onShowSettings={handleShowSettings}
         onShowModelConfig={() => setShowModelConfig(true)}
       />
       
@@ -328,14 +323,6 @@ function App() {
           onSaveApiKey={handleSaveApiKey}
         />
       )}
-
-      {/* Settings Modal */}
-      <SettingsModal
-        isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
-        currentApiKey={apiKey}
-        onSaveApiKey={handleSaveApiKey}
-      />
 
       {/* Model Config Modal */}
       <ModelConfigModal
