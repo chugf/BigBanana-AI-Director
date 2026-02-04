@@ -257,7 +257,7 @@ const cleanJsonString = (str: string): string => {
  * @param prompt - 提示词内容
  * @param model - 使用的模型名称，默认'gpt-5.1'
  * @param temperature - 温度参数，控制随机性，默认0.7
- * @param maxTokens - 最大生成token数，默认8192
+ * @param maxTokens - 最大生成token数（已不再限制输出）
  * @param responseFormat - 响应格式，'json_object'表示返回JSON格式，undefined为默认文本格式
  * @param timeout - 超时时间（毫秒），默认600000（10分钟）
  * @returns 返回AI生成的文本内容
@@ -271,8 +271,7 @@ const chatCompletion = async (prompt: string, model: string = 'gpt-5.1', tempera
   const requestBody: any = {
     model: model,
     messages: [{ role: 'user', content: prompt }],
-    temperature: temperature,
-    max_tokens: maxTokens
+    temperature: temperature
   };
   
   // 如果指定了响应格式为json_object，添加response_format参数
