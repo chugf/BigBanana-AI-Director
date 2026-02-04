@@ -130,7 +130,7 @@ export const buildKeyframePromptWithAI = async (
 export const buildVideoPrompt = (
   actionSummary: string,
   cameraMovement: string,
-  videoModel: 'sora-2' | 'veo' | 'veo_3_1_i2v_s_fast_fl_landscape' | string,
+  videoModel: 'sora-2' | 'veo' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait' | string,
   language: string
 ): string => {
   const isChinese = language === '中文' || language === 'Chinese';

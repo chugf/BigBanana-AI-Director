@@ -52,6 +52,13 @@ export const loadRegistry = (): ModelRegistryState => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored) as ModelRegistryState;
+      const deprecatedVideoModelIds = [
+        'veo-3.1',
+        'veo_3_1_t2v_fast_landscape',
+        'veo_3_1_t2v_fast_portrait',
+        'veo_3_1_i2v_s_fast_fl_landscape',
+        'veo_3_1_i2v_s_fast_fl_portrait',
+      ];
       
       // 确保内置模型和提供商始终存在
       const builtInProviderIds = BUILTIN_PROVIDERS.map(p => p.id);
@@ -81,6 +88,19 @@ export const loadRegistry = (): ModelRegistryState => {
           };
         }
       });
+
+      // 清理旧的 Veo 内置模型
+      parsed.models = parsed.models.filter(
+        m => !(m.type === 'video' && deprecatedVideoModelIds.includes(m.id))
+      );
+
+      // 迁移激活视频模型
+      if (
+        deprecatedVideoModelIds.includes(parsed.activeModels.video) ||
+        parsed.activeModels.video?.startsWith('veo_3_1')
+      ) {
+        parsed.activeModels.video = 'veo';
+      }
       
       // 同步全局 API Key
       parsed.globalApiKey = localStorage.getItem(API_KEY_STORAGE_KEY) || parsed.globalApiKey;

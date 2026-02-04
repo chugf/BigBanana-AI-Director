@@ -62,7 +62,7 @@ export interface Shot {
   characterVariations?: { [characterId: string]: string }; // Added: Map char ID to variation ID for this shot
   keyframes: Keyframe[];
   interval?: VideoInterval;
-  videoModel?: 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo' | 'sora-2'; // Video generation model selection
+  videoModel?: 'veo' | 'sora-2' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait'; // Video generation model selection
 }
 
 export interface ScriptData {

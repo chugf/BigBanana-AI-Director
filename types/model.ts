@@ -304,12 +304,12 @@ export const BUILTIN_IMAGE_MODELS: ImageModelDefinition[] = [
  */
 export const BUILTIN_VIDEO_MODELS: VideoModelDefinition[] = [
   {
-    id: 'veo-3.1',
-    name: 'Veo 3.1',
+    id: 'veo',
+    name: 'Veo 3.1 (Auto)',
     type: 'video',
     providerId: 'antsk',
     endpoint: '/v1/chat/completions',
-    description: 'Google Veo 高速视频生成，同步模式',
+    description: 'Google Veo 视频生成（自动按横竖屏与是否带图选择模型），同步模式',
     isBuiltIn: true,
     isEnabled: true,
     params: { ...DEFAULT_VIDEO_PARAMS_VEO },
