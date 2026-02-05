@@ -15,6 +15,7 @@ interface CharacterCardProps {
   onDelete: () => void;
   onUpdateInfo: (updates: { name?: string; gender?: string; age?: string; personality?: string }) => void;
   onAddToLibrary: () => void;
+  onReplaceFromLibrary: () => void;
 }
 
 const CharacterCard: React.FC<CharacterCardProps> = ({
@@ -28,6 +29,7 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
   onDelete,
   onUpdateInfo,
   onAddToLibrary,
+  onReplaceFromLibrary,
 }) => {
   const [isEditingName, setIsEditingName] = useState(false);
   const [isEditingGender, setIsEditingGender] = useState(false);
@@ -211,6 +213,15 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
                 />
               </div>
             )}
+
+            <button
+              onClick={onReplaceFromLibrary}
+              disabled={isGenerating}
+              className="w-full py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border border-zinc-800 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <FolderPlus className="w-3 h-3" />
+              从资产库替换
+            </button>
           </div>
         </div>
       </div>

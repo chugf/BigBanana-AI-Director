@@ -18,7 +18,7 @@ import SceneCard from './SceneCard';
 import WardrobeModal from './WardrobeModal';
 import { useAlert } from '../GlobalAlert';
 import { getAllAssetLibraryItems, saveAssetToLibrary, deleteAssetFromLibrary } from '../../services/storageService';
-import { applyLibraryItemToProject, createLibraryItemFromCharacter, createLibraryItemFromScene } from '../../services/assetLibraryService';
+import { applyLibraryItemToProject, createLibraryItemFromCharacter, createLibraryItemFromScene, cloneCharacterForProject } from '../../services/assetLibraryService';
 import { AspectRatioSelector } from '../AspectRatioSelector';
 import { getDefaultAspectRatio, getImageModels, getActiveImageModel, getModelById } from '../../services/modelRegistry';
 import ModelSelector from '../ModelSelector';
@@ -40,6 +40,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryQuery, setLibraryQuery] = useState('');
   const [libraryFilter, setLibraryFilter] = useState<'all' | 'character' | 'scene'>('all');
+  const [replaceTargetCharId, setReplaceTargetCharId] = useState<string | null>(null);
   
   // 横竖屏选择状态
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(() => getDefaultAspectRatio());
@@ -116,8 +117,9 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
     }
   }, [showLibraryModal]);
 
-  const openLibrary = (filter: 'all' | 'character' | 'scene') => {
+  const openLibrary = (filter: 'all' | 'character' | 'scene', targetCharId: string | null = null) => {
     setLibraryFilter(filter);
+    setReplaceTargetCharId(targetCharId);
     setShowLibraryModal(true);
   };
 
@@ -366,6 +368,31 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
     } catch (e: any) {
       showAlert(e?.message || '导入失败', { type: 'error' });
     }
+  };
+
+  const handleReplaceCharacterFromLibrary = (item: AssetLibraryItem, targetId: string) => {
+    if (item.type !== 'character') {
+      showAlert('请选择角色资产进行替换', { type: 'warning' });
+      return;
+    }
+    if (!project.scriptData) return;
+
+    const newData = { ...project.scriptData };
+    const index = newData.characters.findIndex((c) => compareIds(c.id, targetId));
+    if (index === -1) return;
+
+    const cloned = cloneCharacterForProject(item.data as Character);
+    const previous = newData.characters[index];
+
+    newData.characters[index] = {
+      ...cloned,
+      id: previous.id
+    };
+
+    updateProject({ scriptData: newData });
+    showAlert(`已替换角色：${previous.name} → ${cloned.name}`, { type: 'success' });
+    setShowLibraryModal(false);
+    setReplaceTargetCharId(null);
   };
 
   const handleDeleteLibraryItem = async (itemId: string) => {
@@ -697,7 +724,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
 
       {/* Asset Library Modal */}
       {showLibraryModal && (
-        <div className={STYLES.modalOverlay} onClick={() => setShowLibraryModal(false)}>
+        <div className={STYLES.modalOverlay} onClick={() => {
+          setShowLibraryModal(false);
+          setReplaceTargetCharId(null);
+        }}>
           <div className={STYLES.modalContainer} onClick={(e) => e.stopPropagation()}>
             <div className={STYLES.modalHeader}>
               <div className="flex items-center gap-3">
@@ -710,7 +740,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                 </div>
               </div>
               <button
-                onClick={() => setShowLibraryModal(false)}
+                onClick={() => {
+                  setShowLibraryModal(false);
+                  setReplaceTargetCharId(null);
+                }}
                 className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded"
                 title="关闭"
               >
@@ -787,10 +820,14 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                           </div>
                           <div className="flex items-center gap-2">
                             <button
-                              onClick={() => handleImportFromLibrary(item)}
+                              onClick={() =>
+                                replaceTargetCharId
+                                  ? handleReplaceCharacterFromLibrary(item, replaceTargetCharId)
+                                  : handleImportFromLibrary(item)
+                              }
                               className="flex-1 py-2 bg-white text-black hover:bg-zinc-200 rounded text-[10px] font-bold uppercase tracking-wider transition-colors"
                             >
-                              导入到当前项目
+                              {replaceTargetCharId ? '替换当前角色' : '导入到当前项目'}
                             </button>
                             <button
                               onClick={() =>
@@ -928,6 +965,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                 onDelete={() => handleDeleteCharacter(char.id)}
                 onUpdateInfo={(updates) => handleUpdateCharacterInfo(char.id, updates)}
                 onAddToLibrary={() => handleAddCharacterToLibrary(char)}
+                onReplaceFromLibrary={() => openLibrary('character', char.id)}
               />
             ))}
           </div>
