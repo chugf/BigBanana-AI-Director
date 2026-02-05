@@ -36,7 +36,7 @@ export type VideoMode = 'sync' | 'async';
  */
 export interface ChatModelParams {
   temperature: number;           // 温度 0-2，默认 0.7
-  maxTokens: number;             // 最大 token，默认 8192
+  maxTokens?: number;            // 最大 token，留空表示不限制
   topP?: number;                 // Top P，可选
   frequencyPenalty?: number;     // 频率惩罚，可选
   presencePenalty?: number;      // 存在惩罚，可选
@@ -75,6 +75,7 @@ export type ModelParams = ChatModelParams | ImageModelParams | VideoModelParams;
  */
 export interface ModelDefinitionBase {
   id: string;                    // 唯一标识，如 'gpt-5.1'
+  apiModel?: string;             // API 实际模型名（可与其他模型重复）
   name: string;                  // 显示名称，如 'GPT-5.1'
   type: ModelType;               // 模型类型
   providerId: string;            // 提供商 ID
@@ -198,7 +199,7 @@ export interface VideoGenerateOptions {
  */
 export const DEFAULT_CHAT_PARAMS: ChatModelParams = {
   temperature: 0.7,
-  maxTokens: 8192,
+  maxTokens: undefined,
 };
 
 /**

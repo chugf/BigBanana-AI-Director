@@ -77,6 +77,7 @@ export const callChatApi = async (
   
   const apiBase = getApiBaseUrlForModel(activeModel.id);
   const endpoint = activeModel.endpoint || '/v1/chat/completions';
+  const apiModel = activeModel.apiModel || activeModel.id;
   
   // 合并参数
   const params: ChatModelParams = {
@@ -94,11 +95,13 @@ export const callChatApi = async (
   messages.push({ role: 'user', content: options.prompt });
   
   const requestBody: any = {
-    model: activeModel.id,
+    model: apiModel,
     messages,
     temperature: params.temperature,
-    max_tokens: params.maxTokens,
   };
+  if (params.maxTokens !== undefined) {
+    requestBody.max_tokens = params.maxTokens;
+  }
   
   if (params.topP !== undefined) {
     requestBody.top_p = params.topP;

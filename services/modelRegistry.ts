@@ -23,6 +23,9 @@ import {
 const STORAGE_KEY = 'bigbanana_model_registry';
 const API_KEY_STORAGE_KEY = 'antsk_api_key';
 
+// 规范化 URL（去尾部斜杠、转小写）用于去重
+const normalizeBaseUrl = (url: string): string => url.trim().replace(/\/+$/, '').toLowerCase();
+
 // 运行时状态缓存
 let registryState: ModelRegistryState | null = null;
 
@@ -71,6 +74,15 @@ export const loadRegistry = (): ModelRegistryState => {
           parsed.providers.unshift(bp);
         }
       });
+
+      // 按 baseUrl 去重提供商（保留先出现的项，通常为内置）
+      const seenBaseUrls = new Set<string>();
+      parsed.providers = parsed.providers.filter(p => {
+        const key = normalizeBaseUrl(p.baseUrl);
+        if (seenBaseUrls.has(key)) return false;
+        seenBaseUrls.add(key);
+        return true;
+      });
       
       // 合并内置模型，并确保内置模型的参数与代码保持同步
       const existingModelIds = parsed.models.map(m => m.id);
@@ -87,6 +99,15 @@ export const loadRegistry = (): ModelRegistryState => {
             isEnabled: existing.isEnabled, // 保留用户的启用/禁用设置
           };
         }
+      });
+
+      // 迁移缺失的 apiModel（优先从 id 或 providerId 前缀推断）
+      parsed.models = parsed.models.map(m => {
+        if (m.apiModel) return m;
+        if (m.providerId && m.id.startsWith(`${m.providerId}:`)) {
+          return { ...m, apiModel: m.id.slice(m.providerId.length + 1) };
+        }
+        return { ...m, apiModel: m.id };
       });
 
       // 清理旧的 Veo 内置模型
@@ -174,6 +195,9 @@ export const getDefaultProvider = (): ModelProvider => {
  */
 export const addProvider = (provider: Omit<ModelProvider, 'id' | 'isBuiltIn'>): ModelProvider => {
   const state = loadRegistry();
+  const normalized = normalizeBaseUrl(provider.baseUrl);
+  const existing = state.providers.find(p => normalizeBaseUrl(p.baseUrl) === normalized);
+  if (existing) return existing;
   const newProvider: ModelProvider = {
     ...provider,
     id: `provider_${Date.now()}`,
@@ -315,17 +339,27 @@ export const setActiveModel = (type: ModelType, modelId: string): boolean => {
 export const registerModel = (model: Omit<ModelDefinition, 'isBuiltIn'> & { id?: string }): ModelDefinition => {
   const state = loadRegistry();
   
-  // 使用用户提供的 ID，如果没有则自动生成
-  const modelId = (model as any).id?.trim() || `model_${Date.now()}`;
-  
-  // 检查 ID 是否已存在
-  if (state.models.some(m => m.id === modelId)) {
+  const providedId = (model as any).id?.trim();
+  const apiModel = (model as any).apiModel?.trim();
+  const baseId = providedId || (apiModel ? `${model.providerId}:${apiModel}` : `model_${Date.now()}`);
+  let modelId = baseId;
+
+  // 若未显式提供 ID，则自动生成唯一 ID（允许 API 模型名重复）
+  if (!providedId) {
+    let suffix = 1;
+    while (state.models.some(m => m.id === modelId)) {
+      modelId = `${baseId}_${suffix++}`;
+    }
+  } else if (state.models.some(m => m.id === modelId)) {
     throw new Error(`模型 ID "${modelId}" 已存在，请使用其他 ID`);
   }
   
   const newModel = {
     ...model,
     id: modelId,
+    apiModel: apiModel || (model.providerId && modelId.startsWith(`${model.providerId}:`)
+      ? modelId.slice(model.providerId.length + 1)
+      : modelId),
     isBuiltIn: false,
   } as ModelDefinition;
   

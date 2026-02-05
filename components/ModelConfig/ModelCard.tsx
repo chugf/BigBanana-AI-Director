@@ -71,10 +71,15 @@ const ModelCard: React.FC<ModelCardProps> = ({
           type="number"
           min="1"
           max="128000"
-          value={editParams.maxTokens}
-          onChange={(e) => handleParamChange('maxTokens', parseInt(e.target.value))}
+          value={editParams.maxTokens ?? ''}
+          onChange={(e) => {
+            const value = e.target.value;
+            handleParamChange('maxTokens', value === '' ? undefined : parseInt(value));
+          }}
+          placeholder="留空不限制"
           className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-xs text-white"
         />
+        <p className="text-[9px] text-zinc-600 mt-1">留空则不限制最大 Token</p>
       </div>
     </div>
   );
@@ -147,6 +152,8 @@ const ModelCard: React.FC<ModelCardProps> = ({
     </div>
   );
 
+  const apiModel = model.apiModel || model.id;
+
   return (
     <div 
       className={`bg-zinc-900/50 border rounded-lg overflow-hidden transition-all ${
@@ -165,7 +172,8 @@ const ModelCard: React.FC<ModelCardProps> = ({
               )}
             </div>
             <p className="text-[10px] text-zinc-500 mt-0.5">
-              ID: {model.id}
+              API 模型名: {apiModel}
+              {model.id !== apiModel && ` · 内部ID: ${model.id}`}
               {model.endpoint && ` · ${model.endpoint}`}
               {model.description && ` · ${model.description}`}
             </p>

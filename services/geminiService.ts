@@ -6,6 +6,7 @@ import {
   getApiBaseUrlForModel,
   getApiKeyForModel,
   getModelById,
+  getModels,
   getActiveModel,
   getActiveChatModel,
   getActiveVideoModel,
@@ -43,8 +44,15 @@ const resolveModel = (type: 'chat' | 'image' | 'video', modelId?: string) => {
   if (modelId) {
     const model = getModelById(modelId);
     if (model && model.type === type) return model;
+    const candidates = getModels(type).filter(m => m.apiModel === modelId);
+    if (candidates.length === 1) return candidates[0];
   }
   return getActiveModel(type);
+};
+
+const resolveRequestModel = (type: 'chat' | 'image' | 'video', modelId?: string): string => {
+  const resolved = resolveModel(type, modelId);
+  return resolved?.apiModel || resolved?.id || modelId || '';
 };
 
 const checkApiKey = (type: 'chat' | 'image' | 'video' = 'chat', modelId?: string) => {
@@ -97,7 +105,7 @@ const getApiBase = (type: 'chat' | 'image' | 'video' = 'chat', modelId?: string)
 const getActiveChatModelName = (): string => {
   try {
     const model = getActiveChatModel();
-    return model?.id || 'gpt-5.1';
+    return model?.apiModel || model?.id || 'gpt-5.1';
   } catch (e) {
     return 'gpt-5.1';
   }
@@ -265,11 +273,12 @@ const cleanJsonString = (str: string): string => {
  */
 const chatCompletion = async (prompt: string, model: string = 'gpt-5.1', temperature: number = 0.7, maxTokens: number = 8192, responseFormat?: 'json_object', timeout: number = 600000): Promise<string> => {
   const apiKey = checkApiKey('chat', model);
+  const requestModel = resolveRequestModel('chat', model);
   
   // console.log('🌐 API请求 - 模型:', model, '| 温度:', temperature, '| 超时:', timeout + 'ms');
   
   const requestBody: any = {
-    model: model,
+    model: requestModel,
     messages: [{ role: 'user', content: prompt }],
     temperature: temperature
   };
@@ -340,8 +349,9 @@ const chatCompletionStream = async (
   onDelta?: (delta: string) => void
 ): Promise<string> => {
   const apiKey = checkApiKey('chat', model);
+  const requestModel = resolveRequestModel('chat', model);
   const requestBody: any = {
-    model: model,
+    model: requestModel,
     messages: [{ role: 'user', content: prompt }],
     temperature: temperature,
     stream: true
@@ -910,14 +920,14 @@ export const generateImage = async (
   aspectRatio: AspectRatio = '16:9',
   isVariation: boolean = false
 ): Promise<string> => {
-  const apiKey = checkApiKey('image');
   const startTime = Date.now();
-  const apiBase = getApiBase('image');
   
   // 从 modelRegistry 获取当前激活的图片模型
   const activeImageModel = getActiveModel('image');
-  const imageModelId = activeImageModel?.id || 'gemini-3-pro-image-preview';
+  const imageModelId = activeImageModel?.apiModel || activeImageModel?.id || 'gemini-3-pro-image-preview';
   const imageModelEndpoint = activeImageModel?.endpoint || `/v1beta/models/${imageModelId}:generateContent`;
+  const apiKey = checkApiKey('image', activeImageModel?.id);
+  const apiBase = getApiBase('image', activeImageModel?.id);
 
   try {
     // If we have reference images, instruct the model to use them for consistency
@@ -1064,7 +1074,7 @@ export const generateImage = async (
           resourceId: 'image-' + Date.now(),
           resourceName: prompt.substring(0, 50) + '...',
           status: 'success',
-          model: 'imagen-3',
+          model: imageModelId,
           prompt: prompt,
           duration: Date.now() - startTime
         });
@@ -1082,7 +1092,7 @@ export const generateImage = async (
       resourceId: 'image-' + Date.now(),
       resourceName: prompt.substring(0, 50) + '...',
       status: 'failed',
-      model: 'imagen-3',
+      model: imageModelId,
       prompt: prompt,
       error: error.message,
       duration: Date.now() - startTime
@@ -1177,9 +1187,10 @@ const generateVideoWithSora2 = async (
   startImageBase64: string | undefined, 
   apiKey: string,
   aspectRatio: AspectRatio = '16:9',
-  duration: VideoDuration = 8
+  duration: VideoDuration = 8,
+  modelName: string = 'sora-2'
 ): Promise<string> => {
-  console.log(`🎬 使用sora-2异步模式生成视频 (${aspectRatio}, ${duration}秒)...`);
+  console.log(`🎬 使用异步模式生成视频 (${modelName}, ${aspectRatio}, ${duration}秒)...`);
   
   // 根据横竖屏比例计算视频尺寸
   const videoSize = getSoraVideoSize(aspectRatio);
@@ -1188,11 +1199,11 @@ const generateVideoWithSora2 = async (
   console.log(`📐 视频尺寸: ${VIDEO_WIDTH}x${VIDEO_HEIGHT}`);
   
   // 获取 API 基础 URL
-  const apiBase = getApiBase('video');
+  const apiBase = getApiBase('video', modelName);
   
   // Step 1: 创建视频任务
   const formData = new FormData();
-  formData.append('model', 'sora-2');
+  formData.append('model', modelName);
   formData.append('prompt', prompt);
   formData.append('seconds', String(duration));
   formData.append('size', videoSize);
@@ -1413,17 +1424,20 @@ export const generateVideo = async (
   aspectRatio: AspectRatio = '16:9',
   duration: VideoDuration = 8
 ): Promise<string> => {
-  const apiKey = checkApiKey('video');
-  const apiBase = getApiBase('video');
+  const resolvedVideoModel = resolveModel('video', model);
+  const requestModel = resolveRequestModel('video', model) || model;
+  const apiKey = checkApiKey('video', model);
+  const apiBase = getApiBase('video', model);
+  const isAsyncMode = resolvedVideoModel?.params?.mode === 'async' || requestModel === 'sora-2';
   
   // sora-2 使用异步API模式
-  if (model === 'sora-2') {
-    return generateVideoWithSora2(prompt, startImageBase64, apiKey, aspectRatio, duration);
+  if (isAsyncMode) {
+    return generateVideoWithSora2(prompt, startImageBase64, apiKey, aspectRatio, duration, requestModel || 'sora-2');
   }
   
   // 如果是 veo 模型，根据横竖屏和是否有参考图动态选择模型名称
-  let actualModel = model;
-  if (model === 'veo' || model.startsWith('veo_3_1')) {
+  let actualModel = requestModel;
+  if (actualModel === 'veo' || actualModel.startsWith('veo_3_1')) {
     const hasReferenceImage = !!startImageBase64;
     actualModel = getVeoModelName(hasReferenceImage, aspectRatio);
     console.log(`🎬 使用 Veo 模型: ${actualModel} (${aspectRatio})`);

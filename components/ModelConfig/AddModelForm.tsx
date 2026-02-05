@@ -30,7 +30,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
   const { showAlert } = useAlert();
   
   const [name, setName] = useState('');
-  const [modelId, setModelId] = useState('');
+  const [apiModel, setApiModel] = useState('');
   const [description, setDescription] = useState('');
   const [endpoint, setEndpoint] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -47,8 +47,8 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const handleSave = () => {
-    if (!name.trim() || !modelId.trim()) {
-      showAlert('请填写模型名称和模型 ID', { type: 'warning' });
+    if (!name.trim() || !apiModel.trim()) {
+      showAlert('请填写模型名称和 API 模型名', { type: 'warning' });
       return;
     }
 
@@ -86,6 +86,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
 
     const model: Omit<ModelDefinition, 'id' | 'isBuiltIn'> = {
       name: name.trim(),
+      apiModel: apiModel.trim(),
       type,
       providerId,
       endpoint: endpoint.trim() || undefined,
@@ -94,9 +95,6 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
       isEnabled: true,
       params,
     } as any;
-
-    // 使用用户输入的 ID
-    (model as any).id = modelId.trim();
 
     onSave(model);
   };
@@ -118,16 +116,16 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
           />
         </div>
         <div>
-          <label className="text-[10px] text-zinc-500 block mb-1">模型 ID *（API 实际使用的模型名）</label>
+          <label className="text-[10px] text-zinc-500 block mb-1">API 模型名 *（可与内置重复）</label>
           <input
             type="text"
-            value={modelId}
-            onChange={(e) => setModelId(e.target.value)}
+            value={apiModel}
+            onChange={(e) => setApiModel(e.target.value)}
             placeholder="如：gpt-4-turbo、claude-3-opus"
             className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-xs text-white placeholder:text-zinc-600 font-mono"
           />
           <p className="text-[9px] text-zinc-600 mt-1">
-            此 ID 会作为 API 请求中的 model 参数，请填写正确的模型名称
+            该字段会作为 API 请求中的 model 参数；内部 ID 会自动生成
           </p>
         </div>
       </div>

@@ -57,7 +57,8 @@ export const callImageApi = async (
   }
   
   const apiBase = getApiBaseUrlForModel(activeModel.id);
-  const endpoint = activeModel.endpoint || `/v1beta/models/${activeModel.id}:generateContent`;
+  const apiModel = activeModel.apiModel || activeModel.id;
+  const endpoint = activeModel.endpoint || `/v1beta/models/${apiModel}:generateContent`;
   
   // 确定宽高比
   const aspectRatio = options.aspectRatio || activeModel.params.defaultAspectRatio;

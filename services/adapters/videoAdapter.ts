@@ -227,14 +227,15 @@ const callSoraApi = async (
 ): Promise<string> => {
   const aspectRatio = options.aspectRatio || model.params.defaultAspectRatio;
   const duration = options.duration || model.params.defaultDuration;
+  const apiModel = model.apiModel || model.id;
   
   const { width, height, size } = getSizeFromAspectRatio(aspectRatio);
 
-  console.log(`🎬 使用 Sora-2 异步模式生成视频 (${aspectRatio}, ${duration}秒)...`);
+  console.log(`🎬 使用异步模式生成视频 (${apiModel}, ${aspectRatio}, ${duration}秒)...`);
 
   // 创建任务
   const formData = new FormData();
-  formData.append('model', 'sora-2');
+  formData.append('model', apiModel);
   formData.append('prompt', options.prompt);
   formData.append('seconds', String(duration));
   formData.append('size', size);

@@ -81,15 +81,15 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
                   <>
                     <AlertCircle className="w-8 h-8 mb-2 text-red-500" />
                     <span className="text-[10px] text-red-500 mb-2">生成失败</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onGenerate();
-                      }}
-                      className="px-3 py-1.5 bg-red-900/30 text-red-400 hover:bg-red-900/50 rounded text-[9px] font-bold transition-colors border border-red-700"
-                    >
-                      重试
-                    </button>
+                    <ImageUploadButton
+                      variant="inline"
+                      size="small"
+                      onUpload={onUpload}
+                      onGenerate={onGenerate}
+                      isGenerating={isGenerating}
+                      uploadLabel="上传"
+                      generateLabel="重试"
+                    />
                   </>
                 ) : (
                   <>
