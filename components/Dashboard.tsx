@@ -276,7 +276,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
             {/* Create New Card */}
             <div 
               onClick={handleCreate}
-              className="group cursor-pointer border border-[var(--border-primary)] hover:border-[var(--border-secondary)] bg-[var(--bg-primary)] flex flex-col items-center justify-center min-h-[240px] transition-all"
+              className="group cursor-pointer border border-[var(--border-primary)] hover:border-[var(--border-secondary)] bg-[var(--bg-primary)] flex flex-col items-center justify-center min-h-[280px] transition-all"
             >
               <div className="w-12 h-12 border border-[var(--border-secondary)] flex items-center justify-center mb-6 group-hover:bg-[var(--bg-hover)] transition-colors">
                 <Plus className="w-5 h-5 text-[var(--text-tertiary)] group-hover:text-[var(--text-primary)]" />
@@ -289,7 +289,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
               <div 
                 key={proj.id}
                 onClick={() => onOpenProject(proj)}
-                className="group bg-[var(--bg-primary)] border border-[var(--border-primary)] hover:border-[var(--border-secondary)] p-0 flex flex-col cursor-pointer transition-all relative overflow-hidden h-[240px]"
+                className="group bg-[var(--bg-primary)] border border-[var(--border-primary)] hover:border-[var(--border-secondary)] p-0 flex flex-col cursor-pointer transition-all relative overflow-hidden h-[280px]"
               >
                   {/* Delete Confirmation Overlay */}
                   {deleteConfirmId === proj.id && (
