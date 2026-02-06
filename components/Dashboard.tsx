@@ -485,7 +485,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
       {showLibraryModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-base)]/70 p-6" onClick={() => setShowLibraryModal(false)}>
           <div
-            className="relative w-full max-w-6xl bg-[var(--bg-primary)] border border-[var(--border-primary)] p-6 md:p-8"
+            className="relative w-full max-w-6xl max-h-[90vh] overflow-y-auto bg-[var(--bg-primary)] border border-[var(--border-primary)] p-6 md:p-8"
             onClick={(e) => e.stopPropagation()}
           >
             <button
