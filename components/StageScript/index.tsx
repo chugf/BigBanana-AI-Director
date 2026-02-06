@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ProjectState } from '../../types';
-import { parseScriptToData, generateShotList, continueScript, continueScriptStream, rewriteScript, rewriteScriptStream } from '../../services/geminiService';
+import { parseScriptToData, generateShotList, continueScript, continueScriptStream, rewriteScript, rewriteScriptStream, setScriptLogCallback, clearScriptLogCallback, logScriptProgress } from '../../services/geminiService';
 import { getFinalValue, validateConfig } from './utils';
 import { DEFAULTS } from './constants';
 import ConfigPanel from './ConfigPanel';
@@ -33,6 +33,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
   const [isContinuing, setIsContinuing] = useState(false);
   const [isRewriting, setIsRewriting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [processingMessage, setProcessingMessage] = useState('');
+  const [processingLogs, setProcessingLogs] = useState<string[]>([]);
 
   // Editing state - unified
   const [editingCharacterId, setEditingCharacterId] = useState<string | null>(null);
@@ -53,6 +55,17 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
     setLocalVisualStyle(project.visualStyle || DEFAULTS.visualStyle);
   }, [project.id]);
 
+  useEffect(() => {
+    setScriptLogCallback((message) => {
+      setProcessingLogs(prev => {
+        const next = [...prev, message];
+        return next.slice(-8);
+      });
+    });
+
+    return () => clearScriptLogCallback();
+  }, []);
+
   const handleAnalyze = async () => {
     const finalDuration = getFinalValue(localDuration, customDurationInput);
     const finalModel = getFinalValue(localModel, customModelInput);
@@ -71,10 +84,15 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
     }
 
     console.log('🎯 用户选择的模型:', localModel);
+    logScriptProgress(`已选择模型：${localModel}`);
     console.log('🎯 最终使用的模型:', finalModel);
+    logScriptProgress(`最终使用模型：${finalModel}`);
     console.log('🎨 视觉风格:', finalVisualStyle);
+    logScriptProgress(`视觉风格：${finalVisualStyle}`);
 
     setIsProcessing(true);
+    setProcessingMessage('正在解析剧本...');
+    setProcessingLogs([]);
     setError(null);
     try {
       updateProject({
@@ -88,6 +106,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
       });
 
       console.log('📞 调用 parseScriptToData, 传入模型:', finalModel);
+      logScriptProgress('开始解析剧本...');
       const scriptData = await parseScriptToData(localScript, localLanguage, finalModel, finalVisualStyle);
       
       scriptData.targetDuration = finalDuration;
@@ -100,6 +119,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
       }
 
       console.log('📞 调用 generateShotList, 传入模型:', finalModel);
+      logScriptProgress('开始生成分镜...');
+      setProcessingMessage('正在生成分镜...');
       const shots = await generateShotList(scriptData, finalModel);
 
       updateProject({ 
@@ -117,6 +138,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
       updateProject({ isParsingScript: false });
     } finally {
       setIsProcessing(false);
+      setProcessingMessage('');
     }
   };
 
@@ -133,6 +155,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
     }
 
     setIsContinuing(true);
+    setProcessingMessage('AI续写中...');
+    setProcessingLogs([]);
     setError(null);
     const baseScript = localScript;
     let streamed = '';
@@ -166,6 +190,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
       }
     } finally {
       setIsContinuing(false);
+      setProcessingMessage('');
     }
   };
 
@@ -182,6 +207,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
     }
 
     setIsRewriting(true);
+    setProcessingMessage('AI改写中...');
+    setProcessingLogs([]);
     setError(null);
     const baseScript = localScript;
     let streamed = '';
@@ -214,6 +241,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
       }
     } finally {
       setIsRewriting(false);
+      setProcessingMessage('');
     }
   };
 
@@ -339,8 +367,34 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
     setEditingShotDialogueText('');
   };
 
+  const showProcessingToast = isProcessing || isContinuing || isRewriting;
+  const toastMessage = processingMessage || (isProcessing
+    ? '正在生成剧本...'
+    : isContinuing
+      ? 'AI续写中...'
+      : isRewriting
+        ? 'AI改写中...'
+        : '');
+
   return (
     <div className="h-full bg-[#050505]">
+      {showProcessingToast && (
+        <div className="fixed right-4 top-4 z-[9999] w-full max-w-md rounded-xl border border-zinc-700 bg-black/80 px-4 py-3 shadow-2xl backdrop-blur">
+          <div className="flex items-center gap-3">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-500 border-t-white" />
+            <div className="text-sm text-zinc-100">{toastMessage}</div>
+          </div>
+          {processingLogs.length > 0 && (
+            <div className="mt-2 max-h-40 space-y-1 overflow-auto text-xs text-zinc-300">
+              {processingLogs.map((line, index) => (
+                <div key={`${line}-${index}`} className="truncate">
+                  {line}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       {activeTab === 'story' ? (
         <div className="flex h-full bg-[#050505] text-zinc-300">
           <ConfigPanel

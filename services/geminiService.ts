@@ -13,6 +13,24 @@ import {
   getActiveImageModel,
 } from './modelRegistry';
 
+type ScriptLogCallback = (message: string) => void;
+
+let scriptLogCallback: ScriptLogCallback | null = null;
+
+export const setScriptLogCallback = (callback: ScriptLogCallback) => {
+  scriptLogCallback = callback;
+};
+
+export const clearScriptLogCallback = () => {
+  scriptLogCallback = null;
+};
+
+export const logScriptProgress = (message: string) => {
+  if (scriptLogCallback) {
+    scriptLogCallback(message);
+  }
+};
+
 // Custom error class for API Key issues
 export class ApiKeyError extends Error {
   constructor(message: string) {
@@ -59,20 +77,24 @@ const checkApiKey = (type: 'chat' | 'image' | 'video' = 'chat', modelId?: string
   // 优先使用指定模型（若提供）或当前激活模型的 API Key（包括模型专属 Key 和提供商 Key）
   const resolvedModel = resolveModel(type, modelId);
   console.log(`[checkApiKey] type=${type}, modelId=${modelId}, resolvedModel=`, resolvedModel?.id, resolvedModel?.providerId);
+  logScriptProgress('正在检查 API Key...');
   
   if (resolvedModel) {
     const modelApiKey = getApiKeyForModel(resolvedModel.id);
     console.log(`[checkApiKey] modelApiKey found:`, !!modelApiKey, modelApiKey ? '(has key)' : '(no key)');
+    logScriptProgress(modelApiKey ? 'API Key 已就绪' : '未找到模型专属 API Key，尝试使用全局配置');
     if (modelApiKey) return modelApiKey;
   }
   
   // 其次使用全局 API Key
   const registryKey = getRegistryApiKey();
   console.log(`[checkApiKey] registryKey found:`, !!registryKey);
+  logScriptProgress(registryKey ? '已找到全局 API Key' : '未找到全局 API Key');
   if (registryKey) return registryKey;
   
   // 最后使用运行时 Key（向后兼容）
   console.log(`[checkApiKey] runtimeApiKey found:`, !!runtimeApiKey);
+  logScriptProgress(runtimeApiKey ? '已找到运行时 API Key' : '未找到运行时 API Key');
   if (!runtimeApiKey) throw new ApiKeyError("API Key 缺失，请在模型配置中设置 API Key。");
   return runtimeApiKey;
 };
@@ -452,6 +474,7 @@ const chatCompletionStream = async (
  */
 export const parseScriptToData = async (rawText: string, language: string = '中文', model: string = 'gpt-5.1', visualStyle: string = 'live-action'): Promise<ScriptData> => {
   console.log('📝 parseScriptToData 调用 - 使用模型:', model, '视觉风格:', visualStyle);
+  logScriptProgress('正在解析剧本结构...');
   const startTime = Date.now();
   
   const prompt = `
@@ -502,6 +525,7 @@ export const parseScriptToData = async (rawText: string, language: string = '中
 
   // Generate visual prompts for characters and scenes
   console.log("🎨 正在为角色和场景生成视觉提示词...", `风格: ${visualStyle}`);
+  logScriptProgress(`正在生成角色与场景的视觉提示词（风格：${visualStyle}）...`);
   
   // Generate character visual prompts
   for (let i = 0; i < characters.length; i++) {
@@ -510,6 +534,7 @@ export const parseScriptToData = async (rawText: string, language: string = '中
       if (i > 0) await new Promise(resolve => setTimeout(resolve, 1500));
       
       console.log(`  生成角色提示词: ${characters[i].name}`);
+      logScriptProgress(`生成角色视觉提示词：${characters[i].name}`);
       const prompts = await generateVisualPrompts('character', characters[i], genre, model, visualStyle, language);
       characters[i].visualPrompt = prompts.visualPrompt;
       characters[i].negativePrompt = prompts.negativePrompt;
@@ -526,6 +551,7 @@ export const parseScriptToData = async (rawText: string, language: string = '中
       if (i > 0 || characters.length > 0) await new Promise(resolve => setTimeout(resolve, 1500));
       
       console.log(`  生成场景提示词: ${scenes[i].location}`);
+      logScriptProgress(`生成场景视觉提示词：${scenes[i].location}`);
       const prompts = await generateVisualPrompts('scene', scenes[i], genre, model, visualStyle, language);
       scenes[i].visualPrompt = prompts.visualPrompt;
       scenes[i].negativePrompt = prompts.negativePrompt;
@@ -536,6 +562,7 @@ export const parseScriptToData = async (rawText: string, language: string = '中
   }
 
   console.log("✅ 视觉提示词生成完成！");
+  logScriptProgress('视觉提示词生成完成');
 
   const result = {
     title: parsed.title || "未命名剧本",
@@ -585,6 +612,7 @@ export const parseScriptToData = async (rawText: string, language: string = '中
  */
 export const generateShotList = async (scriptData: ScriptData, model: string = 'gpt-5.1'): Promise<Shot[]> => {
   console.log('🎬 generateShotList 调用 - 使用模型:', model, '视觉风格:', scriptData.visualStyle);
+  logScriptProgress('正在生成分镜列表...');
   const overallStartTime = Date.now();
   
   if (!scriptData.scenes || scriptData.scenes.length === 0) {
