@@ -340,9 +340,9 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
   };
 
   return (
-    <div className="h-full bg-[#050505]">
+    <div className="h-full bg-[var(--bg-base)]">
       {activeTab === 'story' ? (
-        <div className="flex h-full bg-[#050505] text-zinc-300">
+        <div className="flex h-full bg-[var(--bg-base)] text-[var(--text-secondary)]">
           <ConfigPanel
             title={localTitle}
             duration={localDuration}

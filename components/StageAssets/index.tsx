@@ -676,7 +676,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
   // 空状态
   if (!project.scriptData) {
     return (
-      <div className="h-full flex flex-col items-center justify-center bg-[#121212] text-zinc-500">
+      <div className="h-full flex flex-col items-center justify-center bg-[var(--bg-secondary)] text-[var(--text-tertiary)]">
         <p>请先完成 Phase 01 剧本分析</p>
       </div>
     );
@@ -703,16 +703,16 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
 
       {/* Global Progress Overlay */}
       {batchProgress && (
-        <div className="absolute inset-0 z-50 bg-black/80 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in">
-          <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-6" />
-          <h3 className="text-xl font-bold text-white mb-2">正在批量生成资源...</h3>
-          <div className="w-64 h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-2">
+        <div className="absolute inset-0 z-50 bg-[var(--bg-base)]/80 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in">
+          <Loader2 className="w-12 h-12 text-[var(--accent)] animate-spin mb-6" />
+          <h3 className="text-xl font-bold text-[var(--text-primary)] mb-2">正在批量生成资源...</h3>
+          <div className="w-64 h-1.5 bg-[var(--bg-hover)] rounded-full overflow-hidden mb-2">
             <div 
-              className="h-full bg-indigo-500 transition-all duration-300" 
+              className="h-full bg-[var(--accent)] transition-all duration-300" 
               style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
             />
           </div>
-          <p className="text-zinc-400 font-mono text-xs">
+          <p className="text-[var(--text-tertiary)] font-mono text-xs">
             进度: {batchProgress.current} / {batchProgress.total}
           </p>
         </div>
@@ -740,10 +740,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
           <div className={STYLES.modalContainer} onClick={(e) => e.stopPropagation()}>
             <div className={STYLES.modalHeader}>
               <div className="flex items-center gap-3">
-                <Archive className="w-4 h-4 text-indigo-400" />
+                <Archive className="w-4 h-4 text-[var(--accent-text)]" />
                 <div>
-                  <div className="text-sm font-bold text-white">资产库</div>
-                  <div className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">
+                  <div className="text-sm font-bold text-[var(--text-primary)]">资产库</div>
+                  <div className="text-[10px] text-[var(--text-tertiary)] font-mono uppercase tracking-widest">
                     {libraryItems.length} assets
                   </div>
                 </div>
@@ -753,7 +753,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                   setShowLibraryModal(false);
                   setReplaceTargetCharId(null);
                 }}
-                className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded"
+                className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded"
                 title="关闭"
               >
                 <X className="w-4 h-4" />
@@ -762,12 +762,12 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
             <div className={STYLES.modalBody}>
               <div className="flex flex-wrap items-center gap-3 mb-6">
                 <div className="relative flex-1 min-w-[220px]">
-                  <Search className="w-4 h-4 text-zinc-600 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Search className="w-4 h-4 text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     value={libraryQuery}
                     onChange={(e) => setLibraryQuery(e.target.value)}
                     placeholder="搜索资产名称..."
-                    className="w-full pl-9 pr-3 py-2 bg-[#0F0F0F] border border-zinc-800 rounded text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+                    className="w-full pl-9 pr-3 py-2 bg-[var(--bg-deep)] border border-[var(--border-primary)] rounded text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-secondary)]"
                   />
                 </div>
                 <div className="flex gap-2">
@@ -777,8 +777,8 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                       onClick={() => setLibraryFilter(type)}
                       className={`px-3 py-2 text-[10px] font-bold uppercase tracking-widest border rounded ${
                         libraryFilter === type
-                          ? 'bg-white text-black border-white'
-                          : 'bg-transparent text-zinc-400 border-zinc-800 hover:text-white hover:border-zinc-600'
+                          ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] border-[var(--btn-primary-bg)]'
+                          : 'bg-transparent text-[var(--text-tertiary)] border-[var(--border-primary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'
                       }`}
                     >
                       {type === 'all' ? '全部' : type === 'character' ? '角色' : '场景'}
@@ -789,10 +789,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
 
               {libraryLoading ? (
                 <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
+                  <Loader2 className="w-5 h-5 text-[var(--text-tertiary)] animate-spin" />
                 </div>
               ) : filteredLibraryItems.length === 0 ? (
-                <div className="border border-dashed border-zinc-800 rounded-xl p-10 text-center text-zinc-600 text-sm">
+                <div className="border border-dashed border-[var(--border-primary)] rounded-xl p-10 text-center text-[var(--text-muted)] text-sm">
                   暂无资产。可在角色或场景卡片中选择“加入资产库”。
                 </div>
               ) : (
@@ -805,13 +805,13 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                     return (
                       <div
                         key={item.id}
-                        className="bg-[#0F0F0F] border border-zinc-800 rounded-xl overflow-hidden hover:border-zinc-600 transition-colors"
+                        className="bg-[var(--bg-deep)] border border-[var(--border-primary)] rounded-xl overflow-hidden hover:border-[var(--border-secondary)] transition-colors"
                       >
-                        <div className="aspect-video bg-zinc-900 relative">
+                        <div className="aspect-video bg-[var(--bg-elevated)] relative">
                           {preview ? (
                             <img src={preview} alt={item.name} className="w-full h-full object-cover" />
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center text-zinc-700">
+                            <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                               {item.type === 'character' ? (
                                 <Users className="w-8 h-8 opacity-30" />
                               ) : (
@@ -822,8 +822,8 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                         </div>
                         <div className="p-4 space-y-3">
                           <div>
-                            <div className="text-sm text-white font-bold line-clamp-1">{item.name}</div>
-                            <div className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest mt-1">
+                            <div className="text-sm text-[var(--text-primary)] font-bold line-clamp-1">{item.name}</div>
+                            <div className="text-[10px] text-[var(--text-tertiary)] font-mono uppercase tracking-widest mt-1">
                               {item.type === 'character' ? '角色' : '场景'}
                             </div>
                           </div>
@@ -834,7 +834,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                                   ? handleReplaceCharacterFromLibrary(item, replaceTargetCharId)
                                   : handleImportFromLibrary(item)
                               }
-                              className="flex-1 py-2 bg-white text-black hover:bg-zinc-200 rounded text-[10px] font-bold uppercase tracking-wider transition-colors"
+                              className="flex-1 py-2 bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] hover:bg-[var(--btn-primary-hover)] rounded text-[10px] font-bold uppercase tracking-wider transition-colors"
                             >
                               {replaceTargetCharId ? '替换当前角色' : '导入到当前项目'}
                             </button>
@@ -846,7 +846,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                                   onConfirm: () => handleDeleteLibraryItem(item.id)
                                 })
                               }
-                              className="p-2 border border-zinc-800 text-zinc-500 hover:text-red-400 hover:border-red-500/50 rounded transition-colors"
+                              className="p-2 border border-[var(--border-primary)] text-[var(--text-tertiary)] hover:text-[var(--error-text)] hover:border-[var(--error-border)] rounded transition-colors"
                               title="删除"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -866,10 +866,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
       {/* Header */}
       <div className={STYLES.header}>
         <div className="flex items-center gap-4">
-          <h2 className="text-lg font-bold text-white flex items-center gap-3">
-            <Users className="w-5 h-5 text-indigo-500" />
+          <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-3">
+            <Users className="w-5 h-5 text-[var(--accent)]" />
             角色与场景
-            <span className="text-xs text-zinc-600 font-mono font-normal uppercase tracking-wider bg-black/30 px-2 py-1 rounded">
+            <span className="text-xs text-[var(--text-muted)] font-mono font-normal uppercase tracking-wider bg-[var(--bg-base)]/30 px-2 py-1 rounded">
               Assets & Casting
             </span>
           </h2>
@@ -885,7 +885,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
           </button>
           {/* 图片模型选择 */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-zinc-500 uppercase">模型</span>
+            <span className="text-[10px] text-[var(--text-tertiary)] uppercase">模型</span>
             <ModelSelector
               type="image"
               value={selectedImageModelId}
@@ -894,10 +894,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
               compact
             />
           </div>
-          <div className="w-px h-6 bg-zinc-800" />
+          <div className="w-px h-6 bg-[var(--bg-hover)]" />
           {/* 横竖屏选择 */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-zinc-500 uppercase">比例</span>
+            <span className="text-[10px] text-[var(--text-tertiary)] uppercase">比例</span>
             <AspectRatioSelector
               value={aspectRatio}
               onChange={setAspectRatio}
@@ -909,7 +909,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
               disabled={!!batchProgress}
             />
           </div>
-          <div className="w-px h-6 bg-zinc-800" />
+          <div className="w-px h-6 bg-[var(--bg-hover)]" />
           <div className="flex gap-2">
             <span className={STYLES.badge}>
               {project.scriptData.characters.length} CHARS
@@ -924,19 +924,19 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
       <div className={STYLES.content}>
         {/* Characters Section */}
         <section>
-          <div className="flex items-end justify-between mb-6 border-b border-zinc-800 pb-4">
+          <div className="flex items-end justify-between mb-6 border-b border-[var(--border-primary)] pb-4">
             <div>
-              <h3 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
-                <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full" />
+              <h3 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-widest flex items-center gap-2">
+                <div className="w-1.5 h-1.5 bg-[var(--accent)] rounded-full" />
                 角色定妆 (Casting)
               </h3>
-              <p className="text-xs text-zinc-500 mt-1 pl-3.5">为剧本中的角色生成一致的参考形象</p>
+              <p className="text-xs text-[var(--text-tertiary)] mt-1 pl-3.5">为剧本中的角色生成一致的参考形象</p>
             </div>
             <div className="flex gap-2">
               <button 
                 onClick={handleAddCharacter}
                 disabled={!!batchProgress}
-                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 bg-[var(--bg-hover)] hover:bg-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <Users className="w-3 h-3" />
                 新建角色
@@ -982,19 +982,19 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
 
         {/* Scenes Section */}
         <section>
-          <div className="flex items-end justify-between mb-6 border-b border-zinc-800 pb-4">
+          <div className="flex items-end justify-between mb-6 border-b border-[var(--border-primary)] pb-4">
             <div>
-              <h3 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
-                <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+              <h3 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-widest flex items-center gap-2">
+                <div className="w-1.5 h-1.5 bg-[var(--success)] rounded-full" />
                 场景概念 (Locations)
               </h3>
-              <p className="text-xs text-zinc-500 mt-1 pl-3.5">为剧本场景生成环境参考图</p>
+              <p className="text-xs text-[var(--text-tertiary)] mt-1 pl-3.5">为剧本场景生成环境参考图</p>
             </div>
             <div className="flex gap-2">
               <button 
                 onClick={handleAddScene}
                 disabled={!!batchProgress}
-                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 bg-[var(--bg-hover)] hover:bg-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <MapPin className="w-3 h-3" />
                 新建场景
