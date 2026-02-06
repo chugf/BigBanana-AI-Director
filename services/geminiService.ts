@@ -1307,7 +1307,12 @@ const generateVideoWithSora2 = async (
       console.log('✅ 任务完成，视频ID:', videoId);
       break;
     } else if (status === 'failed' || status === 'error') {
-      throw new Error(`视频生成失败: ${statusData.error || statusData.message || '未知错误'}`);
+      const errorMessage =
+        statusData?.error?.message ||
+        statusData?.error?.code ||
+        statusData?.message ||
+        '未知错误';
+      throw new Error(`视频生成失败: ${errorMessage}`);
     }
     // 其他状态（pending, processing等）继续轮询
   }
