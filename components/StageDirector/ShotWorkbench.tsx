@@ -10,6 +10,7 @@ interface ShotWorkbenchProps {
   shotIndex: number;
   totalShots: number;
   scriptData?: ProjectState['scriptData'];
+  currentVideoModelId: string;
   nextShotHasStartFrame?: boolean; // 下一个镜头是否有首帧
   isAIOptimizing?: boolean;
   isSplittingShot?: boolean;
@@ -34,6 +35,7 @@ interface ShotWorkbenchProps {
   onToggleAIEnhancement: () => void;
   onGenerateVideo: (aspectRatio: AspectRatio, duration: VideoDuration, modelId: string) => void;
   onEditVideoPrompt: () => void;
+  onVideoModelChange: (modelId: string) => void;
   onImageClick: (url: string, title: string) => void;
 }
 
@@ -42,6 +44,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   shotIndex,
   totalShots,
   scriptData,
+  currentVideoModelId,
   nextShotHasStartFrame = false,
   isAIOptimizing = false,
   isSplittingShot = false,
@@ -66,6 +69,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   onToggleAIEnhancement,
   onGenerateVideo,
   onEditVideoPrompt,
+  onVideoModelChange,
   onImageClick
 }) => {
   const scene = scriptData?.scenes.find(s => String(s.id) === String(shot.sceneId));
@@ -74,6 +78,8 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   
   const startKf = shot.keyframes?.find(k => k.type === 'start');
   const endKf = shot.keyframes?.find(k => k.type === 'end');
+  const normalizedModelId = currentVideoModelId.trim().toLowerCase();
+  const showEndFrame = normalizedModelId.startsWith('veo');
   
   // 从shot.id中提取显示编号
   const getShotDisplayNumber = () => {
@@ -91,16 +97,16 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   };
   
   return (
-    <div className="w-[480px] bg-[#0F0F0F] flex flex-col h-full shadow-2xl animate-in slide-in-from-right-10 duration-300 relative z-20">
+    <div className="w-[480px] bg-[var(--bg-deep)] flex flex-col h-full shadow-2xl animate-in slide-in-from-right-10 duration-300 relative z-20">
       {/* Header */}
-      <div className="h-16 px-6 border-b border-zinc-800 flex items-center justify-between bg-[#141414] shrink-0">
+      <div className="h-16 px-6 border-b border-[var(--border-primary)] flex items-center justify-between bg-[var(--bg-surface)] shrink-0">
         <div className="flex items-center gap-3">
-          <span className="w-8 h-8 bg-indigo-900/30 text-indigo-400 rounded-lg flex items-center justify-center font-bold font-mono text-sm border border-indigo-500/20">
+          <span className="w-8 h-8 bg-[var(--accent-bg)] text-[var(--accent-text)] rounded-lg flex items-center justify-center font-bold font-mono text-sm border border-[var(--accent-border)]">
             {getShotDisplayNumber()}
           </span>
           <div>
-            <h3 className="text-white font-bold text-sm">镜头详情</h3>
-            <p className="text-[10px] text-zinc-500 uppercase tracking-widest">
+            <h3 className="text-[var(--text-primary)] font-bold text-sm">镜头详情</h3>
+            <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest">
               {shot.cameraMovement}
             </p>
           </div>
@@ -110,21 +116,21 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
           <button
             onClick={onPrevious}
             disabled={shotIndex === 0}
-            className="p-2 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white disabled:opacity-20 transition-colors"
+            className="p-2 hover:bg-[var(--bg-hover)] rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-20 transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button
             onClick={onNext}
             disabled={shotIndex === totalShots - 1}
-            className="p-2 hover:bg-zinc-800 rounded text-zinc-400 hover:text-white disabled:opacity-20 transition-colors"
+            className="p-2 hover:bg-[var(--bg-hover)] rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] disabled:opacity-20 transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
-          <div className="w-px h-4 bg-zinc-700 mx-2"></div>
+          <div className="w-px h-4 bg-[var(--border-secondary)] mx-2"></div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-red-900/20 rounded text-zinc-400 hover:text-red-400 transition-colors"
+            className="p-2 hover:bg-[var(--error-hover-bg)] rounded text-[var(--text-tertiary)] hover:text-[var(--error-text)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -150,16 +156,16 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
 
         {/* Narrative Section */}
         <div className="space-y-4">
-          <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
-            <Film className="w-4 h-4 text-zinc-500" />
-            <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">
+          <div className="flex items-center gap-2 border-b border-[var(--border-primary)] pb-2">
+            <Film className="w-4 h-4 text-[var(--text-tertiary)]" />
+            <h4 className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">
               叙事动作 (Action & Dialogue)
             </h4>
             <div className="ml-auto flex items-center gap-1">
               <button 
                 onClick={onSplitShot}
                 disabled={isSplittingShot}
-                className="p-1 text-green-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-1 text-[var(--success-text)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="AI拆分镜头"
               >
                 {isSplittingShot ? (
@@ -171,7 +177,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
               <button 
                 onClick={onGenerateAIAction}
                 disabled={isAIOptimizing}
-                className="p-1 text-indigo-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="p-1 text-[var(--accent-text)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="AI生成动作建议"
               >
                 {isAIOptimizing ? (
@@ -182,7 +188,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
               </button>
               <button 
                 onClick={onEditActionSummary}
-                className="p-1 text-yellow-400 hover:text-white transition-colors"
+                className="p-1 text-[var(--warning-text)] hover:text-[var(--text-primary)] transition-colors"
                 title="编辑叙事动作"
               >
                 <Edit2 className="w-3 h-3" />
@@ -191,15 +197,15 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
           </div>
           
           <div className="space-y-3 max-h-[200px] overflow-y-auto custom-scrollbar">
-            <div className="bg-[#141414] p-4 rounded-lg border border-zinc-800">
-              <p className="text-zinc-200 text-sm leading-relaxed">{shot.actionSummary}</p>
+            <div className="bg-[var(--bg-surface)] p-4 rounded-lg border border-[var(--border-primary)]">
+              <p className="text-[var(--text-secondary)] text-sm leading-relaxed">{shot.actionSummary}</p>
             </div>
             
             {shot.dialogue && (
-              <div className="bg-[#141414] p-4 rounded-lg border border-zinc-800 flex gap-3">
-                <MessageSquare className="w-4 h-4 text-zinc-600 mt-0.5" />
+              <div className="bg-[var(--bg-surface)] p-4 rounded-lg border border-[var(--border-primary)] flex gap-3">
+                <MessageSquare className="w-4 h-4 text-[var(--text-muted)] mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-zinc-400 text-xs italic leading-relaxed">
+                  <p className="text-[var(--text-tertiary)] text-xs italic leading-relaxed">
                     "{shot.dialogue}"
                   </p>
                 </div>
@@ -212,6 +218,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
         <KeyframeEditor
           startKeyframe={startKf}
           endKeyframe={endKf}
+          showEndFrame={showEndFrame}
           canCopyPrevious={shotIndex > 0}
           canCopyNext={shotIndex < totalShots - 1 && nextShotHasStartFrame}
           isAIOptimizing={isAIOptimizing}
@@ -234,6 +241,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
           hasEndFrame={!!endKf?.imageUrl}
           onGenerate={onGenerateVideo}
           onEditPrompt={onEditVideoPrompt}
+          onModelChange={onVideoModelChange}
         />
       </div>
     </div>

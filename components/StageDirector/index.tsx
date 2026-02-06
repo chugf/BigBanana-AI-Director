@@ -660,7 +660,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
   // 空状态
   if (!project.shots.length) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-zinc-500 bg-[#121212]">
+      <div className="flex flex-col items-center justify-center h-full text-[var(--text-tertiary)] bg-[var(--bg-secondary)]">
         <AlertCircle className="w-12 h-12 mb-4 opacity-50"/>
         <p>暂无镜头数据，请先返回阶段 1 生成分镜表。</p>
       </div>
@@ -668,32 +668,32 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#121212] relative overflow-hidden">
+    <div className="flex flex-col h-full bg-[var(--bg-secondary)] relative overflow-hidden">
       
       {/* Batch Progress Overlay */}
       {batchProgress && (
-        <div className="absolute inset-0 z-50 bg-black/80 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in">
-          <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-6" />
-          <h3 className="text-xl font-bold text-white mb-2">{batchProgress.message}</h3>
-          <div className="w-64 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+        <div className="absolute inset-0 z-50 bg-[var(--bg-base)]/80 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in">
+          <Loader2 className="w-12 h-12 text-[var(--accent)] animate-spin mb-6" />
+          <h3 className="text-xl font-bold text-[var(--text-primary)] mb-2">{batchProgress.message}</h3>
+          <div className="w-64 h-1.5 bg-[var(--bg-hover)] rounded-full overflow-hidden">
             <div 
-              className="h-full bg-indigo-500 transition-all duration-300" 
+              className="h-full bg-[var(--accent)] transition-all duration-300" 
               style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
             />
           </div>
-          <p className="text-zinc-500 mt-3 text-xs font-mono">
+          <p className="text-[var(--text-tertiary)] mt-3 text-xs font-mono">
             {Math.round((batchProgress.current / batchProgress.total) * 100)}%
           </p>
         </div>
       )}
 
       {/* Toolbar */}
-      <div className="h-16 border-b border-zinc-800 bg-[#1A1A1A] px-6 flex items-center justify-between shrink-0">
+      <div className="h-16 border-b border-[var(--border-primary)] bg-[var(--bg-elevated)] px-6 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
-          <h2 className="text-lg font-bold text-white flex items-center gap-3">
-            <LayoutGrid className="w-5 h-5 text-indigo-500" />
+          <h2 className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-3">
+            <LayoutGrid className="w-5 h-5 text-[var(--accent)]" />
             导演工作台
-            <span className="text-xs text-zinc-600 font-mono font-normal uppercase tracking-wider bg-black/30 px-2 py-1 rounded">
+            <span className="text-xs text-[var(--text-muted)] font-mono font-normal uppercase tracking-wider bg-[var(--bg-base)]/30 px-2 py-1 rounded">
               Director Workbench
             </span>
           </h2>
@@ -701,20 +701,20 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
 
         <div className="flex items-center gap-3">
           {/* AI增强开关 */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-black/30 border border-zinc-800">
-            <Sparkles className={`w-3.5 h-3.5 ${useAIEnhancement ? 'text-indigo-400' : 'text-zinc-600'}`} />
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--bg-base)]/30 border border-[var(--border-primary)]">
+            <Sparkles className={`w-3.5 h-3.5 ${useAIEnhancement ? 'text-[var(--accent-text)]' : 'text-[var(--text-muted)]'}`} />
             <label className="flex items-center gap-2 cursor-pointer">
-              <span className="text-xs text-zinc-400">AI增强提示词</span>
+              <span className="text-xs text-[var(--text-tertiary)]">AI增强提示词</span>
               <input
                 type="checkbox"
                 checked={useAIEnhancement}
                 onChange={(e) => setUseAIEnhancement(e.target.checked)}
-                className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 text-indigo-500 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-0 cursor-pointer"
+                className="w-3.5 h-3.5 rounded border-[var(--border-secondary)] bg-[var(--bg-hover)] text-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)] focus:ring-offset-0 cursor-pointer"
               />
             </label>
           </div>
           
-          <span className="text-xs text-zinc-500 mr-4 font-mono">
+          <span className="text-xs text-[var(--text-tertiary)] mr-4 font-mono">
             {project.shots.filter(s => s.interval?.videoUrl).length} / {project.shots.length} 完成
           </span>
           <button 
@@ -722,8 +722,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
             disabled={!!batchProgress}
             className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all flex items-center gap-2 ${
               allStartFramesGenerated
-                ? 'bg-[#141414] text-zinc-400 border border-zinc-700 hover:text-white hover:border-zinc-500'
-                : 'bg-white text-black hover:bg-zinc-200 shadow-lg shadow-white/5'
+                ? 'bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'
+                : 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] hover:bg-[var(--btn-primary-hover)] shadow-lg shadow-[var(--btn-primary-shadow)]'
             }`}
           >
             <Sparkles className="w-3 h-3" />
@@ -735,7 +735,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden flex">
         {/* Grid View */}
-        <div className={`flex-1 overflow-y-auto p-6 transition-all duration-500 ease-in-out ${activeShotId ? 'border-r border-zinc-800' : ''}`}>
+        <div className={`flex-1 overflow-y-auto p-6 transition-all duration-500 ease-in-out ${activeShotId ? 'border-r border-[var(--border-primary)]' : ''}`}>
           <div className={`grid gap-4 ${activeShotId ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-2' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
             {project.shots.map((shot, idx) => (
               <ShotCard
@@ -756,6 +756,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
             shotIndex={activeShotIndex}
             totalShots={project.shots.length}
             scriptData={project.scriptData}
+            currentVideoModelId={activeShot.videoModel || DEFAULTS.videoModel}
             nextShotHasStartFrame={!!project.shots[activeShotIndex + 1]?.keyframes?.find(k => k.type === 'start')?.imageUrl}
             isAIOptimizing={isAIGenerating}
             isSplittingShot={isSplittingShot}
@@ -788,6 +789,10 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
             useAIEnhancement={useAIEnhancement}
             onToggleAIEnhancement={() => setUseAIEnhancement(!useAIEnhancement)}
             onGenerateVideo={(aspectRatio, duration, modelId) => handleGenerateVideo(activeShot, aspectRatio, duration, modelId)}
+            onVideoModelChange={(modelId) => updateShot(activeShot.id, s => ({
+              ...s,
+              videoModel: modelId as any
+            }))}
             onEditVideoPrompt={() => {
               // 如果videoPrompt不存在，动态生成一个
               let promptValue = activeShot.interval?.videoPrompt;
@@ -822,9 +827,9 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
           '编辑视频提示词'
         }
         icon={
-          editModal?.type === 'action' ? <Film className="w-4 h-4 text-indigo-400" /> :
-          editModal?.type === 'keyframe' ? <Edit2 className="w-4 h-4 text-indigo-400" /> :
-          <VideoIcon className="w-4 h-4 text-indigo-400" />
+          editModal?.type === 'action' ? <Film className="w-4 h-4 text-[var(--accent-text)]" /> :
+          editModal?.type === 'keyframe' ? <Edit2 className="w-4 h-4 text-[var(--accent-text)]" /> :
+          <VideoIcon className="w-4 h-4 text-[var(--accent-text)]" />
         }
         value={editModal?.value || ''}
         onChange={(value) => setEditModal(editModal ? { ...editModal, value } : null)}

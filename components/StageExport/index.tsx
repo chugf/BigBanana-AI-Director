@@ -241,7 +241,7 @@ const StageExport: React.FC<Props> = ({ project }) => {
       <div className={STYLES.header.container}>
         <div className="flex items-center gap-4">
           <h2 className={STYLES.header.title}>
-            <Film className="w-5 h-5 text-indigo-500" />
+            <Film className="w-5 h-5 text-[var(--accent)]" />
             成片与导出
             <span className={STYLES.header.subtitle}>Rendering & Export</span>
           </h2>

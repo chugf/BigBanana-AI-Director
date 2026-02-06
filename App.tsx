@@ -227,27 +227,27 @@ function App() {
       case 'prompts':
         return <StagePrompts project={project} updateProject={updateProject} />;
       default:
-        return <div className="text-white">未知阶段</div>;
+        return <div className="text-[var(--text-primary)]">未知阶段</div>;
     }
   };
 
   // Mobile Warning Screen
   if (isMobile) {
     return (
-      <div className="h-screen bg-[#050505] flex items-center justify-center p-6">
+      <div className="h-screen bg-[var(--bg-base)] flex items-center justify-center p-6">
         <div className="max-w-md text-center space-y-6">
           <img src={logoImg} alt="Logo" className="w-20 h-20 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-white mb-2">BigBanana AI Director</h1>
-          <div className="bg-[#0A0A0A] border border-zinc-800 rounded-xl p-8">
-            <p className="text-zinc-400 text-base leading-relaxed mb-4">
+          <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">BigBanana AI Director</h1>
+          <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-8">
+            <p className="text-[var(--text-tertiary)] text-base leading-relaxed mb-4">
               为了获得最佳体验，请使用 PC 端浏览器访问。
             </p>
-            <p className="text-zinc-600 text-sm">
+            <p className="text-[var(--text-muted)] text-sm">
               本应用需要较大的屏幕空间和桌面级浏览器环境才能正常运行。
             </p>
           </div>
-          <div className="text-xs text-zinc-700">
-            <a href="https://bigbanana.tree456.com/" target="_blank" rel="noreferrer" className="hover:text-indigo-400 transition-colors">
+          <div className="text-xs text-[var(--text-muted)]">
+            <a href="https://bigbanana.tree456.com/" target="_blank" rel="noreferrer" className="hover:text-[var(--accent-text)] transition-colors">
               访问产品首页了解更多
             </a>
           </div>
@@ -283,7 +283,7 @@ function App() {
 
   // Workspace View
   return (
-    <div className="flex h-screen bg-[#121212] font-sans text-gray-100 selection:bg-indigo-500/30">
+    <div className="flex h-screen bg-[var(--bg-secondary)] font-sans text-[var(--text-secondary)] selection:bg-[var(--accent-bg)]">
       <Sidebar 
         currentStage={project.stage} 
         setStage={setStage} 
@@ -298,7 +298,7 @@ function App() {
         
         {/* Save Status Indicator */}
         {showSaveStatus && (
-          <div className="absolute top-4 right-6 pointer-events-none flex items-center gap-2 text-xs font-mono text-zinc-400 bg-black/50 px-2 py-1 rounded-full backdrop-blur-sm z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="absolute top-4 right-6 pointer-events-none flex items-center gap-2 text-xs font-mono text-[var(--text-tertiary)] bg-[var(--overlay-medium)] px-2 py-1 rounded-full backdrop-blur-sm z-50 animate-in fade-in slide-in-from-top-2 duration-200">
              {saveStatus === 'saving' ? (
                <>
                  <Save className="w-3 h-3 animate-pulse" />
@@ -306,7 +306,7 @@ function App() {
                </>
              ) : (
                <>
-                 <CheckCircle className="w-3 h-3 text-green-500" />
+                 <CheckCircle className="w-3 h-3 text-[var(--success)]" />
                  已保存
                </>
              )}

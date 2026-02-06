@@ -1,6 +1,12 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
+    <script>
+      (function(){
+        var t = localStorage.getItem('bigbanana_theme');
+        document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+      })();
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
@@ -83,10 +89,83 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
+      /* 完整变量回退（暗色），避免主题 CSS 加载前无变量 */
+      :root {
+        --bg-base: #050505;
+        --bg-primary: #0A0A0A;
+        --bg-secondary: #121212;
+        --bg-surface: #141414;
+        --bg-elevated: #1A1A1A;
+        --bg-deep: #0F0F0F;
+        --bg-sunken: #080808;
+        --bg-hover: #27272a;
+        --border-primary: #27272a;
+        --border-secondary: #3f3f46;
+        --border-subtle: #18181b;
+        --text-primary: #ffffff;
+        --text-secondary: #d4d4d8;
+        --text-tertiary: #a1a1aa;
+        --text-muted: #71717a;
+        --scrollbar-track: #0a0a0a;
+        --scrollbar-thumb: #333;
+        --scrollbar-thumb-hover: #555;
+        --glass-bg: rgba(20, 20, 20, 0.6);
+        --glass-border: rgba(255, 255, 255, 0.08);
+        --nav-active-bg: rgba(39, 39, 42, 0.5);
+        --nav-hover-bg: rgba(39, 39, 42, 0.3);
+        --btn-primary-bg: #ffffff;
+        --btn-primary-text: #000000;
+        --btn-primary-hover: #e4e4e7;
+        --btn-primary-shadow: rgba(255, 255, 255, 0.05);
+        --btn-selected-bg: #f4f4f5;
+        --btn-selected-border: #f4f4f5;
+        --overlay-heavy: rgba(0, 0, 0, 0.8);
+        --overlay-medium: rgba(0, 0, 0, 0.6);
+        --overlay-light: rgba(0, 0, 0, 0.3);
+        --overlay-full: rgba(0, 0, 0, 0.95);
+        --overlay-border: rgba(255, 255, 255, 0.1);
+        --selection-bg: rgba(255, 255, 255, 0.2);
+        --accent: #818cf8;
+        --accent-hover: #6366f1;
+        --accent-muted: #6366f1;
+        --accent-bg: rgba(99, 102, 241, 0.15);
+        --accent-bg-hover: rgba(99, 102, 241, 0.25);
+        --accent-border: rgba(99, 102, 241, 0.3);
+        --accent-text: #a5b4fc;
+        --accent-text-hover: #c7d2fe;
+        --accent-on: #ffffff;
+        --accent-shadow: rgba(99, 102, 241, 0.2);
+        --toggle-active: #818cf8;
+        --toggle-inactive: var(--border-secondary);
+        --toggle-knob: #ffffff;
+        --success: #34d399;
+        --success-text: #6ee7b7;
+        --success-bg: rgba(52, 211, 153, 0.1);
+        --success-border: rgba(52, 211, 153, 0.3);
+        --error: #f87171;
+        --error-text: #fca5a5;
+        --error-bg: rgba(248, 113, 113, 0.1);
+        --error-border: rgba(248, 113, 113, 0.3);
+        --error-hover-bg: rgba(127, 29, 29, 0.2);
+        --error-hover-bg-strong: rgba(127, 29, 29, 0.4);
+        --warning: #fbbf24;
+        --warning-text: #fcd34d;
+        --warning-bg: rgba(251, 191, 36, 0.1);
+        --warning-border: rgba(251, 191, 36, 0.3);
+        --info: #60a5fa;
+        --info-text: #93c5fd;
+        --info-bg: rgba(96, 165, 250, 0.1);
+        --info-border: rgba(96, 165, 250, 0.3);
+        --tag-purple: #c084fc;
+        --tag-purple-bg: rgba(192, 132, 252, 0.1);
+        --tag-purple-border: rgba(192, 132, 252, 0.3);
+        --tag-purple-hover: rgba(192, 132, 252, 0.1);
+      }
       body {
         font-family: 'Inter', sans-serif;
-        background-color: #050505;
-        color: #e5e5e5;
+        background-color: var(--bg-base);
+        color: var(--text-secondary);
+        transition: background-color 0.2s ease, color 0.2s ease;
       }
       /* Sony Style Scrollbar - Thin, Rectangular */
       ::-webkit-scrollbar {
@@ -94,27 +173,35 @@
         height: 6px;
       }
       ::-webkit-scrollbar-track {
-        background: #0a0a0a; 
+        background: var(--scrollbar-track);
       }
       ::-webkit-scrollbar-thumb {
-        background: #333; 
+        background: var(--scrollbar-thumb);
         border-radius: 0px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #555; 
+        background: var(--scrollbar-thumb-hover);
       }
       
       .font-mono {
         font-family: 'JetBrains Mono', monospace;
       }
       
+      /* 全局 select/option 样式 - 确保亮色主题下下拉框可读 */
+      select option {
+        background-color: var(--bg-surface);
+        color: var(--text-primary);
+      }
       /* Utilities */
       .glass-panel {
-        background: rgba(20, 20, 20, 0.6);
+        background: var(--glass-bg);
         backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--glass-border);
       }
     </style>
+    <!-- 主题 CSS 放在 <style> 之后，确保 [data-theme] 的变量优先级高于 :root 回退 -->
+    <link rel="stylesheet" href="/styles/theme-dark.css" />
+    <link rel="stylesheet" href="/styles/theme-light.css" />
   <script type="importmap">
 {
   "imports": {

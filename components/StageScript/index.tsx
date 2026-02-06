@@ -84,10 +84,10 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
     }
 
     console.log('🎯 用户选择的模型:', localModel);
-    logScriptProgress(`已选择模型：${localModel}`);
     console.log('🎯 最终使用的模型:', finalModel);
-    logScriptProgress(`最终使用模型：${finalModel}`);
     console.log('🎨 视觉风格:', finalVisualStyle);
+    logScriptProgress(`已选择模型：${localModel}`);
+    logScriptProgress(`最终使用模型：${finalModel}`);
     logScriptProgress(`视觉风格：${finalVisualStyle}`);
 
     setIsProcessing(true);
@@ -245,6 +245,15 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
     }
   };
 
+  const showProcessingToast = isProcessing || isContinuing || isRewriting;
+  const toastMessage = processingMessage || (isProcessing
+    ? '正在生成剧本...'
+    : isContinuing
+      ? 'AI续写中...'
+      : isRewriting
+        ? 'AI改写中...'
+        : '');
+
   // Character editing handlers
   const handleEditCharacter = (charId: string, prompt: string) => {
     setEditingCharacterId(charId);
@@ -367,22 +376,13 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
     setEditingShotDialogueText('');
   };
 
-  const showProcessingToast = isProcessing || isContinuing || isRewriting;
-  const toastMessage = processingMessage || (isProcessing
-    ? '正在生成剧本...'
-    : isContinuing
-      ? 'AI续写中...'
-      : isRewriting
-        ? 'AI改写中...'
-        : '');
-
   return (
-    <div className="h-full bg-[#050505]">
+    <div className="h-full bg-[var(--bg-base)]">
       {showProcessingToast && (
-        <div className="fixed right-4 top-4 z-[9999] w-full max-w-md rounded-xl border border-zinc-700 bg-black/80 px-4 py-3 shadow-2xl backdrop-blur">
+        <div className="fixed right-4 top-4 z-[9999] w-full max-w-md rounded-xl border border-[var(--border-default)] bg-black/80 px-4 py-3 shadow-2xl backdrop-blur">
           <div className="flex items-center gap-3">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-500 border-t-white" />
-            <div className="text-sm text-zinc-100">{toastMessage}</div>
+            <div className="text-sm text-white">{toastMessage}</div>
           </div>
           {processingLogs.length > 0 && (
             <div className="mt-2 max-h-40 space-y-1 overflow-auto text-xs text-zinc-300">
@@ -396,7 +396,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject }) => {
         </div>
       )}
       {activeTab === 'story' ? (
-        <div className="flex h-full bg-[#050505] text-zinc-300">
+        <div className="flex h-full bg-[var(--bg-base)] text-[var(--text-secondary)]">
           <ConfigPanel
             title={localTitle}
             duration={localDuration}
