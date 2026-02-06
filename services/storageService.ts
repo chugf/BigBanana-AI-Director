@@ -4,6 +4,19 @@ const DB_NAME = 'BigBananaDB';
 const DB_VERSION = 2;
 const STORE_NAME = 'projects';
 const ASSET_STORE_NAME = 'assetLibrary';
+const EXPORT_SCHEMA_VERSION = 1;
+
+export interface IndexedDBExportPayload {
+  schemaVersion: number;
+  exportedAt: number;
+  scope?: 'all' | 'project';
+  dbName: string;
+  dbVersion: number;
+  stores: {
+    projects: ProjectState[];
+    assetLibrary: AssetLibraryItem[];
+  };
+}
 
 const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -19,6 +32,107 @@ const openDB = (): Promise<IDBDatabase> => {
         db.createObjectStore(ASSET_STORE_NAME, { keyPath: 'id' });
       }
     };
+  });
+};
+
+const isValidExportPayload = (data: unknown): data is IndexedDBExportPayload => {
+  const payload = data as IndexedDBExportPayload;
+  return !!(
+    payload &&
+    payload.stores &&
+    Array.isArray(payload.stores.projects) &&
+    Array.isArray(payload.stores.assetLibrary)
+  );
+};
+
+export const exportIndexedDBData = async (): Promise<IndexedDBExportPayload> => {
+  const db = await openDB();
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE_NAME, ASSET_STORE_NAME], 'readonly');
+    const projectStore = tx.objectStore(STORE_NAME);
+    const assetStore = tx.objectStore(ASSET_STORE_NAME);
+
+    const projectsRequest = projectStore.getAll();
+    const assetsRequest = assetStore.getAll();
+
+    projectsRequest.onerror = () => reject(projectsRequest.error);
+    assetsRequest.onerror = () => reject(assetsRequest.error);
+
+    tx.oncomplete = () => {
+      resolve({
+        schemaVersion: EXPORT_SCHEMA_VERSION,
+        exportedAt: Date.now(),
+        scope: 'all',
+        dbName: DB_NAME,
+        dbVersion: DB_VERSION,
+        stores: {
+          projects: (projectsRequest.result as ProjectState[]) || [],
+          assetLibrary: (assetsRequest.result as AssetLibraryItem[]) || []
+        }
+      });
+    };
+
+    tx.onerror = () => reject(tx.error);
+  });
+};
+
+export const exportProjectData = async (project: ProjectState): Promise<IndexedDBExportPayload> => {
+  return {
+    schemaVersion: EXPORT_SCHEMA_VERSION,
+    exportedAt: Date.now(),
+    scope: 'project',
+    dbName: DB_NAME,
+    dbVersion: DB_VERSION,
+    stores: {
+      projects: [project],
+      assetLibrary: []
+    }
+  };
+};
+
+export const importIndexedDBData = async (
+  payload: unknown,
+  options?: { mode?: 'merge' | 'replace' }
+): Promise<{ projects: number; assets: number }> => {
+  if (!isValidExportPayload(payload)) {
+    throw new Error('导入文件格式不正确');
+  }
+
+  const mode = options?.mode || 'merge';
+  const db = await openDB();
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE_NAME, ASSET_STORE_NAME], 'readwrite');
+    const projectStore = tx.objectStore(STORE_NAME);
+    const assetStore = tx.objectStore(ASSET_STORE_NAME);
+
+    if (mode === 'replace') {
+      projectStore.clear();
+      assetStore.clear();
+    }
+
+    let projectsWritten = 0;
+    let assetsWritten = 0;
+
+    payload.stores.projects.forEach(project => {
+      const request = projectStore.put(project);
+      request.onsuccess = () => {
+        projectsWritten += 1;
+      };
+      request.onerror = () => reject(request.error);
+    });
+
+    payload.stores.assetLibrary.forEach(item => {
+      const request = assetStore.put(item);
+      request.onsuccess = () => {
+        assetsWritten += 1;
+      };
+      request.onerror = () => reject(request.error);
+    });
+
+    tx.oncomplete = () => resolve({ projects: projectsWritten, assets: assetsWritten });
+    tx.onerror = () => reject(tx.error);
   });
 };
 

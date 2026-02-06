@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Film } from 'lucide-react';
 import { ProjectState } from '../../types';
 import { downloadMasterVideo, downloadSourceAssets } from '../../services/exportService';
+import { exportProjectData, importIndexedDBData } from '../../services/storageService';
 import { STYLES } from './constants';
 import {
   calculateEstimatedDuration,
@@ -47,6 +48,10 @@ const StageExport: React.FC<Props> = ({ project }) => {
   const [currentShotIndex, setCurrentShotIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  const [isDataExporting, setIsDataExporting] = useState(false);
+  const [isDataImporting, setIsDataImporting] = useState(false);
 
   // Auto-play when shot changes
   useEffect(() => {
@@ -165,6 +170,71 @@ const StageExport: React.FC<Props> = ({ project }) => {
     }
   };
 
+  const handleExportData = async () => {
+    if (isDataExporting) return;
+
+    setIsDataExporting(true);
+    try {
+      const payload = await exportProjectData(project);
+      const json = JSON.stringify(payload, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bigbanana_project_${project.id}_${timestamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showAlert('当前项目已导出，备份文件已下载。', { type: 'success' });
+    } catch (error) {
+      console.error('Export failed:', error);
+      showAlert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
+    } finally {
+      setIsDataExporting(false);
+    }
+  };
+
+  const handleImportData = () => {
+    if (isDataImporting) return;
+    importInputRef.current?.click();
+  };
+
+  const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!file.name.endsWith('.json')) {
+      showAlert('请选择 .json 备份文件。', { type: 'warning' });
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      const projectCount = payload?.stores?.projects?.length || 0;
+      const assetCount = payload?.stores?.assetLibrary?.length || 0;
+      const confirmMessage = `将导入 ${projectCount} 个项目和 ${assetCount} 个资产。若 ID 冲突将覆盖现有数据。是否继续？`;
+
+      if (!window.confirm(confirmMessage)) {
+        return;
+      }
+
+      setIsDataImporting(true);
+      const result = await importIndexedDBData(payload, { mode: 'merge' });
+      showAlert(`导入完成：项目 ${result.projects} 个，资产 ${result.assets} 个。`, { type: 'success' });
+    } catch (error) {
+      console.error('Import failed:', error);
+      showAlert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
+    } finally {
+      setIsDataImporting(false);
+    }
+  };
+
   return (
     <div className={STYLES.container}>
       {/* Header */}
@@ -222,6 +292,10 @@ const StageExport: React.FC<Props> = ({ project }) => {
             }}
             onDownloadAssets={handleDownloadAssets}
             onShowLogs={() => setShowLogsModal(true)}
+            onExportData={handleExportData}
+            onImportData={handleImportData}
+            isDataExporting={isDataExporting}
+            isDataImporting={isDataImporting}
           />
 
         </div>
@@ -252,6 +326,14 @@ const StageExport: React.FC<Props> = ({ project }) => {
           onToggleExpand={(logId) => setExpandedLogId(expandedLogId === logId ? null : logId)}
         />
       )}
+
+      <input
+        ref={importInputRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={handleImportFileChange}
+      />
     </div>
   );
 };

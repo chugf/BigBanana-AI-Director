@@ -1,17 +1,25 @@
 import React from 'react';
-import { Layers, Share2, Clock, Loader2 } from 'lucide-react';
+import { Layers, Database, Clock, Loader2 } from 'lucide-react';
 import { STYLES, DownloadState } from './constants';
 
 interface Props {
   assetsDownloadState: DownloadState;
   onDownloadAssets: () => void;
   onShowLogs: () => void;
+  onExportData: () => void;
+  onImportData: () => void;
+  isDataExporting: boolean;
+  isDataImporting: boolean;
 }
 
 const SecondaryOptions: React.FC<Props> = ({
   assetsDownloadState,
   onDownloadAssets,
-  onShowLogs
+  onShowLogs,
+  onExportData,
+  onImportData,
+  isDataExporting,
+  isDataImporting
 }) => {
   const { isDownloading, phase, progress } = assetsDownloadState;
 
@@ -40,12 +48,44 @@ const SecondaryOptions: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Share Project */}
+      {/* Export / Import Data */}
       <div className={STYLES.card.base}>
-        <Share2 className="w-5 h-5 text-zinc-600 group-hover:text-indigo-400 mb-4 transition-colors" />
+        <Database className="w-5 h-5 text-zinc-600 group-hover:text-indigo-400 mb-4 transition-colors" />
         <div>
-          <h4 className="text-sm font-bold text-white mb-1">Share Project</h4>
-          <p className="text-[10px] text-zinc-500">Create a view-only link for client review.</p>
+          <h4 className="text-sm font-bold text-white mb-1">Export / Import</h4>
+          <p className="text-[10px] text-zinc-500">Back up all IndexedDB data or import on another device.</p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onExportData();
+              }}
+              disabled={isDataExporting}
+              className={
+                isDataExporting
+                  ? 'px-3 py-2 text-[10px] rounded-md bg-indigo-600/70 text-white cursor-wait'
+                  : 'px-3 py-2 text-[10px] rounded-md bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
+              }
+            >
+              {isDataExporting ? 'Exporting...' : 'Export'}
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onImportData();
+              }}
+              disabled={isDataImporting}
+              className={
+                isDataImporting
+                  ? 'px-3 py-2 text-[10px] rounded-md bg-indigo-600/70 text-white cursor-wait'
+                  : 'px-3 py-2 text-[10px] rounded-md bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
+              }
+            >
+              {isDataImporting ? 'Importing...' : 'Import'}
+            </button>
+          </div>
         </div>
       </div>
 

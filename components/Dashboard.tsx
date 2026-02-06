@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { Plus, Trash2, Loader2, Folder, ChevronRight, Calendar, AlertTriangle, X, HelpCircle, Cpu, Archive, Search, Users, MapPin } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Plus, Trash2, Loader2, Folder, ChevronRight, Calendar, AlertTriangle, X, HelpCircle, Cpu, Archive, Search, Users, MapPin, Database, Settings } from 'lucide-react';
 import { ProjectState, AssetLibraryItem, Character, Scene } from '../types';
-import { getAllProjectsMetadata, createNewProjectState, deleteProjectFromDB, getAllAssetLibraryItems, deleteAssetFromLibrary, loadProjectFromDB, saveProjectToDB } from '../services/storageService';
+import { getAllProjectsMetadata, createNewProjectState, deleteProjectFromDB, getAllAssetLibraryItems, deleteAssetFromLibrary, loadProjectFromDB, saveProjectToDB, exportIndexedDBData, importIndexedDBData } from '../services/storageService';
 import { applyLibraryItemToProject } from '../services/assetLibraryService';
 import { useAlert } from './GlobalAlert';
 import qrCodeImg from '../images/qrcode.jpg';
@@ -24,6 +24,10 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
   const [libraryFilter, setLibraryFilter] = useState<'all' | 'character' | 'scene'>('all');
   const [assetToUse, setAssetToUse] = useState<AssetLibraryItem | null>(null);
   const [showLibraryModal, setShowLibraryModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [isDataExporting, setIsDataExporting] = useState(false);
+  const [isDataImporting, setIsDataImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const loadProjects = async () => {
     setIsLoading(true);
@@ -137,6 +141,75 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
     return item.name.toLowerCase().includes(query);
   });
 
+  const handleExportData = async () => {
+    if (isDataExporting) return;
+
+    setIsDataExporting(true);
+    try {
+      const payload = await exportIndexedDBData();
+      const json = JSON.stringify(payload, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bigbanana_backup_${timestamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showAlert('导出完成，备份文件已下载。', { type: 'success' });
+    } catch (error) {
+      console.error('Export failed:', error);
+      showAlert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
+    } finally {
+      setIsDataExporting(false);
+    }
+  };
+
+  const handleImportData = () => {
+    if (isDataImporting) return;
+    importInputRef.current?.click();
+  };
+
+  const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!file.name.endsWith('.json')) {
+      showAlert('请选择 .json 备份文件。', { type: 'warning' });
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      const projectCount = payload?.stores?.projects?.length || 0;
+      const assetCount = payload?.stores?.assetLibrary?.length || 0;
+      const confirmMessage = `将导入 ${projectCount} 个项目和 ${assetCount} 个资产。若 ID 冲突将覆盖现有数据。是否继续？`;
+
+      if (!window.confirm(confirmMessage)) {
+        return;
+      }
+
+      setIsDataImporting(true);
+      const result = await importIndexedDBData(payload, { mode: 'merge' });
+      await loadProjects();
+      if (showLibraryModal) {
+        await loadLibrary();
+      }
+      showAlert(`导入完成：项目 ${result.projects} 个，资产 ${result.assets} 个。`, { type: 'success' });
+    } catch (error) {
+      console.error('Import failed:', error);
+      showAlert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
+    } finally {
+      setIsDataImporting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#050505] text-zinc-300 p-8 md:p-12 font-sans selection:bg-white/20">
       <div className="max-w-7xl mx-auto">
@@ -156,16 +229,6 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
             >
               <span className="font-medium text-xs tracking-widest uppercase">交流群</span>
             </button>
-            {onShowModelConfig && (
-              <button 
-                onClick={onShowModelConfig}
-                className="group flex items-center gap-2 px-4 py-3 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-600 transition-colors"
-                title="模型配置"
-              >
-                <Cpu className="w-4 h-4" />
-                <span className="font-medium text-xs tracking-widest uppercase">模型配置</span>
-              </button>
-            )}
             {onShowOnboarding && (
               <button 
                 onClick={onShowOnboarding}
@@ -177,11 +240,11 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
               </button>
             )}
             <button
-              onClick={() => setShowLibraryModal(true)}
+              onClick={() => setShowSettingsModal(true)}
               className="group flex items-center gap-2 px-4 py-3 border border-zinc-800 text-zinc-500 hover:text-white hover:border-zinc-600 transition-colors"
             >
-              <Archive className="w-4 h-4" />
-              <span className="font-medium text-xs tracking-widest uppercase">资产库</span>
+              <Settings className="w-4 h-4" />
+              <span className="font-medium text-xs tracking-widest uppercase">系统设置</span>
             </button>
             <button 
               onClick={handleCreate}
@@ -252,6 +315,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                                 永久删除
                             </button>
                         </div>
+
                     </div>
                   )}
 
@@ -318,6 +382,90 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                 <img src={qrCodeImg} alt="交流群二维码" className="w-64 h-64 object-contain" />
               </div>
               <div className="text-[10px] text-zinc-600 font-mono">二维码有效期请以实际为准</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6" onClick={() => setShowSettingsModal(false)}>
+          <div
+            className="relative w-full max-w-xl bg-[#0A0A0A] border border-zinc-800 p-6 md:p-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowSettingsModal(false)}
+              className="absolute right-4 top-4 p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+              title="关闭"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex items-end justify-between border-b border-zinc-900 pb-4 mb-6">
+              <div>
+                <h2 className="text-lg text-white flex items-center gap-2">
+                  <Settings className="w-4 h-4 text-indigo-400" />
+                  系统设置
+                  <span className="text-zinc-700 text-xs font-mono uppercase tracking-widest">Settings</span>
+                </h2>
+                <p className="text-xs text-zinc-500 mt-2">管理模型配置、资产库以及数据导入导出</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {onShowModelConfig && (
+                <button
+                  onClick={() => {
+                    setShowSettingsModal(false);
+                    onShowModelConfig();
+                  }}
+                  className="p-4 border border-zinc-800 hover:border-zinc-600 bg-[#0A0A0A] hover:bg-[#121212] transition-colors text-left"
+                >
+                  <div className="flex items-center gap-2 text-white text-sm font-bold">
+                    <Cpu className="w-4 h-4 text-indigo-400" />
+                    模型配置
+                  </div>
+                  <div className="text-[10px] text-zinc-500 font-mono mt-2">管理模型与 API 设置</div>
+                </button>
+              )}
+
+              <button
+                onClick={() => {
+                  setShowSettingsModal(false);
+                  setShowLibraryModal(true);
+                }}
+                className="p-4 border border-zinc-800 hover:border-zinc-600 bg-[#0A0A0A] hover:bg-[#121212] transition-colors text-left"
+              >
+                <div className="flex items-center gap-2 text-white text-sm font-bold">
+                  <Archive className="w-4 h-4 text-indigo-400" />
+                  资产库
+                </div>
+                <div className="text-[10px] text-zinc-500 font-mono mt-2">浏览并复用角色与场景资产</div>
+              </button>
+
+              <button
+                onClick={handleExportData}
+                disabled={isDataExporting}
+                className="p-4 border border-zinc-800 hover:border-zinc-600 bg-[#0A0A0A] hover:bg-[#121212] transition-colors text-left disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center gap-2 text-white text-sm font-bold">
+                  <Database className="w-4 h-4 text-indigo-400" />
+                  导出数据
+                </div>
+                <div className="text-[10px] text-zinc-500 font-mono mt-2">导出全部项目与资产库备份</div>
+              </button>
+
+              <button
+                onClick={handleImportData}
+                disabled={isDataImporting}
+                className="p-4 border border-zinc-800 hover:border-zinc-600 bg-[#0A0A0A] hover:bg-[#121212] transition-colors text-left disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center gap-2 text-white text-sm font-bold">
+                  <Database className="w-4 h-4 text-indigo-400" />
+                  导入数据
+                </div>
+                <div className="text-[10px] text-zinc-500 font-mono mt-2">导入全部项目与资产库备份</div>
+              </button>
             </div>
           </div>
         </div>
@@ -484,6 +632,14 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
           </div>
         </div>
       )}
+
+      <input
+        ref={importInputRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={handleImportFileChange}
+      />
     </div>
   );
 };
