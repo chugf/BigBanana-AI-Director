@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Loader2, RefreshCw, Check, Grid3x3, AlertCircle } from 'lucide-react';
+import { X, Loader2, RefreshCw, Check, Grid3x3, AlertCircle, Image as ImageIcon, Crop } from 'lucide-react';
 import { NineGridData, NineGridPanel } from '../../types';
 import { NINE_GRID } from './constants';
 
@@ -8,6 +8,7 @@ interface NineGridPreviewProps {
   nineGrid?: NineGridData;
   onClose: () => void;
   onSelectPanel: (panel: NineGridPanel) => void;
+  onUseWholeImage: () => void;  // 整张九宫格图直接用作首帧
   onRegenerate: () => void;
 }
 
@@ -16,6 +17,7 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
   nineGrid,
   onClose,
   onSelectPanel,
+  onUseWholeImage,
   onRegenerate
 }) => {
   const [hoveredPanel, setHoveredPanel] = useState<number | null>(null);
@@ -219,27 +221,34 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
               </div>
 
               {/* Action Bar */}
-              <div className="flex items-center justify-between pt-2 border-t border-[var(--border-primary)]">
-                <p className="text-[10px] text-[var(--text-muted)]">
+              <div className="flex items-center justify-between pt-3 border-t border-[var(--border-primary)]">
+                <p className="text-[10px] text-[var(--text-muted)] max-w-[280px]">
                   {selectedPanel !== null 
-                    ? `已选择: 面板 ${selectedPanel + 1} - ${nineGrid.panels[selectedPanel]?.shotSize} / ${nineGrid.panels[selectedPanel]?.cameraAngle}`
-                    : '点击九宫格中的面板选择视角，选中后可将该视角用于首帧生成'
+                    ? `已选择面板 ${selectedPanel + 1}: ${nineGrid.panels[selectedPanel]?.shotSize} / ${nineGrid.panels[selectedPanel]?.cameraAngle}`
+                    : '可直接使用整张九宫格图作为首帧，或点击选择某个格子裁剪使用'
                   }
                 </p>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={onClose}
-                    className="px-4 py-2 bg-[var(--bg-hover)] hover:bg-[var(--border-secondary)] text-[var(--text-secondary)] rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors"
+                    className="px-3 py-2 bg-[var(--bg-hover)] hover:bg-[var(--border-secondary)] text-[var(--text-secondary)] rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors"
                   >
                     取消
                   </button>
                   <button
+                    onClick={onUseWholeImage}
+                    className="px-3 py-2 bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] border border-[var(--border-secondary)] hover:border-[var(--border-primary)] rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors flex items-center gap-1.5"
+                  >
+                    <ImageIcon className="w-3 h-3" />
+                    整图用作首帧
+                  </button>
+                  <button
                     onClick={handleConfirmSelect}
                     disabled={selectedPanel === null}
-                    className="px-4 py-2 bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-[var(--btn-primary-shadow)]"
+                    className="px-3 py-2 bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-[var(--btn-primary-shadow)]"
                   >
-                    <Check className="w-3 h-3" />
-                    选用此视角生成首帧
+                    <Crop className="w-3 h-3" />
+                    裁剪选中格用作首帧
                   </button>
                 </div>
               </div>

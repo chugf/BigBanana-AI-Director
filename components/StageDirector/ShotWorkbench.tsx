@@ -271,7 +271,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
                 alt="九宫格分镜预览"
               />
               <div className="absolute inset-0 bg-[var(--bg-base)]/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                <span className="text-[var(--text-primary)] text-xs font-mono">点击查看 & 选择视角</span>
+                <span className="text-[var(--text-primary)] text-xs font-mono">点击选择视角作为首帧</span>
               </div>
             </div>
           )}

@@ -365,3 +365,62 @@ ${cameraMovement}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${characterConsistencyGuide}`;
 };
+
+/**
+ * 从九宫格图片中裁剪出指定面板的图片
+ * 将 3x3 网格中的某一格裁剪为独立的 base64 图片
+ * @param nineGridImageUrl - 九宫格整图 (base64)
+ * @param panelIndex - 面板索引 (0-8)
+ * @returns 裁剪后的 base64 图片
+ */
+export const cropPanelFromNineGrid = (
+  nineGridImageUrl: string,
+  panelIndex: number
+): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('无法创建 Canvas 上下文'));
+          return;
+        }
+        
+        // 计算裁剪区域：3x3 网格
+        const col = panelIndex % 3;        // 列 (0, 1, 2)
+        const row = Math.floor(panelIndex / 3); // 行 (0, 1, 2)
+        
+        const panelWidth = img.width / 3;
+        const panelHeight = img.height / 3;
+        
+        const sx = col * panelWidth;
+        const sy = row * panelHeight;
+        
+        // 设置输出 canvas 尺寸为单个面板大小
+        canvas.width = Math.round(panelWidth);
+        canvas.height = Math.round(panelHeight);
+        
+        // 裁剪并绘制
+        ctx.drawImage(
+          img,
+          Math.round(sx), Math.round(sy),   // 源坐标
+          Math.round(panelWidth), Math.round(panelHeight), // 源尺寸
+          0, 0,                               // 目标坐标
+          canvas.width, canvas.height          // 目标尺寸
+        );
+        
+        // 转换为 base64
+        const croppedBase64 = canvas.toDataURL('image/png');
+        resolve(croppedBase64);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => {
+      reject(new Error('九宫格图片加载失败'));
+    };
+    img.src = nineGridImageUrl;
+  });
+};

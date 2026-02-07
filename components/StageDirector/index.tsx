@@ -16,7 +16,8 @@ import {
   generateSubShotIds,
   createSubShot,
   replaceShotWithSubShots,
-  buildPromptFromNineGridPanel
+  buildPromptFromNineGridPanel,
+  cropPanelFromNineGrid
 } from './utils';
 import { DEFAULTS } from './constants';
 import EditModal from './EditModal';
@@ -743,14 +744,14 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
 
   /**
    * 九宫格分镜预览 - 选择面板
-   * 将选中的九宫格视角描述写入首帧 visualPrompt
+   * 从九宫格图片中裁剪选中的面板，直接作为首帧使用（九宫格与首帧是替代关系）
    */
-  const handleSelectNineGridPanel = (panel: NineGridPanel) => {
-    if (!activeShot) return;
+  const handleSelectNineGridPanel = async (panel: NineGridPanel) => {
+    if (!activeShot || !activeShot.nineGrid?.imageUrl) return;
     
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
     
-    // 构建首帧提示词
+    // 1. 构建首帧提示词（保留视角信息，方便后续重新生成）
     const prompt = buildPromptFromNineGridPanel(
       panel,
       activeShot.actionSummary,
@@ -758,21 +759,51 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
       activeShot.cameraMovement
     );
     
-    // 更新首帧的 visualPrompt
     const existingKf = activeShot.keyframes?.find(k => k.type === 'start');
     const kfId = existingKf?.id || generateId(`kf-${activeShot.id}-start`);
+    
+    try {
+      // 2. 从九宫格图片中裁剪出选中的面板
+      const croppedImageUrl = await cropPanelFromNineGrid(activeShot.nineGrid.imageUrl, panel.index);
+      
+      // 3. 将裁剪后的图片直接设为首帧（九宫格与首帧是替代关系）
+      updateShot(activeShot.id, (s) => {
+        return updateKeyframeInShot(
+          s,
+          'start',
+          createKeyframe(kfId, 'start', prompt, croppedImageUrl, 'completed')
+        );
+      });
+      
+      // 4. 关闭弹窗
+      setShowNineGrid(false);
+      showAlert(`已将「${panel.shotSize}/${panel.cameraAngle}」视角设为首帧`, { type: 'success' });
+    } catch (e: any) {
+      console.error('裁剪九宫格面板失败:', e);
+      showAlert(`裁剪失败: ${e.message}`, { type: 'error' });
+    }
+  };
+
+  /**
+   * 九宫格分镜预览 - 整张图直接用作首帧
+   */
+  const handleUseWholeNineGridAsFrame = () => {
+    if (!activeShot || !activeShot.nineGrid?.imageUrl) return;
+    
+    const existingKf = activeShot.keyframes?.find(k => k.type === 'start');
+    const kfId = existingKf?.id || generateId(`kf-${activeShot.id}-start`);
+    const prompt = `九宫格分镜全图 - ${activeShot.actionSummary}`;
     
     updateShot(activeShot.id, (s) => {
       return updateKeyframeInShot(
         s,
         'start',
-        createKeyframe(kfId, 'start', prompt, existingKf?.imageUrl, existingKf?.status || 'pending')
+        createKeyframe(kfId, 'start', prompt, activeShot.nineGrid!.imageUrl!, 'completed')
       );
     });
     
-    // 关闭九宫格弹窗
     setShowNineGrid(false);
-    showAlert(`已选用「${panel.shotSize}/${panel.cameraAngle}」视角，可点击"生成"按钮生成首帧`, { type: 'success' });
+    showAlert('已将九宫格整图设为首帧', { type: 'success' });
   };
 
   // 空状态
@@ -945,6 +976,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
           nineGrid={activeShot.nineGrid}
           onClose={() => setShowNineGrid(false)}
           onSelectPanel={handleSelectNineGridPanel}
+          onUseWholeImage={handleUseWholeNineGridAsFrame}
           onRegenerate={() => handleGenerateNineGrid(activeShot)}
         />
       )}
