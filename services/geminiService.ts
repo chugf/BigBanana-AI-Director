@@ -240,6 +240,7 @@ const retryOperation = async <T>(operation: () => Promise<T>, maxRetries: number
         e.message?.includes('ECONNRESET') ||
         e.message?.includes('ETIMEDOUT') ||
         e.message?.includes('network') ||
+        e.message?.includes('openai_error') || // 通用 OpenAI 网关错误（常见于504等场景）
         e.status >= 500; // 服务器错误也重试
       
       if (isRetryableError && i < maxRetries - 1) {
@@ -332,7 +333,8 @@ const chatCompletion = async (prompt: string, model: string = 'gpt-5.1', tempera
     });
 
   if (!response.ok) {
-    let errorMessage = `HTTP错误: ${response.status}`;
+    const httpStatus = response.status;
+    let errorMessage = `HTTP错误: ${httpStatus}`;
     try {
       const errorData = await response.json();
       errorMessage = errorData.error?.message || errorMessage;
@@ -340,7 +342,9 @@ const chatCompletion = async (prompt: string, model: string = 'gpt-5.1', tempera
       const errorText = await response.text();
       if (errorText) errorMessage = errorText;
     }
-    throw new Error(errorMessage);
+    const err: any = new Error(errorMessage);
+    err.status = httpStatus; // 保留 HTTP 状态码，供 retryOperation 判断
+    throw err;
   }
 
   const data = await response.json();
@@ -404,7 +408,8 @@ const chatCompletionStream = async (
     });
 
     if (!response.ok) {
-      let errorMessage = `HTTP错误: ${response.status}`;
+      const httpStatus = response.status;
+      let errorMessage = `HTTP错误: ${httpStatus}`;
       try {
         const errorData = await response.json();
         errorMessage = errorData.error?.message || errorMessage;
@@ -412,7 +417,9 @@ const chatCompletionStream = async (
         const errorText = await response.text();
         if (errorText) errorMessage = errorText;
       }
-      throw new Error(errorMessage);
+      const err: any = new Error(errorMessage);
+      err.status = httpStatus; // 保留 HTTP 状态码，供 retryOperation 判断
+      throw err;
     }
 
     if (!response.body) {
