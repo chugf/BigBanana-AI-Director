@@ -1,5 +1,5 @@
-import { Shot, ProjectState, Keyframe } from '../../types';
-import { VISUAL_STYLE_PROMPTS, VIDEO_PROMPT_TEMPLATES } from './constants';
+import { Shot, ProjectState, Keyframe, NineGridPanel, NineGridData } from '../../types';
+import { VISUAL_STYLE_PROMPTS, VIDEO_PROMPT_TEMPLATES, NINE_GRID } from './constants';
 import { getCameraMovementCompositionGuide } from './cameraMovementGuides';
 
 /**
@@ -126,15 +126,44 @@ export const buildKeyframePromptWithAI = async (
 
 /**
  * 构建视频生成提示词
+ * @param nineGrid - 可选，如果首帧来自九宫格整图，则使用九宫格分镜模式的视频提示词
+ * @param videoDuration - 视频总时长（秒），用于计算九宫格模式下每个面板的停留时间
  */
 export const buildVideoPrompt = (
   actionSummary: string,
   cameraMovement: string,
   videoModel: 'sora-2' | 'veo' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait' | string,
-  language: string
+  language: string,
+  nineGrid?: NineGridData,
+  videoDuration?: number
 ): string => {
   const isChinese = language === '中文' || language === 'Chinese';
   
+  // 九宫格分镜模式：有九宫格数据时，使用对应模型的专用提示词
+  if (nineGrid && nineGrid.panels.length > 0 && (videoModel === 'sora-2' || videoModel === 'veo-r2v')) {
+    const panelDescriptions = nineGrid.panels.map((p, idx) => 
+      `  面板${idx + 1} [${NINE_GRID.positionLabels[idx]}]: ${p.shotSize}/${p.cameraAngle} - ${p.description}`
+    ).join('\n');
+    
+    const totalDuration = videoDuration || 8;
+    const secondsPerPanel = Math.max(0.5, Math.round((totalDuration / 9) * 10) / 10);
+    
+    // sora-2 和 veo-r2v 各用自己的九宫格模板
+    const templateGroup = videoModel === 'sora-2' 
+      ? VIDEO_PROMPT_TEMPLATES.sora2NineGrid
+      : VIDEO_PROMPT_TEMPLATES.veoNineGrid;
+    
+    const template = isChinese ? templateGroup.chinese : templateGroup.english;
+    
+    return template
+      .replace('{actionSummary}', actionSummary)
+      .replace('{panelDescriptions}', panelDescriptions)
+      .replace(/\{secondsPerPanel\}/g, String(secondsPerPanel))
+      .replace('{cameraMovement}', cameraMovement)
+      .replace('{language}', language);
+  }
+  
+  // 普通模式
   if (videoModel === 'sora-2') {
     const template = isChinese 
       ? VIDEO_PROMPT_TEMPLATES.sora2.chinese 
@@ -314,4 +343,113 @@ export const replaceShotWithSubShots = (
   ];
   
   return newShots;
+};
+
+// ============================================
+// 九宫格分镜预览工具函数（高级功能）
+// ============================================
+
+/**
+ * 将选中的九宫格面板描述转换为首帧提示词
+ * 将九宫格中选定的视角信息融合到首帧提示词中
+ * @param panel - 选中的九宫格面板
+ * @param actionSummary - 原始动作描述
+ * @param visualStyle - 视觉风格
+ * @param cameraMovement - 原始镜头运动
+ * @returns 构建好的首帧提示词
+ */
+export const buildPromptFromNineGridPanel = (
+  panel: NineGridPanel,
+  actionSummary: string,
+  visualStyle: string,
+  cameraMovement: string
+): string => {
+  const stylePrompt = VISUAL_STYLE_PROMPTS[visualStyle] || visualStyle;
+  
+  // 角色一致性要求
+  const characterConsistencyGuide = `【角色一致性要求】CHARACTER CONSISTENCY REQUIREMENTS - CRITICAL
+⚠️ 如果提供了角色参考图,画面中的人物外观必须严格遵循参考图:
+• 面部特征: 五官轮廓、眼睛颜色和形状、鼻子和嘴巴的结构必须完全一致
+• 发型发色: 头发的长度、颜色、质感、发型样式必须保持一致
+• 服装造型: 服装的款式、颜色、材质、配饰必须与参考图匹配
+• 体型特征: 身材比例、身高体型必须保持一致
+⚠️ 这是最高优先级要求,不可妥协!`;
+
+  return `${panel.description}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【来源】九宫格分镜预览 - ${NINE_GRID.positionLabels[panel.index]}
+【景别】${panel.shotSize}
+【机位角度】${panel.cameraAngle}
+【原始动作】${actionSummary}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【视觉风格】Visual Style
+${stylePrompt}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【镜头运动】Camera Movement
+${cameraMovement}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${characterConsistencyGuide}`;
+};
+
+/**
+ * 从九宫格图片中裁剪出指定面板的图片
+ * 将 3x3 网格中的某一格裁剪为独立的 base64 图片
+ * @param nineGridImageUrl - 九宫格整图 (base64)
+ * @param panelIndex - 面板索引 (0-8)
+ * @returns 裁剪后的 base64 图片
+ */
+export const cropPanelFromNineGrid = (
+  nineGridImageUrl: string,
+  panelIndex: number
+): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('无法创建 Canvas 上下文'));
+          return;
+        }
+        
+        // 计算裁剪区域：3x3 网格
+        const col = panelIndex % 3;        // 列 (0, 1, 2)
+        const row = Math.floor(panelIndex / 3); // 行 (0, 1, 2)
+        
+        const panelWidth = img.width / 3;
+        const panelHeight = img.height / 3;
+        
+        const sx = col * panelWidth;
+        const sy = row * panelHeight;
+        
+        // 设置输出 canvas 尺寸为单个面板大小
+        canvas.width = Math.round(panelWidth);
+        canvas.height = Math.round(panelHeight);
+        
+        // 裁剪并绘制
+        ctx.drawImage(
+          img,
+          Math.round(sx), Math.round(sy),   // 源坐标
+          Math.round(panelWidth), Math.round(panelHeight), // 源尺寸
+          0, 0,                               // 目标坐标
+          canvas.width, canvas.height          // 目标尺寸
+        );
+        
+        // 转换为 base64
+        const croppedBase64 = canvas.toDataURL('image/png');
+        resolve(croppedBase64);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => {
+      reject(new Error('九宫格图片加载失败'));
+    };
+    img.src = nineGridImageUrl;
+  });
 };

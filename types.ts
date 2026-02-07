@@ -64,6 +64,26 @@ export interface VideoInterval {
   status: 'pending' | 'generating' | 'completed' | 'failed';
 }
 
+/**
+ * 九宫格分镜预览 - 单个面板数据
+ */
+export interface NineGridPanel {
+  index: number;           // 0-8, 九宫格位置索引
+  shotSize: string;        // 景别：特写/近景/中景/全景/远景 等
+  cameraAngle: string;     // 机位角度：俯拍/仰拍/平视/斜拍 等
+  description: string;     // 该格子的视觉描述
+}
+
+/**
+ * 九宫格分镜预览数据
+ */
+export interface NineGridData {
+  panels: NineGridPanel[];  // 9个格子的描述数据
+  imageUrl?: string;        // 生成的九宫格图片 (base64)
+  prompt?: string;          // 生成时使用的完整提示词
+  status: 'pending' | 'generating' | 'completed' | 'failed';
+}
+
 export interface Shot {
   id: string;
   sceneId: string;
@@ -75,7 +95,8 @@ export interface Shot {
   characterVariations?: { [characterId: string]: string }; // Added: Map char ID to variation ID for this shot
   keyframes: Keyframe[];
   interval?: VideoInterval;
-  videoModel?: 'veo' | 'sora-2' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait'; // Video generation model selection
+  videoModel?: 'veo' | 'veo-r2v' | 'sora-2' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait'; // Video generation model selection
+  nineGrid?: NineGridData; // 可选的九宫格分镜预览数据（高级功能）
 }
 
 export interface ScriptData {

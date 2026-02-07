@@ -212,7 +212,7 @@ export const DEFAULT_IMAGE_PARAMS: ImageModelParams = {
 };
 
 /**
- * 默认视频模型参数 (Veo)
+ * 默认视频模型参数 (Veo 首尾帧模式)
  */
 export const DEFAULT_VIDEO_PARAMS_VEO: VideoModelParams = {
   mode: 'sync',
@@ -220,6 +220,17 @@ export const DEFAULT_VIDEO_PARAMS_VEO: VideoModelParams = {
   supportedAspectRatios: ['16:9', '9:16'],  // Veo 不支持 1:1
   defaultDuration: 8,
   supportedDurations: [8],  // Veo 固定时长
+};
+
+/**
+ * 默认视频模型参数 (Veo R2V 多图模式)
+ */
+export const DEFAULT_VIDEO_PARAMS_VEO_R2V: VideoModelParams = {
+  mode: 'sync',
+  defaultAspectRatio: '16:9',
+  supportedAspectRatios: ['16:9', '9:16'],
+  defaultDuration: 8,
+  supportedDurations: [8],
 };
 
 /**
@@ -306,14 +317,25 @@ export const BUILTIN_IMAGE_MODELS: ImageModelDefinition[] = [
 export const BUILTIN_VIDEO_MODELS: VideoModelDefinition[] = [
   {
     id: 'veo',
-    name: 'Veo 3.1 (Auto)',
+    name: 'Veo 3.1 首尾帧',
     type: 'video',
     providerId: 'antsk',
     endpoint: '/v1/chat/completions',
-    description: 'Google Veo 视频生成（自动按横竖屏与是否带图选择模型），同步模式',
+    description: 'Veo 3.1 首尾帧模式（自动按横竖屏选择模型），需要起始帧和结束帧',
     isBuiltIn: true,
     isEnabled: true,
     params: { ...DEFAULT_VIDEO_PARAMS_VEO },
+  },
+  {
+    id: 'veo-r2v',
+    name: 'Veo 3.0 多图模式',
+    type: 'video',
+    providerId: 'antsk',
+    endpoint: '/v1/chat/completions',
+    description: 'Veo 3.0 多图生成视频，可传入1张或多张参考图（角色+场景），无需首尾帧',
+    isBuiltIn: true,
+    isEnabled: true,
+    params: { ...DEFAULT_VIDEO_PARAMS_VEO_R2V },
   },
   {
     id: 'sora-2',

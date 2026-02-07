@@ -1,6 +1,6 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight, X, Film, Edit2, MessageSquare, Sparkles, Loader2, Scissors } from 'lucide-react';
-import { Shot, Character, Scene, ProjectState, AspectRatio, VideoDuration } from '../../types';
+import { ChevronLeft, ChevronRight, X, Film, Edit2, MessageSquare, Sparkles, Loader2, Scissors, Grid3x3 } from 'lucide-react';
+import { Shot, Character, Scene, ProjectState, AspectRatio, VideoDuration, NineGridData, NineGridPanel } from '../../types';
 import SceneContext from './SceneContext';
 import KeyframeEditor from './KeyframeEditor';
 import VideoGenerator from './VideoGenerator';
@@ -37,6 +37,13 @@ interface ShotWorkbenchProps {
   onEditVideoPrompt: () => void;
   onVideoModelChange: (modelId: string) => void;
   onImageClick: (url: string, title: string) => void;
+  /** 参考图数量（角色+场景），用于多图模式提示 */
+  referenceImageCount?: number;
+  // 九宫格分镜预览（高级功能）
+  onGenerateNineGrid: () => void;
+  nineGrid?: NineGridData;
+  onSelectNineGridPanel: (panel: NineGridPanel) => void;
+  onShowNineGrid: () => void;
 }
 
 const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
@@ -70,7 +77,12 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   onGenerateVideo,
   onEditVideoPrompt,
   onVideoModelChange,
-  onImageClick
+  onImageClick,
+  referenceImageCount = 0,
+  onGenerateNineGrid,
+  nineGrid,
+  onSelectNineGridPanel,
+  onShowNineGrid
 }) => {
   const scene = scriptData?.scenes.find(s => String(s.id) === String(shot.sceneId));
   const activeCharacters = scriptData?.characters.filter(c => shot.characters.includes(c.id)) || [];
@@ -214,6 +226,62 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
           </div>
         </div>
 
+        {/* Nine Grid Storyboard Preview - Advanced Feature (不在 veo 首尾帧模式下显示) */}
+        {currentVideoModelId !== 'veo' && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={nineGrid?.status === 'completed' ? onShowNineGrid : onGenerateNineGrid}
+              disabled={nineGrid?.status === 'generating'}
+              className={`flex-1 py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 border ${
+                nineGrid?.status === 'generating'
+                  ? 'bg-[var(--bg-surface)] text-[var(--text-muted)] border-[var(--border-primary)] cursor-wait'
+                  : nineGrid?.status === 'completed'
+                    ? 'bg-[var(--success-bg)] text-[var(--success-text)] border-[var(--success-border)] hover:bg-[var(--success-hover-bg)]'
+                    : 'bg-[var(--bg-surface)] text-[var(--text-tertiary)] border-[var(--border-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-primary)] hover:bg-[var(--bg-hover)]'
+              }`}
+              title="九宫格分镜预览 - 使用AI将镜头拆分为9个不同视角的预览图"
+            >
+              {nineGrid?.status === 'generating' ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>九宫格生成中...</span>
+                </>
+              ) : nineGrid?.status === 'completed' ? (
+                <>
+                  <Grid3x3 className="w-3.5 h-3.5" />
+                  <span>查看九宫格分镜</span>
+                  <span className="ml-1 px-1.5 py-0.5 bg-[var(--success-text)]/10 rounded text-[8px]">Advanced</span>
+                </>
+              ) : (
+                <>
+                  <Grid3x3 className="w-3.5 h-3.5" />
+                  <span>九宫格分镜预览</span>
+                  <span className="ml-1 px-1.5 py-0.5 bg-[var(--accent)]/10 text-[var(--accent-text)] rounded text-[8px]">Advanced</span>
+                </>
+              )}
+            </button>
+          </div>
+          
+          {/* Nine Grid thumbnail preview (if generated) */}
+          {nineGrid?.status === 'completed' && nineGrid.imageUrl && (
+            <div 
+              className="relative bg-[var(--bg-base)] rounded-lg border border-[var(--border-primary)] overflow-hidden cursor-pointer group"
+              onClick={onShowNineGrid}
+            >
+              <img
+                src={nineGrid.imageUrl}
+                className="w-full h-auto block transition-transform duration-300 group-hover:scale-105"
+                alt="九宫格分镜预览"
+              />
+              <div className="absolute inset-0 bg-[var(--bg-base)]/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                <span className="text-[var(--text-primary)] text-xs font-mono">点击选择视角作为首帧</span>
+              </div>
+            </div>
+          )}
+        </div>
+        )}
+
         {/* Visual Production */}
         <KeyframeEditor
           startKeyframe={startKf}
@@ -239,6 +307,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
           shot={shot}
           hasStartFrame={!!startKf?.imageUrl}
           hasEndFrame={!!endKf?.imageUrl}
+          referenceImageCount={referenceImageCount}
           onGenerate={onGenerateVideo}
           onEditPrompt={onEditVideoPrompt}
           onModelChange={onVideoModelChange}
