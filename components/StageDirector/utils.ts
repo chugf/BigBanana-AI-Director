@@ -3,12 +3,25 @@ import { VISUAL_STYLE_PROMPTS, VIDEO_PROMPT_TEMPLATES, NINE_GRID } from './const
 import { getCameraMovementCompositionGuide } from './cameraMovementGuides';
 
 /**
- * 获取镜头的参考图片
+ * getRefImagesForShot 的返回类型
+ * hasTurnaround 标记是否包含了角色九宫格造型图，
+ * 用于在提示词中告知 AI 如何正确解读多视角参考。
  */
-export const getRefImagesForShot = (shot: Shot, scriptData: ProjectState['scriptData']): string[] => {
+export interface RefImagesResult {
+  images: string[];
+  hasTurnaround: boolean;
+}
+
+/**
+ * 获取镜头的参考图片
+ * 增强版：如果角色有九宫格造型图，将整张九宫格图作为额外参考传入，
+ * 并通过 hasTurnaround 标记告知调用方，以便在提示词中正确描述。
+ */
+export const getRefImagesForShot = (shot: Shot, scriptData: ProjectState['scriptData']): RefImagesResult => {
   const referenceImages: string[] = [];
+  let hasTurnaround = false;
   
-  if (!scriptData) return referenceImages;
+  if (!scriptData) return { images: referenceImages, hasTurnaround };
   
   // 1. 场景参考图（环境/氛围） - 优先级最高
   const scene = scriptData.scenes.find(s => String(s.id) === String(shot.sceneId));
@@ -32,9 +45,15 @@ export const getRefImagesForShot = (shot: Shot, scriptData: ProjectState['script
         }
       }
 
-      // 回退到基础图片
+      // 基础参考图
       if (char.referenceImage) {
         referenceImages.push(char.referenceImage);
+      }
+
+      // 如果角色有已完成的九宫格造型图，追加为额外参考
+      if (char.turnaround?.status === 'completed' && char.turnaround.imageUrl) {
+        referenceImages.push(char.turnaround.imageUrl);
+        hasTurnaround = true;
       }
     });
   }
@@ -49,7 +68,7 @@ export const getRefImagesForShot = (shot: Shot, scriptData: ProjectState['script
     });
   }
   
-  return referenceImages;
+  return { images: referenceImages, hasTurnaround };
 };
 
 /**

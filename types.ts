@@ -7,6 +7,31 @@ export interface CharacterVariation {
   status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
 }
 
+/**
+ * 角色九宫格造型设计 - 单个视角面板数据
+ * 用于多视角展示角色外观，提升镜头图生成时的角色一致性
+ */
+export interface CharacterTurnaroundPanel {
+  index: number;           // 0-8, 九宫格位置索引
+  viewAngle: string;       // 视角：正面/左侧面/右侧面/背面/3/4左侧/3/4右侧/俯视/仰视 等
+  shotSize: string;        // 景别：全身/半身/特写 等
+  description: string;     // 该格子的视觉描述
+}
+
+/**
+ * 角色九宫格造型设计数据
+ * 提供角色的多视角参考图，用于在分镜生成时按镜头角度匹配最佳参考
+ */
+export interface CharacterTurnaroundData {
+  panels: CharacterTurnaroundPanel[];  // 9个格子的描述数据
+  imageUrl?: string;                    // 生成的九宫格整图 (base64)，直接作为多视角参考图使用
+  prompt?: string;                      // 生成时使用的完整提示词
+  status: 'pending' | 'generating_panels' | 'panels_ready' | 'generating_image' | 'completed' | 'failed';
+  // generating_panels: AI正在生成9个视角描述
+  // panels_ready: 视角描述已生成，等待用户确认/编辑后再生成图片
+  // generating_image: 用户已确认，正在生成九宫格图片
+}
+
 export interface Character {
   id: string;
   name: string;
@@ -17,6 +42,7 @@ export interface Character {
   negativePrompt?: string; // 负面提示词，用于排除不想要的元素
   coreFeatures?: string; // 核心固定特征，用于保持角色一致性
   referenceImage?: string; // 角色基础参考图，存储为base64格式（data:image/png;base64,...）
+  turnaround?: CharacterTurnaroundData; // 角色九宫格造型设计，多视角参考图
   variations: CharacterVariation[]; // Added: List of alternative looks
   status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
 }

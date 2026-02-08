@@ -61,6 +61,9 @@ export {
   generateAllCharacterPrompts,
   generateVisualPrompts,
   generateImage,
+  CHARACTER_TURNAROUND_LAYOUT,
+  generateCharacterTurnaroundPanels,
+  generateCharacterTurnaroundImage,
 } from './visualService';
 
 // 视频生成服务

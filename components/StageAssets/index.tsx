@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Sparkles, RefreshCw, Loader2, MapPin, Archive, X, Search, Trash2, Package } from 'lucide-react';
-import { ProjectState, CharacterVariation, Character, Scene, Prop, AspectRatio, AssetLibraryItem } from '../../types';
-import { generateImage, generateVisualPrompts } from '../../services/aiService';
+import { ProjectState, CharacterVariation, Character, Scene, Prop, AspectRatio, AssetLibraryItem, CharacterTurnaroundPanel } from '../../types';
+import { generateImage, generateVisualPrompts, generateCharacterTurnaroundPanels, generateCharacterTurnaroundImage } from '../../services/aiService';
 import { 
   getRegionalPrefix, 
   handleImageUpload, 
@@ -17,6 +17,7 @@ import CharacterCard from './CharacterCard';
 import SceneCard from './SceneCard';
 import PropCard from './PropCard';
 import WardrobeModal from './WardrobeModal';
+import TurnaroundModal from './TurnaroundModal';
 import { useAlert } from '../GlobalAlert';
 import { getAllAssetLibraryItems, saveAssetToLibrary, deleteAssetFromLibrary } from '../../services/storageService';
 import { applyLibraryItemToProject, createLibraryItemFromCharacter, createLibraryItemFromScene, createLibraryItemFromProp, cloneCharacterForProject } from '../../services/assetLibraryService';
@@ -42,6 +43,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const [libraryFilter, setLibraryFilter] = useState<'all' | 'character' | 'scene' | 'prop'>('all');
   const [libraryProjectFilter, setLibraryProjectFilter] = useState('all');
   const [replaceTargetCharId, setReplaceTargetCharId] = useState<string | null>(null);
+  const [turnaroundCharId, setTurnaroundCharId] = useState<string | null>(null);
   
   // 横竖屏选择状态（从持久化配置读取）
   const [aspectRatio, setAspectRatioState] = useState<AspectRatio>(() => getUserAspectRatio());
@@ -947,6 +949,157 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     }
   };
 
+  // ============================
+  // 角色九宫格造型相关处理函数
+  // ============================
+
+  /**
+   * 生成角色九宫格造型的视角描述（Step 1）
+   */
+  const handleGenerateTurnaroundPanels = async (charId: string) => {
+    const char = project.scriptData?.characters.find(c => compareIds(c.id, charId));
+    if (!char) return;
+
+    // 设置状态为 generating_panels
+    updateProject((prev) => {
+      if (!prev.scriptData) return prev;
+      const newData = { ...prev.scriptData };
+      const c = newData.characters.find(c => compareIds(c.id, charId));
+      if (c) {
+        c.turnaround = {
+          panels: [],
+          status: 'generating_panels',
+        };
+      }
+      return { ...prev, scriptData: newData };
+    });
+
+    try {
+      const panels = await generateCharacterTurnaroundPanels(
+        char,
+        visualStyle,
+        project.scriptData?.artDirection,
+        language
+      );
+
+      // 更新状态为 panels_ready
+      updateProject((prev) => {
+        if (!prev.scriptData) return prev;
+        const newData = { ...prev.scriptData };
+        const c = newData.characters.find(c => compareIds(c.id, charId));
+        if (c) {
+          c.turnaround = {
+            panels,
+            status: 'panels_ready',
+          };
+        }
+        return { ...prev, scriptData: newData };
+      });
+    } catch (e: any) {
+      console.error('九宫格视角描述生成失败:', e);
+      updateProject((prev) => {
+        if (!prev.scriptData) return prev;
+        const newData = { ...prev.scriptData };
+        const c = newData.characters.find(c => compareIds(c.id, charId));
+        if (c && c.turnaround) {
+          c.turnaround.status = 'failed';
+        }
+        return { ...prev, scriptData: newData };
+      });
+      if (onApiKeyError && onApiKeyError(e)) return;
+      showAlert('九宫格视角描述生成失败', { type: 'error' });
+    }
+  };
+
+  /**
+   * 确认视角描述并生成九宫格图片（Step 2）
+   */
+  const handleConfirmTurnaroundPanels = async (charId: string, panels: CharacterTurnaroundPanel[]) => {
+    const char = project.scriptData?.characters.find(c => compareIds(c.id, charId));
+    if (!char) return;
+
+    // 设置状态为 generating_image
+    updateProject((prev) => {
+      if (!prev.scriptData) return prev;
+      const newData = { ...prev.scriptData };
+      const c = newData.characters.find(c => compareIds(c.id, charId));
+      if (c && c.turnaround) {
+        c.turnaround.status = 'generating_image';
+        c.turnaround.panels = panels;
+      }
+      return { ...prev, scriptData: newData };
+    });
+
+    try {
+      const imageUrl = await generateCharacterTurnaroundImage(
+        char,
+        panels,
+        visualStyle,
+        char.referenceImage,
+        project.scriptData?.artDirection
+      );
+
+      // 更新状态为 completed
+      updateProject((prev) => {
+        if (!prev.scriptData) return prev;
+        const newData = { ...prev.scriptData };
+        const c = newData.characters.find(c => compareIds(c.id, charId));
+        if (c && c.turnaround) {
+          c.turnaround.imageUrl = imageUrl;
+          c.turnaround.status = 'completed';
+        }
+        return { ...prev, scriptData: newData };
+      });
+    } catch (e: any) {
+      console.error('九宫格造型图片生成失败:', e);
+      updateProject((prev) => {
+        if (!prev.scriptData) return prev;
+        const newData = { ...prev.scriptData };
+        const c = newData.characters.find(c => compareIds(c.id, charId));
+        if (c && c.turnaround) {
+          c.turnaround.status = 'failed';
+        }
+        return { ...prev, scriptData: newData };
+      });
+      if (onApiKeyError && onApiKeyError(e)) return;
+      showAlert('九宫格造型图片生成失败', { type: 'error' });
+    }
+  };
+
+  /**
+   * 更新九宫格造型的单个面板
+   */
+  const handleUpdateTurnaroundPanel = (charId: string, index: number, updates: Partial<CharacterTurnaroundPanel>) => {
+    updateProject((prev) => {
+      if (!prev.scriptData) return prev;
+      const newData = { ...prev.scriptData };
+      const c = newData.characters.find(c => compareIds(c.id, charId));
+      if (c && c.turnaround && c.turnaround.panels[index]) {
+        c.turnaround.panels[index] = { ...c.turnaround.panels[index], ...updates };
+      }
+      return { ...prev, scriptData: newData };
+    });
+  };
+
+  /**
+   * 重新生成九宫格造型（文案+图片全部重来）
+   */
+  const handleRegenerateTurnaround = (charId: string) => {
+    handleGenerateTurnaroundPanels(charId);
+  };
+
+  /**
+   * 仅重新生成九宫格造型图片（保留已有的视角描述文案）
+   * 当用户对文案满意但图片效果不好时使用
+   */
+  const handleRegenerateTurnaroundImage = (charId: string) => {
+    const char = project.scriptData?.characters.find(c => compareIds(c.id, charId));
+    if (!char || !char.turnaround?.panels || char.turnaround.panels.length !== 9) return;
+    
+    // 直接使用已有的面板描述重新生成图片
+    handleConfirmTurnaroundPanels(charId, char.turnaround.panels);
+  };
+
   // 空状态
   if (!project.scriptData) {
     return (
@@ -1014,6 +1167,23 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
           onImageClick={setPreviewImage}
         />
       )}
+
+      {/* Turnaround Modal */}
+      {turnaroundCharId && (() => {
+        const turnaroundChar = project.scriptData?.characters.find(c => compareIds(c.id, turnaroundCharId));
+        return turnaroundChar ? (
+          <TurnaroundModal
+            character={turnaroundChar}
+            onClose={() => setTurnaroundCharId(null)}
+            onGeneratePanels={handleGenerateTurnaroundPanels}
+            onConfirmPanels={handleConfirmTurnaroundPanels}
+            onUpdatePanel={handleUpdateTurnaroundPanel}
+            onRegenerate={handleRegenerateTurnaround}
+            onRegenerateImage={handleRegenerateTurnaroundImage}
+            onImageClick={setPreviewImage}
+          />
+        ) : null;
+      })()}
 
       {/* Asset Library Modal */}
       {showLibraryModal && (
@@ -1266,6 +1436,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
                 onUpload={(file) => handleUploadCharacterImage(char.id, file)}
                 onPromptSave={(newPrompt) => handleSaveCharacterPrompt(char.id, newPrompt)}
                 onOpenWardrobe={() => setSelectedCharId(char.id)}
+                onOpenTurnaround={() => setTurnaroundCharId(char.id)}
                 onImageClick={setPreviewImage}
                 onDelete={() => handleDeleteCharacter(char.id)}
                 onUpdateInfo={(updates) => handleUpdateCharacterInfo(char.id, updates)}

@@ -3,7 +3,7 @@
  * 包含美术指导文档生成、角色/场景视觉提示词生成、图像生成
  */
 
-import { Character, Scene, AspectRatio, ArtDirection } from "../../types";
+import { Character, Scene, AspectRatio, ArtDirection, CharacterTurnaroundPanel } from "../../types";
 import { addRenderLogWithTokens } from '../renderLogService';
 import {
   retryOperation,
@@ -390,7 +390,8 @@ export const generateImage = async (
   prompt: string,
   referenceImages: string[] = [],
   aspectRatio: AspectRatio = '16:9',
-  isVariation: boolean = false
+  isVariation: boolean = false,
+  hasTurnaround: boolean = false
 ): Promise<string> => {
   const startTime = Date.now();
 
@@ -433,12 +434,22 @@ export const generateImage = async (
       ⚠️ If the new outfit is not clearly visible and different from the reference, the task has FAILED!
     `;
       } else {
+        // 九宫格造型图说明段落（仅在有九宫格时注入）
+        const turnaroundGuide = hasTurnaround ? `
+      4. CHARACTER TURNAROUND SHEET - MULTI-ANGLE REFERENCE:
+         Some character reference images are provided as a 3x3 TURNAROUND SHEET (9-panel grid showing the SAME character from different angles: front, side, back, 3/4 view, close-up, etc.).
+         ⚠️ This turnaround sheet is your MOST IMPORTANT reference for character consistency!
+         • Use the panel that best matches the CAMERA ANGLE of this shot (e.g., if the shot is from behind, refer to the back-view panel)
+         • The character's face, hair, clothing, and body proportions must match ALL panels in the turnaround sheet
+         • The turnaround sheet takes priority over single character reference images for angle-specific details
+         ` : '';
+
         finalPrompt = `
       ⚠️⚠️⚠️ CRITICAL REQUIREMENTS - CHARACTER CONSISTENCY ⚠️⚠️⚠️
       
       Reference Images Information:
       - The FIRST image is the Scene/Environment reference.
-      - Subsequent images are Character references (Base Look or Variation).
+      - Subsequent images are Character references (Base Look or Variation).${hasTurnaround ? '\n      - Some character images are 3x3 TURNAROUND SHEETS showing the character from 9 different angles (front, side, back, close-up, etc.).' : ''}
       - Any remaining images after characters are Prop/Item references (objects that must appear consistently).
       
       Task:
@@ -460,7 +471,7 @@ export const generateImage = async (
          • Shape & Form: The prop's shape, size, and proportions must be identical to the reference
          • Color & Material: Colors, textures, and materials must be consistent
          • Details: Patterns, text, decorations, and distinguishing features must match exactly
-         
+      ${turnaroundGuide}
       ⚠️ DO NOT create variations or interpretations of the character - STRICT REPLICATION ONLY!
       ⚠️ Character appearance consistency is THE MOST IMPORTANT requirement!
       ⚠️ Props/items must also maintain visual consistency with their reference images!
@@ -565,6 +576,224 @@ export const generateImage = async (
       duration: Date.now() - startTime
     });
 
+    throw error;
+  }
+};
+
+// ============================================
+// 角色九宫格造型设计（Turnaround Sheet）
+// ============================================
+
+/**
+ * 角色九宫格造型设计 - 默认视角布局
+ * 覆盖常用的拍摄角度，确保角色从各方向都有参考
+ */
+export const CHARACTER_TURNAROUND_LAYOUT = {
+  panelCount: 9,
+  defaultPanels: [
+    { index: 0, viewAngle: '正面', shotSize: '全身', description: '' },
+    { index: 1, viewAngle: '正面', shotSize: '半身特写', description: '' },
+    { index: 2, viewAngle: '正面', shotSize: '面部特写', description: '' },
+    { index: 3, viewAngle: '左侧面', shotSize: '全身', description: '' },
+    { index: 4, viewAngle: '右侧面', shotSize: '全身', description: '' },
+    { index: 5, viewAngle: '3/4侧面', shotSize: '半身', description: '' },
+    { index: 6, viewAngle: '背面', shotSize: '全身', description: '' },
+    { index: 7, viewAngle: '仰视', shotSize: '半身', description: '' },
+    { index: 8, viewAngle: '俯视', shotSize: '半身', description: '' },
+  ],
+  viewAngles: ['正面', '左侧面', '右侧面', '3/4左侧', '3/4右侧', '背面', '仰视', '俯视', '斜后方'],
+  shotSizes: ['全身', '半身', '半身特写', '面部特写', '大特写'],
+  positionLabels: [
+    '左上 (Top-Left)', '中上 (Top-Center)', '右上 (Top-Right)',
+    '左中 (Middle-Left)', '正中 (Center)', '右中 (Middle-Right)',
+    '左下 (Bottom-Left)', '中下 (Bottom-Center)', '右下 (Bottom-Right)'
+  ],
+};
+
+/**
+ * 生成角色九宫格造型描述（AI拆分9个视角）
+ * 根据角色信息和视觉提示词，生成9个不同视角的详细描述
+ */
+export const generateCharacterTurnaroundPanels = async (
+  character: Character,
+  visualStyle: string,
+  artDirection?: ArtDirection,
+  language: string = '中文',
+  model: string = 'gpt-5.1'
+): Promise<CharacterTurnaroundPanel[]> => {
+  console.log(`🎭 generateCharacterTurnaroundPanels - 为角色 ${character.name} 生成九宫格造型视角`);
+  logScriptProgress(`正在为角色「${character.name}」生成九宫格造型视角描述...`);
+
+  const stylePrompt = getStylePrompt(visualStyle);
+
+  // 构建 Art Direction 注入
+  const artDirectionBlock = artDirection ? `
+## GLOBAL ART DIRECTION (MANDATORY)
+${artDirection.consistencyAnchors}
+Color Palette: Primary=${artDirection.colorPalette.primary}, Secondary=${artDirection.colorPalette.secondary}, Accent=${artDirection.colorPalette.accent}
+Character Design: Proportions=${artDirection.characterDesignRules.proportions}, Eye Style=${artDirection.characterDesignRules.eyeStyle}
+Lighting: ${artDirection.lightingStyle}, Texture: ${artDirection.textureStyle}
+` : '';
+
+  const prompt = `You are an expert character designer and Art Director for ${visualStyle} productions.
+Your task is to create a CHARACTER TURNAROUND SHEET - a 3x3 grid (9 panels) showing the SAME character from 9 different angles and distances.
+
+This is for maintaining character consistency across multiple shots in video production.
+
+${artDirectionBlock}
+## Character Information
+- Name: ${character.name}
+- Gender: ${character.gender}
+- Age: ${character.age}
+- Personality: ${character.personality}
+- Visual Description: ${character.visualPrompt || 'Not specified'}
+
+## Visual Style: ${visualStyle} (${stylePrompt})
+
+## REQUIRED 9 PANELS LAYOUT:
+Panel 0 (Top-Left): 正面/全身 - Front view, full body
+Panel 1 (Top-Center): 正面/半身特写 - Front view, upper body close-up
+Panel 2 (Top-Right): 正面/面部特写 - Front view, face close-up
+Panel 3 (Middle-Left): 左侧面/全身 - Left profile, full body
+Panel 4 (Middle-Center): 右侧面/全身 - Right profile, full body
+Panel 5 (Middle-Right): 3/4侧面/半身 - Three-quarter view, upper body
+Panel 6 (Bottom-Left): 背面/全身 - Back view, full body
+Panel 7 (Bottom-Center): 仰视/半身 - Low angle looking up, upper body
+Panel 8 (Bottom-Right): 俯视/半身 - High angle looking down, upper body
+
+## YOUR TASK:
+For each of the 9 panels, write a detailed visual description of the character from that specific angle.
+
+CRITICAL RULES:
+- The character's appearance (face, hair, clothing, accessories, body proportions) MUST be EXACTLY the same across ALL 9 panels
+- Each description MUST specify the exact viewing angle and distance
+- Include specific details about what is visible from that angle (e.g., back of hairstyle, side profile of face, clothing details visible from that angle)
+- Descriptions should be written in a way that helps image generation AI render the character consistently
+- Each description should be 30-50 words, written in English, as direct image generation prompts
+- Include character pose and expression appropriate for a neutral/characteristic reference sheet pose
+- Include the ${visualStyle} style keywords in each description
+
+Output ONLY valid JSON:
+{
+  "panels": [
+    {
+      "index": 0,
+      "viewAngle": "正面",
+      "shotSize": "全身",
+      "description": "Front full-body view of [character], standing in a neutral pose..."
+    }
+  ]
+}
+
+The "panels" array MUST have exactly 9 items (index 0-8).`;
+
+  try {
+    const responseText = await retryOperation(() => chatCompletion(prompt, model, 0.4, 4096, 'json_object'));
+    const text = cleanJsonString(responseText);
+    const parsed = JSON.parse(text);
+
+    const panels: CharacterTurnaroundPanel[] = [];
+    const rawPanels = Array.isArray(parsed.panels) ? parsed.panels : [];
+
+    for (let i = 0; i < 9; i++) {
+      const raw = rawPanels[i];
+      if (raw) {
+        panels.push({
+          index: i,
+          viewAngle: raw.viewAngle || CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].viewAngle,
+          shotSize: raw.shotSize || CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].shotSize,
+          description: raw.description || '',
+        });
+      } else {
+        panels.push({
+          ...CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i],
+          description: `${character.visualPrompt || character.name}, ${CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].viewAngle} view, ${CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].shotSize}`,
+        });
+      }
+    }
+
+    console.log(`✅ 角色 ${character.name} 九宫格造型视角描述生成完成`);
+    logScriptProgress(`角色「${character.name}」九宫格视角描述生成完成`);
+    return panels;
+  } catch (error: any) {
+    console.error(`❌ 角色 ${character.name} 九宫格视角描述生成失败:`, error);
+    logScriptProgress(`角色「${character.name}」九宫格视角描述生成失败`);
+    throw error;
+  }
+};
+
+/**
+ * 生成角色九宫格造型图片
+ * 将9个视角描述合成为一张3x3九宫格图片
+ */
+export const generateCharacterTurnaroundImage = async (
+  character: Character,
+  panels: CharacterTurnaroundPanel[],
+  visualStyle: string,
+  referenceImage?: string,
+  artDirection?: ArtDirection
+): Promise<string> => {
+  console.log(`🖼️ generateCharacterTurnaroundImage - 为角色 ${character.name} 生成九宫格造型图片`);
+  logScriptProgress(`正在为角色「${character.name}」生成九宫格造型图片...`);
+
+  const stylePrompt = getStylePrompt(visualStyle);
+
+  // 构建九宫格图片生成提示词
+  const panelDescriptions = panels.map((p, idx) => {
+    const position = CHARACTER_TURNAROUND_LAYOUT.positionLabels[idx];
+    return `Panel ${idx + 1} (${position}): [${p.viewAngle} / ${p.shotSize}] - ${p.description}`;
+  }).join('\n');
+
+  const artDirectionSuffix = artDirection
+    ? `\nArt Direction Style Anchors: ${artDirection.consistencyAnchors}\nLighting: ${artDirection.lightingStyle}\nTexture: ${artDirection.textureStyle}`
+    : '';
+
+  const prompt = `Generate a SINGLE image composed as a CHARACTER TURNAROUND/REFERENCE SHEET with a 3x3 grid layout (9 equal panels).
+The image shows the SAME CHARACTER from 9 DIFFERENT viewing angles and distances.
+Each panel is separated by thin white borders.
+This is a professional character design reference sheet for animation/film production.
+
+Visual Style: ${visualStyle} (${stylePrompt})
+
+Character: ${character.name} - ${character.visualPrompt || `${character.gender}, ${character.age}, ${character.personality}`}
+
+Grid Layout (left to right, top to bottom):
+${panelDescriptions}
+
+CRITICAL REQUIREMENTS:
+- The output MUST be a SINGLE image divided into exactly 9 equal rectangular panels in a 3x3 grid layout
+- Each panel MUST have a thin white border/separator (2-3px) between panels
+- ALL 9 panels show the EXACT SAME CHARACTER with IDENTICAL appearance:
+  * Same face features (eyes, nose, mouth, face shape) - ABSOLUTELY IDENTICAL across all panels
+  * Same hairstyle and hair color - NO variation allowed
+  * Same clothing and accessories - EXACTLY the same outfit in every panel
+  * Same body proportions and build
+  * Same skin tone and complexion
+- The ONLY difference between panels is the VIEWING ANGLE and DISTANCE
+- Use a clean, neutral background (solid color or subtle gradient) to emphasize the character
+- Each panel should be a well-composed, professional-quality character reference
+- Maintain consistent lighting across all panels for accurate color reference
+- Character should have a neutral/characteristic pose appropriate for a reference sheet${artDirectionSuffix}
+
+⚠️ CHARACTER CONSISTENCY IS THE #1 PRIORITY - The character must look like the EXACT SAME PERSON in all 9 panels!`;
+
+  // 收集参考图片
+  const referenceImages: string[] = [];
+  if (referenceImage) {
+    referenceImages.push(referenceImage);
+  } else if (character.referenceImage) {
+    referenceImages.push(character.referenceImage);
+  }
+
+  try {
+    // 使用 1:1 比例生成九宫格（正方形最适合3x3网格）
+    const imageUrl = await generateImage(prompt, referenceImages, '1:1');
+    console.log(`✅ 角色 ${character.name} 九宫格造型图片生成完成`);
+    logScriptProgress(`角色「${character.name}」九宫格造型图片生成完成`);
+    return imageUrl;
+  } catch (error: any) {
+    console.error(`❌ 角色 ${character.name} 九宫格造型图片生成失败:`, error);
+    logScriptProgress(`角色「${character.name}」九宫格造型图片生成失败`);
     throw error;
   }
 };

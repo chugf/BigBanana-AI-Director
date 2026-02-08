@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Check, Shirt, Trash2, Edit2, AlertCircle, FolderPlus } from 'lucide-react';
+import { User, Check, Shirt, Trash2, Edit2, AlertCircle, FolderPlus, Grid3x3 } from 'lucide-react';
 import { Character } from '../../types';
 import PromptEditor from './PromptEditor';
 import ImageUploadButton from './ImageUploadButton';
@@ -11,6 +11,7 @@ interface CharacterCardProps {
   onUpload: (file: File) => void;
   onPromptSave: (newPrompt: string) => void;
   onOpenWardrobe: () => void;
+  onOpenTurnaround: () => void;
   onImageClick: (imageUrl: string) => void;
   onDelete: () => void;
   onUpdateInfo: (updates: { name?: string; gender?: string; age?: string; personality?: string }) => void;
@@ -25,6 +26,7 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
   onUpload,
   onPromptSave,
   onOpenWardrobe,
+  onOpenTurnaround,
   onImageClick,
   onDelete,
   onUpdateInfo,
@@ -198,6 +200,22 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
             >
               <Shirt className="w-3 h-3" />
               服装变体
+            </button>
+
+            {/* Turnaround Sheet Button */}
+            <button 
+              onClick={onOpenTurnaround}
+              className={`w-full py-1.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border transition-colors ${
+                character.turnaround?.status === 'completed'
+                  ? 'bg-[var(--accent-bg)] hover:bg-[var(--accent-hover-bg)] text-[var(--accent-text)] border-[var(--accent-border)]'
+                  : 'bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] border-[var(--border-primary)]'
+              }`}
+            >
+              <Grid3x3 className="w-3 h-3" />
+              造型九宫格
+              {character.turnaround?.status === 'completed' && (
+                <Check className="w-2.5 h-2.5" />
+              )}
             </button>
 
             {/* Upload Button */}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader2, RefreshCw, Check, Grid3x3, AlertCircle, Image as ImageIcon, Crop, Edit2, Save, ArrowRight, Wand2 } from 'lucide-react';
+import { X, Loader2, RefreshCw, Check, Grid3x3, AlertCircle, Image as ImageIcon, Crop, Edit2, Save, ArrowRight, Wand2, ImagePlus } from 'lucide-react';
 import { NineGridData, NineGridPanel, AspectRatio } from '../../types';
 import { NINE_GRID } from './constants';
 
@@ -10,6 +10,7 @@ interface NineGridPreviewProps {
   onSelectPanel: (panel: NineGridPanel) => void;
   onUseWholeImage: () => void;  // 整张九宫格图直接用作首帧
   onRegenerate: () => void;
+  onRegenerateImage: () => void; // 仅重新生成图片（保留已有的面板文案描述）
   onConfirmPanels: (panels: NineGridPanel[]) => void; // 用户确认面板后生成图片
   onUpdatePanel: (index: number, panel: Partial<NineGridPanel>) => void; // 编辑单个面板
   /** 当前画面比例（横屏/竖屏），用于调整预览布局 */
@@ -23,6 +24,7 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
   onSelectPanel,
   onUseWholeImage,
   onRegenerate,
+  onRegenerateImage,
   onConfirmPanels,
   onUpdatePanel,
   aspectRatio = '16:9'
@@ -113,14 +115,24 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
             )}
           </div>
           <div className="flex items-center gap-2">
+            {isCompleted && (
+              <button
+                onClick={onRegenerateImage}
+                className="px-3 py-1.5 bg-[var(--accent-bg)] hover:bg-[var(--accent-hover-bg)] text-[var(--accent-text)] border border-[var(--accent-border)] rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors flex items-center gap-1.5"
+                title="保留镜头描述，仅重新生成九宫格图片"
+              >
+                <ImagePlus className="w-3 h-3" />
+                重新生成图片
+              </button>
+            )}
             {(isCompleted || isPanelsReady) && (
               <button
                 onClick={onRegenerate}
                 className="px-3 py-1.5 bg-[var(--bg-hover)] hover:bg-[var(--border-secondary)] text-[var(--text-secondary)] rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors flex items-center gap-1.5"
-                title="重新生成镜头描述"
+                title="重新生成镜头描述和图片"
               >
                 <RefreshCw className="w-3 h-3" />
-                重新生成
+                重新生成描述
               </button>
             )}
             <button
