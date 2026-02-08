@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Check, Sparkles, Loader2, Shirt, Trash2, Edit2, AlertCircle, FolderPlus } from 'lucide-react';
+import { User, Check, Shirt, Trash2, Edit2, AlertCircle, FolderPlus } from 'lucide-react';
 import { Character } from '../../types';
 import PromptEditor from './PromptEditor';
 import ImageUploadButton from './ImageUploadButton';
@@ -237,25 +237,6 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
             placeholder="输入角色的视觉描述..."
           />
         </div>
-
-        {/* Quick Generate Button */}
-        <button
-          onClick={onGenerate}
-          disabled={isGenerating || !character.visualPrompt}
-          className="w-full py-2 bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-[var(--btn-primary-bg)]"
-        >
-          {isGenerating ? (
-            <>
-              <Loader2 className="w-3 h-3 animate-spin" />
-              生成中...
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-3 h-3" />
-              {character.referenceImage ? '重新生成图片' : '生成角色图片'}
-            </>
-          )}
-        </button>
 
         <button
           onClick={onAddToLibrary}
