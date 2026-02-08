@@ -169,6 +169,10 @@ export const loadProjectFromDB = async (id: string): Promise<ProjectState> => {
         if (!project.renderLogs) {
           project.renderLogs = [];
         }
+        // Migration: ensure scriptData.props exists for old projects
+        if (project.scriptData && !project.scriptData.props) {
+          project.scriptData.props = [];
+        }
         // Migration: veo-r2v 模型已下线，迁移为 veo
         let migrated = false;
         if (project.shots) {
@@ -289,6 +293,7 @@ export const deleteProjectFromDB = async (id: string): Promise<void> => {
           characters: 0,
           characterVariations: 0,
           scenes: 0,
+          props: 0,
           keyframes: 0,
           videos: 0,
           renderLogs: project.renderLogs?.length || 0
@@ -297,6 +302,7 @@ export const deleteProjectFromDB = async (id: string): Promise<void> => {
         if (project.scriptData) {
           resourceCount.characters = project.scriptData.characters.filter(c => c.referenceImage).length;
           resourceCount.scenes = project.scriptData.scenes.filter(s => s.referenceImage).length;
+          resourceCount.props = (project.scriptData.props || []).filter(p => p.referenceImage).length;
           
           // 统计角色变体
           project.scriptData.characters.forEach(c => {
@@ -322,6 +328,7 @@ export const deleteProjectFromDB = async (id: string): Promise<void> => {
         console.log(`   - 角色参考图: ${resourceCount.characters}个`);
         console.log(`   - 角色变体图: ${resourceCount.characterVariations}个`);
         console.log(`   - 场景参考图: ${resourceCount.scenes}个`);
+        console.log(`   - 道具参考图: ${resourceCount.props}个`);
         console.log(`   - 关键帧图像: ${resourceCount.keyframes}个`);
         console.log(`   - 视频片段: ${resourceCount.videos}个`);
         console.log(`   - 渲染日志: ${resourceCount.renderLogs}条`);

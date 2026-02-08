@@ -67,3 +67,15 @@ export const LANGUAGE_MAP: Record<string, keyof typeof REGIONAL_FEATURES> = {
   '日本語': 'Japanese',
   'Japanese': 'Japanese',
 };
+
+// 道具分类
+export const PROP_CATEGORIES = [
+  { value: '武器', label: '武器' },
+  { value: '文件/书信', label: '文件/书信' },
+  { value: '食物/饮品', label: '食物/饮品' },
+  { value: '交通工具', label: '交通工具' },
+  { value: '装饰品', label: '装饰品' },
+  { value: '科技设备', label: '科技设备' },
+  { value: '自然物品', label: '自然物品' },
+  { value: '其他', label: '其他' },
+] as const;

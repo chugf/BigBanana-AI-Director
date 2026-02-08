@@ -4,6 +4,7 @@ import { ProjectState, Shot, Keyframe, AspectRatio, VideoDuration, NineGridPanel
 import { generateImage, generateVideo, generateActionSuggestion, optimizeKeyframePrompt, optimizeBothKeyframes, enhanceKeyframePrompt, splitShotIntoSubShots, generateNineGridPanels, generateNineGridImage } from '../../services/geminiService';
 import { 
   getRefImagesForShot, 
+  getPropsInfoForShot,
   buildKeyframePrompt,
   buildKeyframePromptWithAI,
   buildVideoPrompt,
@@ -161,17 +162,20 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
       })
     }));
     
+    // 获取道具信息用于提示词注入
+    const propsInfo = getPropsInfoForShot(shot, project.scriptData);
+    
     // 根据开关选择是否使用AI增强
     let prompt: string;
     if (useAIEnhancement) {
       try {
-        prompt = await buildKeyframePromptWithAI(basePrompt, visualStyle, shot.cameraMovement, type, true);
+        prompt = await buildKeyframePromptWithAI(basePrompt, visualStyle, shot.cameraMovement, type, true, propsInfo);
       } catch (error) {
         console.error('AI增强失败,使用基础提示词:', error);
-        prompt = buildKeyframePrompt(basePrompt, visualStyle, shot.cameraMovement, type);
+        prompt = buildKeyframePrompt(basePrompt, visualStyle, shot.cameraMovement, type, propsInfo);
       }
     } else {
-      prompt = buildKeyframePrompt(basePrompt, visualStyle, shot.cameraMovement, type);
+      prompt = buildKeyframePrompt(basePrompt, visualStyle, shot.cameraMovement, type, propsInfo);
     }
     
     try {
@@ -883,11 +887,13 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
     
     // 1. 构建首帧提示词（保留视角信息，方便后续重新生成）
+    const shotPropsInfo = getPropsInfoForShot(activeShot, project.scriptData);
     const prompt = buildPromptFromNineGridPanel(
       panel,
       activeShot.actionSummary,
       visualStyle,
-      activeShot.cameraMovement
+      activeShot.cameraMovement,
+      shotPropsInfo
     );
     
     const existingKf = activeShot.keyframes?.find(k => k.type === 'start');
@@ -1071,6 +1077,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError 
               characterVariations: { ...(s.characterVariations || {}), [charId]: varId }
             }))}
             onSceneChange={(sceneId) => updateShot(activeShot.id, s => ({ ...s, sceneId }))}
+            onAddProp={(propId) => updateShot(activeShot.id, s => ({ ...s, props: [...(s.props || []), propId] }))}
+            onRemoveProp={(propId) => updateShot(activeShot.id, s => ({ ...s, props: (s.props || []).filter(id => id !== propId) }))}
             onGenerateKeyframe={(type) => handleGenerateKeyframe(activeShot, type)}
             onUploadKeyframe={(type) => handleUploadKeyframeImage(activeShot, type)}
             onEditKeyframePrompt={(type, prompt) => setEditModal({ type: 'keyframe', value: prompt, frameType: type })}

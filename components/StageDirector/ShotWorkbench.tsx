@@ -1,6 +1,6 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight, X, Film, Edit2, MessageSquare, Sparkles, Loader2, Scissors, Grid3x3 } from 'lucide-react';
-import { Shot, Character, Scene, ProjectState, AspectRatio, VideoDuration, NineGridData, NineGridPanel } from '../../types';
+import { Shot, Character, Scene, Prop, ProjectState, AspectRatio, VideoDuration, NineGridData, NineGridPanel } from '../../types';
 import SceneContext from './SceneContext';
 import KeyframeEditor from './KeyframeEditor';
 import VideoGenerator from './VideoGenerator';
@@ -24,6 +24,8 @@ interface ShotWorkbenchProps {
   onRemoveCharacter: (charId: string) => void;
   onVariationChange: (charId: string, varId: string) => void;
   onSceneChange: (sceneId: string) => void;
+  onAddProp?: (propId: string) => void;
+  onRemoveProp?: (propId: string) => void;
   onGenerateKeyframe: (type: 'start' | 'end') => void;
   onUploadKeyframe: (type: 'start' | 'end') => void;
   onEditKeyframePrompt: (type: 'start' | 'end', prompt: string) => void;
@@ -63,6 +65,8 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   onRemoveCharacter,
   onVariationChange,
   onSceneChange,
+  onAddProp,
+  onRemoveProp,
   onGenerateKeyframe,
   onUploadKeyframe,
   onEditKeyframePrompt,
@@ -84,6 +88,8 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   const scene = scriptData?.scenes.find(s => String(s.id) === String(shot.sceneId));
   const activeCharacters = scriptData?.characters.filter(c => shot.characters.includes(c.id)) || [];
   const availableCharacters = scriptData?.characters.filter(c => !shot.characters.includes(c.id)) || [];
+  const activeProps = (scriptData?.props || []).filter(p => (shot.props || []).includes(p.id));
+  const availablePropsForShot = (scriptData?.props || []).filter(p => !(shot.props || []).includes(p.id));
   
   const startKf = shot.keyframes?.find(k => k.type === 'start');
   const endKf = shot.keyframes?.find(k => k.type === 'end');
@@ -156,10 +162,14 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
             scenes={scriptData.scenes}
             characters={activeCharacters}
             availableCharacters={availableCharacters}
+            props={activeProps}
+            availableProps={availablePropsForShot}
             onAddCharacter={onAddCharacter}
             onRemoveCharacter={onRemoveCharacter}
             onVariationChange={onVariationChange}
             onSceneChange={onSceneChange}
+            onAddProp={onAddProp}
+            onRemoveProp={onRemoveProp}
           />
         )}
 

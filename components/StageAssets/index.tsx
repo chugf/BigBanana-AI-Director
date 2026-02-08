@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Sparkles, RefreshCw, Loader2, MapPin, Archive, X, Search, Trash2 } from 'lucide-react';
-import { ProjectState, CharacterVariation, Character, Scene, AspectRatio, AssetLibraryItem } from '../../types';
+import { Users, Sparkles, RefreshCw, Loader2, MapPin, Archive, X, Search, Trash2, Package } from 'lucide-react';
+import { ProjectState, CharacterVariation, Character, Scene, Prop, AspectRatio, AssetLibraryItem } from '../../types';
 import { generateImage, generateVisualPrompts } from '../../services/geminiService';
 import { 
   getRegionalPrefix, 
@@ -15,10 +15,11 @@ import { DEFAULTS, STYLES, GRID_LAYOUTS } from './constants';
 import ImagePreviewModal from './ImagePreviewModal';
 import CharacterCard from './CharacterCard';
 import SceneCard from './SceneCard';
+import PropCard from './PropCard';
 import WardrobeModal from './WardrobeModal';
 import { useAlert } from '../GlobalAlert';
 import { getAllAssetLibraryItems, saveAssetToLibrary, deleteAssetFromLibrary } from '../../services/storageService';
-import { applyLibraryItemToProject, createLibraryItemFromCharacter, createLibraryItemFromScene, cloneCharacterForProject } from '../../services/assetLibraryService';
+import { applyLibraryItemToProject, createLibraryItemFromCharacter, createLibraryItemFromScene, createLibraryItemFromProp, cloneCharacterForProject } from '../../services/assetLibraryService';
 import { AspectRatioSelector } from '../AspectRatioSelector';
 import { getUserAspectRatio, setUserAspectRatio, getActiveImageModel } from '../../services/modelRegistry';
 
@@ -37,7 +38,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
   const [libraryItems, setLibraryItems] = useState<AssetLibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryQuery, setLibraryQuery] = useState('');
-  const [libraryFilter, setLibraryFilter] = useState<'all' | 'character' | 'scene'>('all');
+  const [libraryFilter, setLibraryFilter] = useState<'all' | 'character' | 'scene' | 'prop'>('all');
   const [libraryProjectFilter, setLibraryProjectFilter] = useState('all');
   const [replaceTargetCharId, setReplaceTargetCharId] = useState<string | null>(null);
   
@@ -75,7 +76,11 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
       scene.status === 'generating' && !scene.referenceImage
     );
 
-    if (hasStuckCharacters || hasStuckScenes) {
+    const hasStuckProps = (project.scriptData.props || []).some(prop =>
+      prop.status === 'generating' && !prop.referenceImage
+    );
+
+    if (hasStuckCharacters || hasStuckScenes || hasStuckProps) {
       console.log('🔧 检测到卡住的生成状态，正在重置...');
       const newData = { ...project.scriptData };
       
@@ -94,6 +99,14 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
         ...scene,
         status: scene.status === 'generating' && !scene.referenceImage ? 'failed' as const : scene.status
       }));
+
+      // 重置道具状态
+      if (newData.props) {
+        newData.props = newData.props.map(prop => ({
+          ...prop,
+          status: prop.status === 'generating' && !prop.referenceImage ? 'failed' as const : prop.status
+        }));
+      }
       
       updateProject({ scriptData: newData });
     }
@@ -117,7 +130,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
     }
   }, [showLibraryModal]);
 
-  const openLibrary = (filter: 'all' | 'character' | 'scene', targetCharId: string | null = null) => {
+  const openLibrary = (filter: 'all' | 'character' | 'scene' | 'prop', targetCharId: string | null = null) => {
     setLibraryFilter(filter);
     setReplaceTargetCharId(targetCharId);
     setShowLibraryModal(true);
@@ -575,6 +588,225 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
     );
   };
 
+  // ============================
+  // 道具相关处理函数
+  // ============================
+
+  /**
+   * 新建道具
+   */
+  const handleAddProp = () => {
+    if (!project.scriptData) return;
+    
+    const newProp: Prop = {
+      id: generateId('prop'),
+      name: '新道具',
+      category: '其他',
+      description: '',
+      visualPrompt: '',
+      status: 'pending'
+    };
+
+    const newData = { ...project.scriptData };
+    if (!newData.props) newData.props = [];
+    newData.props.push(newProp);
+    updateProject({ scriptData: newData });
+    showAlert('新道具已创建，请编辑描述和提示词并生成图片', { type: 'success' });
+  };
+
+  /**
+   * 删除道具
+   */
+  const handleDeleteProp = (propId: string) => {
+    if (!project.scriptData) return;
+    const prop = (project.scriptData.props || []).find(p => compareIds(p.id, propId));
+    if (!prop) return;
+
+    showAlert(
+      `确定要删除道具 "${prop.name}" 吗？\n\n注意：这将会影响所有使用该道具的分镜。`,
+      {
+        type: 'warning',
+        title: '删除道具',
+        showCancel: true,
+        confirmText: '删除',
+        cancelText: '取消',
+        onConfirm: () => {
+          const newData = { ...project.scriptData! };
+          newData.props = (newData.props || []).filter(p => !compareIds(p.id, propId));
+          // 清除所有镜头中对该道具的引用
+          const nextShots = project.shots.map(shot => {
+            if (!shot.props || !shot.props.includes(propId)) return shot;
+            return { ...shot, props: shot.props.filter(id => id !== propId) };
+          });
+          updateProject({ scriptData: newData, shots: nextShots });
+          showAlert(`道具 "${prop.name}" 已删除`, { type: 'success' });
+        }
+      }
+    );
+  };
+
+  /**
+   * 生成道具图片
+   */
+  const handleGeneratePropAsset = async (propId: string) => {
+    if (!project.scriptData) return;
+    
+    // 设置生成状态
+    const newData = { ...project.scriptData };
+    const p = (newData.props || []).find(p => compareIds(p.id, propId));
+    if (p) p.status = 'generating';
+    updateProject({ scriptData: newData });
+
+    try {
+      const prop = project.scriptData.props?.find(p => compareIds(p.id, propId));
+      if (!prop) return;
+
+      let prompt = '';
+      if (prop.visualPrompt) {
+        prompt = prop.visualPrompt;
+      } else {
+        // 自动生成提示词
+        prompt = `A detailed product shot of "${prop.name}". ${prop.description || ''}. Category: ${prop.category}. High quality, studio lighting, clean background, detailed texture and material rendering.`;
+      }
+
+      // 道具图片：追加"纯物品/无人物"指令
+      prompt += '. IMPORTANT: This is a standalone prop/item shot with absolutely NO people, NO human figures, NO characters - object only on clean/simple background.';
+
+      const imageUrl = await generateImage(prompt, [], aspectRatio);
+
+      // 更新状态
+      const updatedData = { ...project.scriptData };
+      const updated = (updatedData.props || []).find(p => compareIds(p.id, propId));
+      if (updated) {
+        updated.referenceImage = imageUrl;
+        updated.status = 'completed';
+        if (!updated.visualPrompt) {
+          updated.visualPrompt = prompt;
+        }
+      }
+      updateProject({ scriptData: updatedData });
+    } catch (e: any) {
+      console.error(e);
+      const errData = { ...project.scriptData };
+      const errP = (errData.props || []).find(p => compareIds(p.id, propId));
+      if (errP) errP.status = 'failed';
+      updateProject({ scriptData: errData });
+      if (onApiKeyError && onApiKeyError(e)) return;
+    }
+  };
+
+  /**
+   * 上传道具图片
+   */
+  const handleUploadPropImage = async (propId: string, file: File) => {
+    try {
+      const base64 = await handleImageUpload(file);
+      updateProject((prev) => {
+        if (!prev.scriptData) return prev;
+        const newData = { ...prev.scriptData };
+        const prop = (newData.props || []).find(p => compareIds(p.id, propId));
+        if (prop) {
+          prop.referenceImage = base64;
+          prop.status = 'completed';
+        }
+        return { ...prev, scriptData: newData };
+      });
+    } catch (e: any) {
+      showAlert(e.message, { type: 'error' });
+    }
+  };
+
+  /**
+   * 保存道具提示词
+   */
+  const handleSavePropPrompt = (propId: string, newPrompt: string) => {
+    if (!project.scriptData) return;
+    const newData = { ...project.scriptData };
+    const prop = (newData.props || []).find(p => compareIds(p.id, propId));
+    if (prop) {
+      prop.visualPrompt = newPrompt;
+      updateProject({ scriptData: newData });
+    }
+  };
+
+  /**
+   * 更新道具基本信息
+   */
+  const handleUpdatePropInfo = (propId: string, updates: { name?: string; category?: string; description?: string }) => {
+    if (!project.scriptData) return;
+    const newData = { ...project.scriptData };
+    const prop = (newData.props || []).find(p => compareIds(p.id, propId));
+    if (prop) {
+      if (updates.name !== undefined) prop.name = updates.name;
+      if (updates.category !== undefined) prop.category = updates.category;
+      if (updates.description !== undefined) prop.description = updates.description;
+      updateProject({ scriptData: newData });
+    }
+  };
+
+  /**
+   * 加入资产库（道具）
+   */
+  const handleAddPropToLibrary = (prop: Prop) => {
+    const saveItem = async () => {
+      try {
+        const item = createLibraryItemFromProp(prop, project);
+        await saveAssetToLibrary(item);
+        showAlert(`已加入资产库：${prop.name}`, { type: 'success' });
+        refreshLibrary();
+      } catch (e: any) {
+        showAlert(e?.message || '加入资产库失败', { type: 'error' });
+      }
+    };
+
+    if (!prop.referenceImage) {
+      showAlert('该道具暂无参考图，仍要加入资产库吗？', {
+        type: 'warning',
+        showCancel: true,
+        onConfirm: saveItem
+      });
+      return;
+    }
+
+    void saveItem();
+  };
+
+  /**
+   * 批量生成道具
+   */
+  const handleBatchGenerateProps = async () => {
+    const items = project.scriptData?.props || [];
+    if (!items.length) return;
+
+    const itemsToGen = items.filter(p => !p.referenceImage);
+    const isRegenerate = itemsToGen.length === 0;
+
+    if (isRegenerate) {
+      showAlert('确定要重新生成所有道具图吗？', {
+        type: 'warning',
+        showCancel: true,
+        onConfirm: async () => {
+          await executeBatchGenerateProps(items);
+        }
+      });
+      return;
+    }
+
+    await executeBatchGenerateProps(itemsToGen);
+  };
+
+  const executeBatchGenerateProps = async (targetItems: Prop[]) => {
+    setBatchProgress({ current: 0, total: targetItems.length });
+
+    for (let i = 0; i < targetItems.length; i++) {
+      if (i > 0) await delay(DEFAULTS.batchGenerateDelay);
+      await handleGeneratePropAsset(targetItems[i].id);
+      setBatchProgress({ current: i + 1, total: targetItems.length });
+    }
+
+    setBatchProgress(null);
+  };
+
   /**
    * 添加角色变体
    */
@@ -695,6 +927,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
   
   const allCharactersReady = project.scriptData.characters.every(c => c.referenceImage);
   const allScenesReady = project.scriptData.scenes.every(s => s.referenceImage);
+  const allPropsReady = (project.scriptData.props || []).length > 0 && (project.scriptData.props || []).every(p => p.referenceImage);
   const selectedChar = project.scriptData.characters.find(c => compareIds(c.id, selectedCharId));
   const projectNameOptions = Array.from(
     new Set(
@@ -805,7 +1038,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                   </select>
                 </div>
                 <div className="flex gap-2">
-                  {(['all', 'character', 'scene'] as const).map((type) => (
+                  {(['all', 'character', 'scene', 'prop'] as const).map((type) => (
                     <button
                       key={type}
                       onClick={() => setLibraryFilter(type)}
@@ -815,7 +1048,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                           : 'bg-transparent text-[var(--text-tertiary)] border-[var(--border-primary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'
                       }`}
                     >
-                      {type === 'all' ? '全部' : type === 'character' ? '角色' : '场景'}
+                      {type === 'all' ? '全部' : type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具'}
                     </button>
                   ))}
                 </div>
@@ -835,7 +1068,9 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                     const preview =
                       item.type === 'character'
                         ? (item.data as Character).referenceImage
-                        : (item.data as Scene).referenceImage;
+                        : item.type === 'scene'
+                        ? (item.data as Scene).referenceImage
+                        : (item.data as Prop).referenceImage;
                     return (
                       <div
                         key={item.id}
@@ -848,8 +1083,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                             <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                               {item.type === 'character' ? (
                                 <Users className="w-8 h-8 opacity-30" />
-                              ) : (
+                              ) : item.type === 'scene' ? (
                                 <MapPin className="w-8 h-8 opacity-30" />
+                              ) : (
+                                <Package className="w-8 h-8 opacity-30" />
                               )}
                             </div>
                           )}
@@ -858,7 +1095,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
                           <div>
                             <div className="text-sm text-[var(--text-primary)] font-bold line-clamp-1">{item.name}</div>
                             <div className="text-[10px] text-[var(--text-tertiary)] font-mono uppercase tracking-widest mt-1">
-                              {item.type === 'character' ? '角色' : '场景'}
+                              {item.type === 'character' ? '角色' : item.type === 'scene' ? '场景' : '道具'}
                             </div>
                             <div className="text-[10px] text-[var(--text-muted)] font-mono mt-1 line-clamp-1">
                               {(item.projectName && item.projectName.trim()) || '未知项目'}
@@ -941,6 +1178,9 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
             </span>
             <span className={STYLES.badge}>
               {project.scriptData.scenes.length} SCENES
+            </span>
+            <span className={STYLES.badge}>
+              {(project.scriptData.props || []).length} PROPS
             </span>
           </div>
         </div>
@@ -1059,6 +1299,70 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError })
               />
             ))}
           </div>
+        </section>
+
+        {/* Props Section */}
+        <section>
+          <div className="flex items-end justify-between mb-6 border-b border-[var(--border-primary)] pb-4">
+            <div>
+              <h3 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-widest flex items-center gap-2">
+                <div className="w-1.5 h-1.5 bg-purple-500 rounded-full" />
+                道具库 (Props)
+              </h3>
+              <p className="text-xs text-[var(--text-tertiary)] mt-1 pl-3.5">管理分镜中需要保持一致性的道具/物品</p>
+            </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={handleAddProp}
+                disabled={!!batchProgress}
+                className="px-3 py-1.5 bg-[var(--bg-hover)] hover:bg-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <Package className="w-3 h-3" />
+                新建道具
+              </button>
+              <button 
+                onClick={() => openLibrary('prop')}
+                disabled={!!batchProgress}
+                className={STYLES.secondaryButton}
+              >
+                <Archive className="w-3 h-3" />
+                从资产库选择
+              </button>
+              {(project.scriptData.props || []).length > 0 && (
+                <button 
+                  onClick={handleBatchGenerateProps}
+                  disabled={!!batchProgress}
+                  className={allPropsReady ? STYLES.secondaryButton : STYLES.primaryButton}
+                >
+                  {allPropsReady ? <RefreshCw className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
+                  {allPropsReady ? '重新生成所有道具' : '一键生成所有道具'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {(project.scriptData.props || []).length === 0 ? (
+            <div className="border border-dashed border-[var(--border-primary)] rounded-xl p-10 text-center text-[var(--text-muted)] text-sm">
+              暂无道具。点击"新建道具"添加需要在多个分镜中保持一致的物品。
+            </div>
+          ) : (
+            <div className={GRID_LAYOUTS.cards}>
+              {(project.scriptData.props || []).map((prop) => (
+                <PropCard
+                  key={prop.id}
+                  prop={prop}
+                  isGenerating={prop.status === 'generating'}
+                  onGenerate={() => handleGeneratePropAsset(prop.id)}
+                  onUpload={(file) => handleUploadPropImage(prop.id, file)}
+                  onPromptSave={(newPrompt) => handleSavePropPrompt(prop.id, newPrompt)}
+                  onImageClick={setPreviewImage}
+                  onDelete={() => handleDeleteProp(prop.id)}
+                  onUpdateInfo={(updates) => handleUpdatePropInfo(prop.id, updates)}
+                  onAddToLibrary={() => handleAddPropToLibrary(prop)}
+                />
+              ))}
+            </div>
+          )}
         </section>
       </div>
 

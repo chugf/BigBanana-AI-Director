@@ -35,10 +35,10 @@ export const STYLES = {
   }
 };
 
-export type PromptCategory = 'characters' | 'scenes' | 'keyframes' | 'all';
+export type PromptCategory = 'characters' | 'scenes' | 'props' | 'keyframes' | 'all';
 
 export type EditingPrompt = {
-  type: 'character' | 'character-variation' | 'scene' | 'keyframe' | 'video';
+  type: 'character' | 'character-variation' | 'scene' | 'prop' | 'keyframe' | 'video';
   id: string;
   variationId?: string;
   shotId?: string;

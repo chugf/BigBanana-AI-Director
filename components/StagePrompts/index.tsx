@@ -6,10 +6,12 @@ import {
   savePromptEdit, 
   filterCharacters, 
   filterScenes, 
+  filterProps,
   filterShots 
 } from './utils';
 import CharacterSection from './CharacterSection';
 import SceneSection from './SceneSection';
+import PropSection from './PropSection';
 import KeyframeSection from './KeyframeSection';
 
 interface Props {
@@ -22,7 +24,7 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
   const [category, setCategory] = useState<PromptCategory>('all');
   const [editingPrompt, setEditingPrompt] = useState<EditingPrompt>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['characters', 'scenes', 'shots'])
+    new Set(['characters', 'scenes', 'props', 'shots'])
   );
 
   const toggleSection = (section: string) => {
@@ -36,7 +38,7 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
   };
 
   const handleStartEdit = (
-    type: 'character' | 'character-variation' | 'scene' | 'keyframe' | 'video',
+    type: 'character' | 'character-variation' | 'scene' | 'prop' | 'keyframe' | 'video',
     id: string,
     currentValue: string,
     variationId?: string,
@@ -69,6 +71,10 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
 
   const filteredScenes = category === 'all' || category === 'scenes'
     ? filterScenes(project.scriptData?.scenes || [], searchQuery)
+    : [];
+
+  const filteredProps = category === 'all' || category === 'props'
+    ? filterProps(project.scriptData?.props || [], searchQuery)
     : [];
 
   const filteredShots = category === 'all' || category === 'keyframes'
@@ -109,6 +115,7 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
               <option value="all">全部</option>
               <option value="characters">角色</option>
               <option value="scenes">场景</option>
+              <option value="props">道具</option>
               <option value="keyframes">关键帧</option>
             </select>
           </div>
@@ -135,6 +142,17 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
                 scenes={filteredScenes}
                 isExpanded={expandedSections.has('scenes')}
                 onToggle={() => toggleSection('scenes')}
+                editingPrompt={editingPrompt}
+                onStartEdit={handleStartEdit}
+                onSaveEdit={handleSaveEdit}
+                onCancelEdit={handleCancelEdit}
+                onPromptChange={handlePromptChange}
+              />
+
+              <PropSection
+                props={filteredProps}
+                isExpanded={expandedSections.has('props')}
+                onToggle={() => toggleSection('props')}
                 editingPrompt={editingPrompt}
                 onStartEdit={handleStartEdit}
                 onSaveEdit={handleSaveEdit}

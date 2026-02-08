@@ -32,7 +32,22 @@ export interface Scene {
   status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
 }
 
-export type AssetLibraryItemType = 'character' | 'scene';
+/**
+ * 道具/物品 - 用于保持多分镜间物品视觉一致性
+ * 如星图、武器、地图、信件等需要在多个镜头中重复出现的物品
+ */
+export interface Prop {
+  id: string;
+  name: string;           // 道具名称，如"星图"、"古剑"
+  category: string;       // 分类：武器、文件/书信、食物/饮品、交通工具、装饰品、科技设备、其他
+  description: string;    // 道具描述
+  visualPrompt?: string;  // 视觉提示词
+  negativePrompt?: string; // 负面提示词，用于排除不想要的元素
+  referenceImage?: string; // 道具参考图，存储为base64格式（data:image/png;base64,...）
+  status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
+}
+
+export type AssetLibraryItemType = 'character' | 'scene' | 'prop';
 
 export interface AssetLibraryItem {
   id: string;
@@ -42,7 +57,7 @@ export interface AssetLibraryItem {
   projectName?: string;
   createdAt: number;
   updatedAt: number;
-  data: Character | Scene;
+  data: Character | Scene | Prop;
 }
 
 export interface Keyframe {
@@ -96,6 +111,7 @@ export interface Shot {
   shotSize?: string; 
   characters: string[]; // Character IDs
   characterVariations?: { [characterId: string]: string }; // Added: Map char ID to variation ID for this shot
+  props?: string[]; // 道具ID数组，引用 ScriptData.props 中的道具
   keyframes: Keyframe[];
   interval?: VideoInterval;
   videoModel?: 'veo' | 'sora-2' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait'; // Video generation model selection
@@ -112,13 +128,14 @@ export interface ScriptData {
   shotGenerationModel?: string; // Model used for shot generation
   characters: Character[];
   scenes: Scene[];
+  props: Prop[]; // 道具列表，用于保持多分镜间物品视觉一致性
   storyParagraphs: { id: number; text: string; sceneRefId: string }[];
 }
 
 export interface RenderLog {
   id: string;
   timestamp: number; // Unix timestamp when API was called
-  type: 'character' | 'character-variation' | 'scene' | 'keyframe' | 'video' | 'script-parsing';
+  type: 'character' | 'character-variation' | 'scene' | 'prop' | 'keyframe' | 'video' | 'script-parsing';
   resourceId: string; // ID of the resource being generated
   resourceName: string; // Human-readable name
   status: 'success' | 'failed';

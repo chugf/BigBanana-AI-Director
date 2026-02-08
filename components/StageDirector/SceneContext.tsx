@@ -1,6 +1,6 @@
 import React from 'react';
-import { MapPin, User, Clock, X, Shirt, Edit2 } from 'lucide-react';
-import { Shot, Character, Scene } from '../../types';
+import { MapPin, User, Clock, X, Shirt, Edit2, Package } from 'lucide-react';
+import { Shot, Character, Scene, Prop } from '../../types';
 
 interface SceneContextProps {
   shot: Shot;
@@ -8,10 +8,14 @@ interface SceneContextProps {
   scenes?: Scene[]; // 所有可用场景列表
   characters: Character[];
   availableCharacters: Character[];
+  props?: Prop[]; // 当前镜头关联的道具
+  availableProps?: Prop[]; // 可以添加的道具
   onAddCharacter: (charId: string) => void;
   onRemoveCharacter: (charId: string) => void;
   onVariationChange: (charId: string, varId: string) => void;
   onSceneChange?: (sceneId: string) => void; // 场景切换回调
+  onAddProp?: (propId: string) => void;
+  onRemoveProp?: (propId: string) => void;
 }
 
 const SceneContext: React.FC<SceneContextProps> = ({
@@ -20,10 +24,14 @@ const SceneContext: React.FC<SceneContextProps> = ({
   scenes = [],
   characters,
   availableCharacters,
+  props = [],
+  availableProps = [],
   onAddCharacter,
   onRemoveCharacter,
   onVariationChange,
-  onSceneChange
+  onSceneChange,
+  onAddProp,
+  onRemoveProp
 }) => {
   return (
     <div className="bg-[var(--bg-surface)] p-5 rounded-xl border border-[var(--border-primary)] mb-6 space-y-4">
@@ -157,6 +165,69 @@ const SceneContext: React.FC<SceneContextProps> = ({
               </div>
             )}
           </div>
+
+          {/* Props List */}
+          {(props.length > 0 || availableProps.length > 0) && (
+            <div className="flex flex-col gap-2 pt-3 mt-1 border-t border-[var(--border-primary)]">
+              <div className="flex items-center gap-1.5">
+                <Package className="w-3 h-3 text-purple-400" />
+                <span className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">道具 (Props)</span>
+              </div>
+              
+              {props.map(prop => (
+                <div 
+                  key={prop.id} 
+                  className="flex items-center justify-between bg-[var(--bg-elevated)] rounded p-1.5 border border-[var(--border-primary)] group"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded bg-[var(--border-secondary)] overflow-hidden flex-shrink-0">
+                      {prop.referenceImage ? (
+                        <img src={prop.referenceImage} className="w-full h-full object-cover" alt={prop.name} />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <Package className="w-3 h-3 text-[var(--text-muted)]" />
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-[11px] text-[var(--text-secondary)] font-medium">{prop.name}</span>
+                    <span className="text-[9px] text-[var(--text-muted)] font-mono bg-[var(--bg-hover)] px-1 py-0.5 rounded">{prop.category}</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-1">
+                    {onRemoveProp && (
+                      <button
+                        onClick={() => onRemoveProp(prop.id)}
+                        className="p-1 text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[var(--error-bg)] rounded transition-colors opacity-0 group-hover:opacity-100"
+                        title="移除道具"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              
+              {/* Add Prop Selector */}
+              {onAddProp && availableProps.length > 0 && (
+                <div className="flex items-center gap-2 pt-1">
+                  <select 
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        onAddProp(e.target.value);
+                        e.target.value = "";
+                      }
+                    }}
+                    className="flex-1 bg-[var(--bg-elevated)] text-[11px] text-[var(--text-tertiary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 outline-none focus:border-[var(--accent)] hover:border-[var(--border-secondary)] transition-colors"
+                  >
+                    <option value="">+ 添加道具到此镜头</option>
+                    {availableProps.map(prop => (
+                      <option key={prop.id} value={prop.id}>{prop.name} ({prop.category})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -575,6 +575,7 @@ export const parseScriptToData = async (rawText: string, language: string = '中
     language: language,
     characters,
     scenes,
+    props: [], // 初始化空道具列表，用户可在 Phase 02 手动添加
     storyParagraphs
   };
 
@@ -1021,7 +1022,8 @@ export const generateImage = async (
       
       Reference Images Information:
       - The FIRST image is the Scene/Environment reference.
-      - Any subsequent images are Character references (Base Look or Variation).
+      - Subsequent images are Character references (Base Look or Variation).
+      - Any remaining images after characters are Prop/Item references (objects that must appear consistently).
       
       Task:
       Generate a cinematic shot matching this prompt: "${prompt}".
@@ -1036,9 +1038,16 @@ export const generateImage = async (
          • Hairstyle & Hair Color: Length, color, texture, and style must be PERFECTLY matched
          • Clothing & Outfit: Style, color, material, and accessories must be IDENTICAL
          • Body Type: Height, build, proportions must remain consistent
+      
+      3. Prop/Item Consistency:
+         If prop reference images are provided, the objects/items in the shot MUST match the reference:
+         • Shape & Form: The prop's shape, size, and proportions must be identical to the reference
+         • Color & Material: Colors, textures, and materials must be consistent
+         • Details: Patterns, text, decorations, and distinguishing features must match exactly
          
       ⚠️ DO NOT create variations or interpretations of the character - STRICT REPLICATION ONLY!
       ⚠️ Character appearance consistency is THE MOST IMPORTANT requirement!
+      ⚠️ Props/items must also maintain visual consistency with their reference images!
     `;
       }
     }
