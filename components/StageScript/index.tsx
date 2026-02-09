@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ProjectState } from '../../types';
+import { ProjectState, Shot } from '../../types';
+import { useAlert } from '../GlobalAlert';
 import { parseScriptToData, generateShotList, continueScript, continueScriptStream, rewriteScript, rewriteScriptStream, setScriptLogCallback, clearScriptLogCallback, logScriptProgress } from '../../services/aiService';
 import { getFinalValue, validateConfig } from './utils';
 import { DEFAULTS } from './constants';
@@ -17,6 +18,7 @@ interface Props {
 type TabMode = 'story' | 'script';
 
 const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfig, onGeneratingChange }) => {
+  const { showAlert } = useAlert();
   const [activeTab, setActiveTab] = useState<TabMode>(project.scriptData ? 'script' : 'story');
   
   // Configuration state
@@ -391,6 +393,170 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     setEditingShotDialogueText('');
   };
 
+  const getNextShotId = (shots: Shot[]) => {
+    const maxMain = shots.reduce((max, shot) => {
+      const parts = shot.id.split('-');
+      const main = Number(parts[1]);
+      if (!Number.isFinite(main)) return max;
+      return Math.max(max, main);
+    }, 0);
+    return `shot-${maxMain + 1}`;
+  };
+
+  const handleAddSubShot = (anchorShotId: string) => {
+    const anchorShot = project.shots.find(s => s.id === anchorShotId);
+    if (!anchorShot) return;
+
+    const parts = anchorShotId.split('-');
+    const main = Number(parts[1]);
+    if (!Number.isFinite(main)) return;
+
+    const baseId = `shot-${main}`;
+    const maxSuffix = project.shots.reduce((max, shot) => {
+      if (!shot.id.startsWith(`${baseId}-`)) return max;
+      const subParts = shot.id.split('-');
+      const suffix = Number(subParts[2]);
+      if (!Number.isFinite(suffix)) return max;
+      return Math.max(max, suffix);
+    }, 0);
+
+    const newId = `${baseId}-${maxSuffix + 1}`;
+    const baseShot = project.shots.find(s => s.id === baseId) || anchorShot;
+    const newShot: Shot = {
+      id: newId,
+      sceneId: baseShot.sceneId,
+      actionSummary: '在此输入动作描述',
+      cameraMovement: baseShot.cameraMovement || '平移',
+      shotSize: baseShot.shotSize || '中景',
+      characters: [...(baseShot.characters || [])],
+      characterVariations: baseShot.characterVariations ? { ...baseShot.characterVariations } : undefined,
+      props: baseShot.props ? [...baseShot.props] : undefined,
+      videoModel: baseShot.videoModel,
+      keyframes: [
+        {
+          id: `kf-${newId}-start`,
+          type: 'start',
+          visualPrompt: '',
+          status: 'pending'
+        }
+      ]
+    };
+
+    const lastIndexInGroup = project.shots.reduce((idx, shot, i) => {
+      const isGroup = shot.id === baseId || shot.id.startsWith(`${baseId}-`);
+      return isGroup ? i : idx;
+    }, -1);
+
+    const insertAt = lastIndexInGroup >= 0 ? lastIndexInGroup + 1 : project.shots.length;
+    const nextShots = [
+      ...project.shots.slice(0, insertAt),
+      newShot,
+      ...project.shots.slice(insertAt)
+    ];
+
+    updateProject({ shots: nextShots });
+    setEditingShotActionId(newId);
+    setEditingShotActionText(newShot.actionSummary);
+    setEditingShotDialogueText('');
+  };
+
+  const handleAddShot = (sceneId: string) => {
+    if (!project.scriptData) return;
+
+    const sceneShots = project.shots.filter(s => s.sceneId === sceneId);
+    if (sceneShots.length > 0) {
+      handleAddSubShot(sceneShots[sceneShots.length - 1].id);
+      return;
+    }
+
+    const newId = getNextShotId(project.shots);
+    const newShot: Shot = {
+      id: newId,
+      sceneId,
+      actionSummary: '在此输入动作描述',
+      cameraMovement: '平移',
+      shotSize: '中景',
+      characters: [],
+      keyframes: [
+        {
+          id: `kf-${newId}-start`,
+          type: 'start',
+          visualPrompt: '',
+          status: 'pending'
+        }
+      ]
+    };
+
+    const sceneIndex = project.scriptData.scenes.findIndex(s => s.id === sceneId);
+    const lastIndexInScene = project.shots.reduce((idx, shot, i) => (
+      shot.sceneId === sceneId ? i : idx
+    ), -1);
+
+    let insertAt = project.shots.length;
+    if (lastIndexInScene >= 0) {
+      insertAt = lastIndexInScene + 1;
+    } else if (sceneIndex >= 0) {
+      for (let i = sceneIndex + 1; i < project.scriptData.scenes.length; i += 1) {
+        const nextSceneId = project.scriptData.scenes[i].id;
+        const nextIndex = project.shots.findIndex(s => s.sceneId === nextSceneId);
+        if (nextIndex >= 0) {
+          insertAt = nextIndex;
+          break;
+        }
+      }
+    }
+
+    const nextShots = [
+      ...project.shots.slice(0, insertAt),
+      newShot,
+      ...project.shots.slice(insertAt)
+    ];
+
+    updateProject({ shots: nextShots });
+    setEditingShotActionId(newId);
+    setEditingShotActionText(newShot.actionSummary);
+    setEditingShotDialogueText('');
+  };
+
+  const getShotDisplayName = (shot: Shot, fallbackIndex: number) => {
+    const idParts = shot.id.split('-').slice(1);
+    if (idParts.length === 1) {
+      return `SHOT ${String(idParts[0]).padStart(3, '0')}`;
+    }
+    if (idParts.length === 2) {
+      return `SHOT ${String(idParts[0]).padStart(3, '0')}-${idParts[1]}`;
+    }
+    return `SHOT ${String(fallbackIndex + 1).padStart(3, '0')}`;
+  };
+
+  const handleDeleteShot = (shotId: string) => {
+    const shotIndex = project.shots.findIndex(s => s.id === shotId);
+    const shot = shotIndex >= 0 ? project.shots[shotIndex] : null;
+    if (!shot) return;
+
+    const displayName = getShotDisplayName(shot, shotIndex);
+    showAlert(`确定要删除 ${displayName} 吗？此操作不可撤销。`, {
+      type: 'warning',
+      showCancel: true,
+      onConfirm: () => {
+        updateProject({ shots: project.shots.filter(s => s.id !== shotId) });
+        if (editingShotId === shotId) {
+          setEditingShotId(null);
+          setEditingShotPrompt('');
+        }
+        if (editingShotCharactersId === shotId) {
+          setEditingShotCharactersId(null);
+        }
+        if (editingShotActionId === shotId) {
+          setEditingShotActionId(null);
+          setEditingShotActionText('');
+          setEditingShotDialogueText('');
+        }
+        showAlert(`${displayName} 已删除`, { type: 'success' });
+      }
+    });
+  };
+
   return (
     <div className="h-full bg-[var(--bg-base)]">
       {showProcessingToast && (
@@ -468,6 +634,9 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
           onEditShotAction={handleEditShotAction}
           onSaveShotAction={handleSaveShotAction}
           onCancelShotAction={handleCancelShotAction}
+          onAddShot={handleAddShot}
+          onAddSubShot={handleAddSubShot}
+          onDeleteShot={handleDeleteShot}
           onBackToStory={() => setActiveTab('story')}
         />
       )}

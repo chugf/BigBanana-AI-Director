@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, List, ArrowLeft, TextQuote } from 'lucide-react';
+import { Clock, List, ArrowLeft, TextQuote, Plus } from 'lucide-react';
 import { ProjectState, Shot } from '../../types';
 import { deduplicateScenes } from './utils';
 import CharacterList from './CharacterList';
@@ -29,6 +29,9 @@ interface Props {
   onEditShotAction: (shotId: string, action: string, dialogue: string) => void;
   onSaveShotAction: () => void;
   onCancelShotAction: () => void;
+  onAddShot: (sceneId: string) => void;
+  onAddSubShot: (shotId: string) => void;
+  onDeleteShot: (shotId: string) => void;
   onBackToStory: () => void;
 }
 
@@ -55,6 +58,9 @@ const SceneBreakdown: React.FC<Props> = ({
   onEditShotAction,
   onSaveShotAction,
   onCancelShotAction,
+  onAddShot,
+  onAddSubShot,
+  onDeleteShot,
   onBackToStory
 }) => {
   const uniqueScenes = deduplicateScenes(project.scriptData?.scenes);
@@ -122,7 +128,6 @@ const SceneBreakdown: React.FC<Props> = ({
           <div className="max-w-5xl mx-auto pb-20">
             {project.scriptData?.scenes.map((scene, index) => {
               const sceneShots = project.shots.filter(s => s.sceneId === scene.id);
-              if (sceneShots.length === 0) return null;
 
               return (
                 <div key={scene.id} className="border-b border-[var(--border-primary)]">
@@ -134,40 +139,56 @@ const SceneBreakdown: React.FC<Props> = ({
                         {scene.location}
                       </h3>
                     </div>
-                    <div className="flex gap-4 text-[10px] font-mono uppercase tracking-widest text-[var(--text-tertiary)]">
+                    <div className="flex items-center gap-4 text-[10px] font-mono uppercase tracking-widest text-[var(--text-tertiary)]">
                       <span className="flex items-center gap-1.5"><Clock className="w-3 h-3"/> {scene.time}</span>
                       <span className="text-[var(--text-muted)]">|</span>
                       <span>{scene.atmosphere}</span>
+                      <button
+                        onClick={() => onAddShot(scene.id)}
+                        className="ml-2 px-2.5 py-1 bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--border-secondary)] rounded-md flex items-center gap-1.5 transition-colors"
+                        title="追加分镜：有镜头时会自动生成子分镜"
+                      >
+                        <Plus className="w-3 h-3" />
+                        新增分镜
+                      </button>
                     </div>
                   </div>
 
                   {/* Shot Rows */}
-                  <div className="divide-y divide-zinc-800/50">
-                    {sceneShots.map((shot) => (
-                      <ShotRow
-                        key={shot.id}
-                        shot={shot}
-                        shotNumber={project.shots.indexOf(shot) + 1}
-                        scriptData={project.scriptData}
-                        editingShotId={editingShotId}
-                        editingShotPrompt={editingShotPrompt}
-                        editingShotCharactersId={editingShotCharactersId}
-                        editingShotActionId={editingShotActionId}
-                        editingShotActionText={editingShotActionText}
-                        editingShotDialogueText={editingShotDialogueText}
-                        onEditPrompt={onEditShotPrompt}
-                        onSavePrompt={onSaveShotPrompt}
-                        onCancelPrompt={onCancelShotPrompt}
-                        onEditCharacters={onEditShotCharacters}
-                        onAddCharacter={onAddCharacterToShot}
-                        onRemoveCharacter={onRemoveCharacterFromShot}
-                        onCloseCharactersEdit={onCloseShotCharactersEdit}
-                        onEditAction={onEditShotAction}
-                        onSaveAction={onSaveShotAction}
-                        onCancelAction={onCancelShotAction}
-                      />
-                    ))}
-                  </div>
+                  {sceneShots.length === 0 ? (
+                    <div className="px-8 py-10 text-sm text-[var(--text-muted)]">
+                      当前场景还没有分镜，点击“新增分镜”开始补充。
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-zinc-800/50">
+                      {sceneShots.map((shot) => (
+                        <ShotRow
+                          key={shot.id}
+                          shot={shot}
+                          shotNumber={project.shots.indexOf(shot) + 1}
+                          scriptData={project.scriptData}
+                          editingShotId={editingShotId}
+                          editingShotPrompt={editingShotPrompt}
+                          editingShotCharactersId={editingShotCharactersId}
+                          editingShotActionId={editingShotActionId}
+                          editingShotActionText={editingShotActionText}
+                          editingShotDialogueText={editingShotDialogueText}
+                          onEditPrompt={onEditShotPrompt}
+                          onSavePrompt={onSaveShotPrompt}
+                          onCancelPrompt={onCancelShotPrompt}
+                          onEditCharacters={onEditShotCharacters}
+                          onAddCharacter={onAddCharacterToShot}
+                          onRemoveCharacter={onRemoveCharacterFromShot}
+                          onCloseCharactersEdit={onCloseShotCharactersEdit}
+                          onEditAction={onEditShotAction}
+                          onSaveAction={onSaveShotAction}
+                          onCancelAction={onCancelShotAction}
+                          onAddSubShot={onAddSubShot}
+                          onDeleteShot={onDeleteShot}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}

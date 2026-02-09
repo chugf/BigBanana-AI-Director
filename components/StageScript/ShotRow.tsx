@@ -1,5 +1,5 @@
 import React from 'react';
-import { Aperture, Edit2, Check, X, UserPlus } from 'lucide-react';
+import { Aperture, Edit2, Check, X, UserPlus, Trash2, Plus } from 'lucide-react';
 import { Shot, Character, ScriptData } from '../../types';
 import InlineEditor from './InlineEditor';
 import { STYLES } from './constants';
@@ -24,6 +24,8 @@ interface Props {
   onEditAction: (shotId: string, action: string, dialogue: string) => void;
   onSaveAction: () => void;
   onCancelAction: () => void;
+  onAddSubShot: (shotId: string) => void;
+  onDeleteShot: (shotId: string) => void;
 }
 
 const ShotRow: React.FC<Props> = ({
@@ -45,7 +47,9 @@ const ShotRow: React.FC<Props> = ({
   onCloseCharactersEdit,
   onEditAction,
   onSaveAction,
-  onCancelAction
+  onCancelAction,
+  onAddSubShot,
+  onDeleteShot
 }) => {
   // 从shot.id中提取显示编号
   // 例如：shot-1 → "SHOT 001", shot-1-1 → "SHOT 001-1"
@@ -67,8 +71,24 @@ const ShotRow: React.FC<Props> = ({
     <div className="group bg-[var(--bg-base)] hover:bg-[var(--bg-primary)] transition-colors p-8 flex gap-8">
       {/* Shot ID & Tech Data */}
       <div className="w-32 flex-shrink-0 flex flex-col gap-4">
-        <div className="text-xs font-mono text-[var(--text-tertiary)] group-hover:text-[var(--text-primary)] transition-colors">
-          {getShotDisplayNumber()}
+        <div className="flex items-center justify-between gap-2 text-xs font-mono text-[var(--text-tertiary)] group-hover:text-[var(--text-primary)] transition-colors">
+          <span>{getShotDisplayNumber()}</span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onAddSubShot(shot.id)}
+              className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all opacity-0 group-hover:opacity-100"
+              title="新增子分镜"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => onDeleteShot(shot.id)}
+              className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--error)] hover:bg-[var(--error)]/10 transition-all opacity-0 group-hover:opacity-100"
+              title="删除分镜"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
         </div>
         
         <div className="flex flex-col gap-2">
