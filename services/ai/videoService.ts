@@ -36,7 +36,7 @@ const generateVideoAsync = async (
 ): Promise<string> => {
   const references = [startImageBase64, endImageBase64].filter(Boolean) as string[];
   const resolvedModelName = modelName || 'sora-2';
-  const useReferenceArray = resolvedModelName === 'veo_3_1-fast';
+  const useReferenceArray = resolvedModelName.toLowerCase().startsWith('veo_3_1-fast');
 
   if (resolvedModelName === 'sora-2' && references.length >= 2) {
     throw new Error('Sora-2 不支持首尾帧模式，请只传一张参考图。');
@@ -277,7 +277,7 @@ export const generateVideo = async (
   const isAsyncMode =
     (resolvedVideoModel?.params as any)?.mode === 'async' ||
     requestModel === 'sora-2' ||
-    requestModel === 'veo_3_1-fast';
+    requestModel.toLowerCase().startsWith('veo_3_1-fast');
 
   // 异步模式
   if (isAsyncMode) {
