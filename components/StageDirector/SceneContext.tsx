@@ -127,8 +127,7 @@ const SceneContext: React.FC<SceneContextProps> = ({
                         <option value="">基础造型</option>
                         {char.variations!.map(v => (
                           <option key={v.id} value={v.id}>
-                            <Shirt className="w-2 h-2 inline mr-1" />
-                            {v.name}
+                            服装: {v.name}
                           </option>
                         ))}
                       </select>

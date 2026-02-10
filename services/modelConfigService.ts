@@ -76,7 +76,13 @@ export const loadModelConfig = (): ModelManagerState => {
       }
       // 迁移旧的 Veo 模型名为统一的 veo
       const videoModelName = parsed.currentConfig?.videoModel?.modelName || '';
-      if (videoModelName === 'veo-3.1' || videoModelName === 'veo-r2v' || videoModelName.startsWith('veo_3_1') || videoModelName.startsWith('veo_3_0_r2v')) {
+      if (
+        videoModelName === 'veo-3.1' ||
+        videoModelName === 'veo-r2v' ||
+        videoModelName === 'veo_3_1' ||
+        videoModelName.startsWith('veo_3_1_') ||
+        videoModelName.startsWith('veo_3_0_r2v')
+      ) {
         parsed.currentConfig.videoModel.modelName = 'veo';
         parsed.currentConfig.videoModel.type = 'veo';
         parsed.currentConfig.videoModel.endpoint = '/v1/chat/completions';
@@ -254,7 +260,7 @@ export const getImageApiUrl = (): string => {
 };
 
 /**
- * 获取当前视频模型的完整 API URL（仅用于 Sora 异步 API）
+ * 获取当前视频模型的完整 API URL（仅用于异步视频 API）
  */
 export const getVideoApiUrl = (): string => {
   const config = getCurrentConfig();
@@ -397,5 +403,6 @@ export const AVAILABLE_IMAGE_MODELS = [
  */
 export const AVAILABLE_VIDEO_MODELS = [
   { name: 'Veo 3.1（自动）', value: 'veo', type: 'veo' as const, description: '生成时自动按横竖屏与是否带图选择模型' },
+  { name: 'Veo 3.1 Fast', value: 'veo_3_1-fast', type: 'sora' as const, description: '异步模式，支持横/竖屏，固定 8 秒' },
   { name: 'Sora-2', value: 'sora-2', type: 'sora' as const, description: '异步模式，支持 4/8/12 秒' },
 ];

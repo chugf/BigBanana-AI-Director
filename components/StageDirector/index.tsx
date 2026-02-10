@@ -274,7 +274,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
    * 生成视频
    * @param shot - 镜头数据
    * @param aspectRatio - 横竖屏比例
-   * @param duration - 视频时长（仅 Sora 有效）
+  * @param duration - 视频时长（仅异步模型有效）
    * @param modelId - 视频模型 ID
    */
   const handleGenerateVideo = async (shot: Shot, aspectRatio: AspectRatio = '16:9', duration: VideoDuration = 8, modelId?: string) => {
@@ -284,7 +284,12 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     // 使用传入的 modelId 或默认模型
     let selectedModel: string = modelId || shot.videoModel || DEFAULTS.videoModel;
     // 规范化模型名称：旧模型名 -> 'veo'
-    if (selectedModel.startsWith('veo_3_1') || selectedModel === 'veo-r2v' || selectedModel.startsWith('veo_3_0_r2v')) {
+    if (
+      selectedModel === 'veo_3_1' ||
+      selectedModel.startsWith('veo_3_1_') ||
+      selectedModel === 'veo-r2v' ||
+      selectedModel.startsWith('veo_3_0_r2v')
+    ) {
       selectedModel = 'veo';
     }
     

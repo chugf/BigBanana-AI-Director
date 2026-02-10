@@ -412,7 +412,7 @@ const ModelManagerTab: React.FC<ModelManagerTabProps> = ({ onConfigChange }) => 
 
           {/* 默认时长 */}
           <div>
-            <label className="text-[10px] text-[var(--text-muted)] mb-1.5 block">默认时长 (Sora)</label>
+            <label className="text-[10px] text-[var(--text-muted)] mb-1.5 block">默认时长 (异步)</label>
             <div className="flex gap-1">
               {([4, 8, 12] as VideoDuration[]).map((d) => (
                 <button

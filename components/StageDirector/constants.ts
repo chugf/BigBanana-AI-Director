@@ -65,7 +65,7 @@ Technical Requirements:
 - Language: Use {language} for voiceover and subtitles`
   },
   
-  // 九宫格分镜模式的视频提示词（Sora-2 专用，精简版，避免超过8192字符限制）
+  // 九宫格分镜模式的视频提示词（异步模型专用，精简版，避免超过8192字符限制）
   // 保留9个面板的景别/角度顺序，但description截断控制总长度
   sora2NineGrid: {
     chinese: `⚠️ 最高优先级指令：参考图是3x3九宫格分镜板，严禁在视频中展示！视频第一帧必须是面板1的全屏场景画面。

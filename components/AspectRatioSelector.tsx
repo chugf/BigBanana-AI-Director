@@ -81,7 +81,7 @@ interface VideoDurationSelectorProps {
 
 /**
  * 视频时长选择器组件
- * 仅用于 Sora-2 模型
+ * 仅用于异步视频模型（Sora-2 / Veo 3.1 Fast）
  */
 export const VideoDurationSelector: React.FC<VideoDurationSelectorProps> = ({
   value,

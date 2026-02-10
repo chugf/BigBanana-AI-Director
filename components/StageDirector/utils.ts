@@ -213,16 +213,18 @@ export const buildKeyframePromptWithAI = async (
 export const buildVideoPrompt = (
   actionSummary: string,
   cameraMovement: string,
-  videoModel: 'sora-2' | 'veo' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait' | string,
+  videoModel: 'sora-2' | 'veo' | 'veo_3_1-fast' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait' | string,
   language: string,
   nineGrid?: NineGridData,
   videoDuration?: number
 ): string => {
   const isChinese = language === '中文' || language === 'Chinese';
   
-  // 九宫格分镜模式：有九宫格数据时，使用 sora-2 专用精简提示词
+  const isAsyncVideoModel = videoModel === 'sora-2' || videoModel === 'veo_3_1-fast';
+
+  // 九宫格分镜模式：有九宫格数据时，使用异步模型专用精简提示词
   // 保留9个面板的景别/角度顺序，但 description 截断到60字符以内，避免超过 Sora-2 的 8192 字符限制
-  if (nineGrid && nineGrid.panels.length > 0 && videoModel === 'sora-2') {
+  if (nineGrid && nineGrid.panels.length > 0 && isAsyncVideoModel) {
     const DESC_MAX_LEN = 60;
     const panelDescriptions = nineGrid.panels.map((p, idx) => {
       const desc = p.description.length > DESC_MAX_LEN 
@@ -247,7 +249,7 @@ export const buildVideoPrompt = (
   }
   
   // 普通模式
-  if (videoModel === 'sora-2') {
+  if (isAsyncVideoModel) {
     const template = isChinese 
       ? VIDEO_PROMPT_TEMPLATES.sora2.chinese 
       : VIDEO_PROMPT_TEMPLATES.sora2.english;

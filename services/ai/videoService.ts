@@ -252,7 +252,10 @@ export const generateVideo = async (
   const requestModel = resolveRequestModel('video', model) || model;
   const apiKey = checkApiKey('video', model);
   const apiBase = getApiBase('video', model);
-  const isAsyncMode = (resolvedVideoModel?.params as any)?.mode === 'async' || requestModel === 'sora-2';
+  const isAsyncMode =
+    (resolvedVideoModel?.params as any)?.mode === 'async' ||
+    requestModel === 'sora-2' ||
+    requestModel === 'veo_3_1-fast';
 
   // sora-2 使用异步API模式
   if (isAsyncMode) {

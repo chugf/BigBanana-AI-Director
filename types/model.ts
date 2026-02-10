@@ -18,7 +18,7 @@ export type ModelType = 'chat' | 'image' | 'video';
 export type AspectRatio = '16:9' | '9:16' | '1:1';
 
 /**
- * 视频时长类型（仅 Sora 模式支持）
+ * 视频时长类型（仅异步视频模式支持）
  */
 export type VideoDuration = 4 | 8 | 12;
 
@@ -233,6 +233,17 @@ export const DEFAULT_VIDEO_PARAMS_SORA: VideoModelParams = {
   supportedDurations: [4, 8, 12],
 };
 
+/**
+ * 默认视频模型参数 (Veo 3.1 Fast)
+ */
+export const DEFAULT_VIDEO_PARAMS_VEO_FAST: VideoModelParams = {
+  mode: 'async',
+  defaultAspectRatio: '16:9',
+  supportedAspectRatios: ['16:9', '9:16'],
+  defaultDuration: 8,
+  supportedDurations: [8],
+};
+
 // ============================================
 // 内置模型定义
 // ============================================
@@ -314,6 +325,17 @@ export const BUILTIN_VIDEO_MODELS: VideoModelDefinition[] = [
     isBuiltIn: true,
     isEnabled: true,
     params: { ...DEFAULT_VIDEO_PARAMS_VEO },
+  },
+  {
+    id: 'veo_3_1-fast',
+    name: 'Veo 3.1 Fast',
+    type: 'video',
+    providerId: 'antsk',
+    endpoint: '/v1/videos',
+    description: '异步模式，支持横屏/竖屏，固定 8 秒时长',
+    isBuiltIn: true,
+    isEnabled: true,
+    params: { ...DEFAULT_VIDEO_PARAMS_VEO_FAST },
   },
   {
     id: 'sora-2',

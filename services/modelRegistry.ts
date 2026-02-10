@@ -137,7 +137,8 @@ export const loadRegistry = (): ModelRegistryState => {
       let activeModelMigrated = false;
       if (
         deprecatedVideoModelIds.includes(parsed.activeModels.video) ||
-        parsed.activeModels.video?.startsWith('veo_3_1')
+        parsed.activeModels.video === 'veo_3_1' ||
+        parsed.activeModels.video?.startsWith('veo_3_1_')
       ) {
         parsed.activeModels.video = 'veo';
         activeModelMigrated = true;
