@@ -35,12 +35,8 @@ const generateVideoAsync = async (
   modelName: string = 'sora-2'
 ): Promise<string> => {
   const references = [startImageBase64, endImageBase64].filter(Boolean) as string[];
-  const useReferenceArray = references.length >= 2;
-  const resolvedModelName = useReferenceArray
-    ? 'veo_3_1-fast'
-    : references.length === 1
-      ? 'sora-2'
-      : modelName;
+  const resolvedModelName = modelName || 'sora-2';
+  const useReferenceArray = resolvedModelName === 'veo_3_1-fast';
 
   console.log(`🎬 使用异步模式生成视频 (${resolvedModelName}, ${aspectRatio}, ${duration}秒)...`);
 
@@ -73,9 +69,14 @@ const generateVideoAsync = async (
   };
 
   if (useReferenceArray) {
-    await appendReference(references[0], 'reference-start.png', 'input_reference[]');
-    await appendReference(references[1], 'reference-end.png', 'input_reference[]');
-  } else if (references.length === 1) {
+    const limited = references.slice(0, 2);
+    if (limited[0]) {
+      await appendReference(limited[0], 'reference-start.png', 'input_reference[]');
+    }
+    if (limited[1]) {
+      await appendReference(limited[1], 'reference-end.png', 'input_reference[]');
+    }
+  } else if (references.length >= 1) {
     await appendReference(references[0], 'reference.png', 'input_reference');
   }
 

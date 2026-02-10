@@ -229,12 +229,8 @@ const callSoraApi = async (
   const duration = options.duration || model.params.defaultDuration;
   const apiModel = model.apiModel || model.id;
   const references = [options.startImage, options.endImage].filter(Boolean) as string[];
-  const useReferenceArray = references.length >= 2;
-  const resolvedModel = useReferenceArray
-    ? 'veo_3_1-fast'
-    : references.length === 1
-      ? 'sora-2'
-      : apiModel;
+  const resolvedModel = apiModel || 'sora-2';
+  const useReferenceArray = resolvedModel === 'veo_3_1-fast';
   
   const { width, height, size } = getSizeFromAspectRatio(aspectRatio);
 
@@ -260,11 +256,16 @@ const callSoraApi = async (
     formData.append(fieldName, blob, filename);
   };
 
-  // 添加参考图片（单图走 sora-2，双图走 veo_3_1-fast）
+  // 添加参考图片（veo_3_1-fast 支持首尾帧数组；其他模型单图）
   if (useReferenceArray) {
-    await appendReference(references[0], 'reference-start.png', 'input_reference[]');
-    await appendReference(references[1], 'reference-end.png', 'input_reference[]');
-  } else if (references.length === 1) {
+    const limited = references.slice(0, 2);
+    if (limited[0]) {
+      await appendReference(limited[0], 'reference-start.png', 'input_reference[]');
+    }
+    if (limited[1]) {
+      await appendReference(limited[1], 'reference-end.png', 'input_reference[]');
+    }
+  } else if (references.length >= 1) {
     await appendReference(references[0], 'reference.png', 'input_reference');
   }
 
