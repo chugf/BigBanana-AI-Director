@@ -65,6 +65,27 @@ const resizeImageToSize = async (base64Data: string, targetWidth: number, target
   });
 };
 
+const convertVideoUrlToBase64 = async (videoUrl: string): Promise<string> => {
+  const response = await fetch(videoUrl);
+  if (!response.ok) {
+    throw new Error(`视频下载失败: ${response.status}`);
+  }
+  const videoBlob = await response.blob();
+  const reader = new FileReader();
+  return new Promise((resolve, reject) => {
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      if (result && result.startsWith('data:')) {
+        resolve(result);
+      } else {
+        reject(new Error('视频转换失败'));
+      }
+    };
+    reader.onerror = () => reject(new Error('视频读取失败'));
+    reader.readAsDataURL(videoBlob);
+  });
+};
+
 /**
  * 根据宽高比获取尺寸
  */
@@ -230,7 +251,7 @@ const callSoraApi = async (
   const apiModel = model.apiModel || model.id;
   const references = [options.startImage, options.endImage].filter(Boolean) as string[];
   const resolvedModel = apiModel || 'sora-2';
-  const useReferenceArray = resolvedModel === 'veo_3_1-fast';
+  const useReferenceArray = resolvedModel.toLowerCase().startsWith('veo_3_1-fast');
 
   if (resolvedModel === 'sora-2' && references.length >= 2) {
     throw new Error('Sora-2 不支持首尾帧模式，请只传一张参考图。');
@@ -260,15 +281,11 @@ const callSoraApi = async (
     formData.append(fieldName, blob, filename);
   };
 
-  // 添加参考图片（veo_3_1-fast 支持首尾帧数组；其他模型单图）
-  if (useReferenceArray) {
+  // 添加参考图片（veo_3_1-fast 支持首尾帧数组；单图时使用 input_reference）
+  if (useReferenceArray && references.length >= 2) {
     const limited = references.slice(0, 2);
-    if (limited[0]) {
-      await appendReference(limited[0], 'reference-start.png', 'input_reference[]');
-    }
-    if (limited[1]) {
-      await appendReference(limited[1], 'reference-end.png', 'input_reference[]');
-    }
+    await appendReference(limited[0], 'reference-start.png', 'input_reference[]');
+    await appendReference(limited[1], 'reference-end.png', 'input_reference[]');
   } else if (references.length >= 1) {
     await appendReference(references[0], 'reference.png', 'input_reference');
   }
@@ -316,6 +333,7 @@ const callSoraApi = async (
   const startTime = Date.now();
   
   let videoId: string | null = null;
+  let videoUrlFromStatus: string | null = null;
 
   while (Date.now() - startTime < maxPollingTime) {
     await new Promise(resolve => setTimeout(resolve, pollingInterval));
@@ -339,6 +357,7 @@ const callSoraApi = async (
     console.log('🔄 Sora-2 任务状态:', status, '进度:', statusData.progress);
 
     if (status === 'completed' || status === 'succeeded') {
+      videoUrlFromStatus = statusData.video_url || statusData.videoUrl || null;
       if (statusData.id && statusData.id.startsWith('video_')) {
         videoId = statusData.id;
       } else {
@@ -354,8 +373,14 @@ const callSoraApi = async (
     }
   }
 
-  if (!videoId) {
+  if (!videoId && !videoUrlFromStatus) {
     throw new Error('视频生成超时 (20分钟) 或未返回视频 ID');
+  }
+
+  if (videoUrlFromStatus) {
+    const videoBase64 = await convertVideoUrlToBase64(videoUrlFromStatus);
+    console.log('✅ 视频下载完成并转换为 base64');
+    return videoBase64;
   }
 
   // 下载视频

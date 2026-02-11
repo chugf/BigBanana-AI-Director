@@ -27,13 +27,26 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
   onEditPrompt,
   onModelChange
 }) => {
+  const normalizeModelId = (modelId?: string) => {
+    if (!modelId) return modelId;
+    return modelId.toLowerCase() === 'veo_3_1-fast-4k' ? 'veo_3_1-fast' : modelId;
+  };
+
+  const resolveVeoFastQuality = (modelId?: string): 'standard' | '4k' => {
+    if (!modelId) return 'standard';
+    return modelId.toLowerCase() === 'veo_3_1-fast-4k' ? '4k' : 'standard';
+  };
+
   // 获取可用的视频模型
   const videoModels = getVideoModels().filter(m => m.isEnabled);
   const defaultModel = getActiveVideoModel();
   
   // 状态（废弃模型已在数据加载层迁移，此处无需额外处理）
   const [selectedModelId, setSelectedModelId] = useState<string>(
-    shot.videoModel || defaultModel?.id || videoModels[0]?.id || 'sora-2'
+    normalizeModelId(shot.videoModel) || defaultModel?.id || videoModels[0]?.id || 'sora-2'
+  );
+  const [veoFastQuality, setVeoFastQuality] = useState<'standard' | '4k'>(
+    resolveVeoFastQuality(shot.videoModel)
   );
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(() => getDefaultAspectRatio());
   const [duration, setDuration] = useState<VideoDuration>(() => getDefaultVideoDuration());
@@ -41,6 +54,9 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
   // 当前选中的模型
   const selectedModel = videoModels.find(m => m.id === selectedModelId) as VideoModelDefinition | undefined;
   const modelType: 'sora' | 'veo' = selectedModel?.params.mode === 'async' ? 'sora' : 'veo';
+  const effectiveModelId = selectedModelId === 'veo_3_1-fast'
+    ? (veoFastQuality === '4k' ? 'veo_3_1-fast-4K' : 'veo_3_1-fast')
+    : selectedModelId;
   
   const isGenerating = shot.interval?.status === 'generating';
   const hasVideo = !!shot.interval?.videoUrl;
@@ -59,8 +75,22 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
     }
   }, [selectedModelId]);
 
+  useEffect(() => {
+    if (!shot.videoModel) return;
+    setSelectedModelId(normalizeModelId(shot.videoModel));
+    setVeoFastQuality(resolveVeoFastQuality(shot.videoModel));
+  }, [shot.videoModel]);
+
   const handleGenerate = () => {
-    onGenerate(aspectRatio, duration, selectedModelId);
+    onGenerate(aspectRatio, duration, effectiveModelId);
+  };
+
+  const handleVeoFastQualityChange = (quality: 'standard' | '4k') => {
+    setVeoFastQuality(quality);
+    if (selectedModelId === 'veo_3_1-fast') {
+      const modelId = quality === '4k' ? 'veo_3_1-fast-4K' : 'veo_3_1-fast';
+      onModelChange?.(modelId);
+    }
   };
 
   const canGenerate = hasStartFrame;
@@ -96,7 +126,10 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
           onChange={(e) => {
             const newModelId = e.target.value;
             setSelectedModelId(newModelId);
-            onModelChange?.(newModelId);
+            const resolvedModelId = newModelId === 'veo_3_1-fast'
+              ? (veoFastQuality === '4k' ? 'veo_3_1-fast-4K' : 'veo_3_1-fast')
+              : newModelId;
+            onModelChange?.(resolvedModelId);
           }}
           className="w-full bg-[var(--bg-base)] text-[var(--text-primary)] border border-[var(--border-secondary)] rounded-lg px-3 py-2 text-xs outline-none focus:border-[var(--accent)] transition-colors"
           disabled={isGenerating}
@@ -119,6 +152,41 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
               : ` 首尾帧模式，支持 ${selectedModel.params.supportedAspectRatios.join('/')}`
             }
           </p>
+        )}
+        {selectedModelId === 'veo_3_1-fast' && (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-[var(--text-tertiary)] uppercase">清晰度</span>
+            <div className="flex gap-1">
+              <button
+                onClick={() => handleVeoFastQualityChange('standard')}
+                disabled={isGenerating}
+                className={`
+                  px-3 py-1.5 rounded-md text-xs transition-all
+                  ${veoFastQuality === 'standard'
+                    ? 'bg-[var(--accent)] text-[var(--text-primary)]'
+                    : 'bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:bg-[var(--border-secondary)] hover:text-[var(--text-secondary)]'
+                  }
+                  ${isGenerating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                `}
+              >
+                标准
+              </button>
+              <button
+                onClick={() => handleVeoFastQualityChange('4k')}
+                disabled={isGenerating}
+                className={`
+                  px-3 py-1.5 rounded-md text-xs transition-all
+                  ${veoFastQuality === '4k'
+                    ? 'bg-[var(--accent)] text-[var(--text-primary)]'
+                    : 'bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:bg-[var(--border-secondary)] hover:text-[var(--text-secondary)]'
+                  }
+                  ${isGenerating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+                `}
+              >
+                4K
+              </button>
+            </div>
+          </div>
         )}
       </div>
 

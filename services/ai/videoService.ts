@@ -36,7 +36,7 @@ const generateVideoAsync = async (
 ): Promise<string> => {
   const references = [startImageBase64, endImageBase64].filter(Boolean) as string[];
   const resolvedModelName = modelName || 'sora-2';
-  const useReferenceArray = resolvedModelName === 'veo_3_1-fast';
+  const useReferenceArray = resolvedModelName.toLowerCase().startsWith('veo_3_1-fast');
 
   if (resolvedModelName === 'sora-2' && references.length >= 2) {
     throw new Error('Sora-2 不支持首尾帧模式，请只传一张参考图。');
@@ -72,14 +72,10 @@ const generateVideoAsync = async (
     formData.append(fieldName, blob, filename);
   };
 
-  if (useReferenceArray) {
+  if (useReferenceArray && references.length >= 2) {
     const limited = references.slice(0, 2);
-    if (limited[0]) {
-      await appendReference(limited[0], 'reference-start.png', 'input_reference[]');
-    }
-    if (limited[1]) {
-      await appendReference(limited[1], 'reference-end.png', 'input_reference[]');
-    }
+    await appendReference(limited[0], 'reference-start.png', 'input_reference[]');
+    await appendReference(limited[1], 'reference-end.png', 'input_reference[]');
   } else if (references.length >= 1) {
     await appendReference(references[0], 'reference.png', 'input_reference');
   }
@@ -128,6 +124,7 @@ const generateVideoAsync = async (
   const startTime = Date.now();
 
   let videoId: string | null = null;
+  let videoUrlFromStatus: string | null = null;
 
   while (Date.now() - startTime < maxPollingTime) {
     await new Promise(resolve => setTimeout(resolve, pollingInterval));
@@ -151,6 +148,7 @@ const generateVideoAsync = async (
     console.log(`🔄 ${resolvedModelName} 任务状态:`, status, '进度:', statusData.progress);
 
     if (status === 'completed' || status === 'succeeded') {
+      videoUrlFromStatus = statusData.video_url || statusData.videoUrl || null;
       if (statusData.id && statusData.id.startsWith('video_')) {
         videoId = statusData.id;
       } else {
@@ -171,11 +169,17 @@ const generateVideoAsync = async (
     }
   }
 
-  if (!videoId) {
+  if (!videoId && !videoUrlFromStatus) {
     throw new Error('视频生成超时 (20分钟) 或未返回视频ID');
   }
 
   console.log(`✅ ${resolvedModelName} 视频生成完成，视频ID:`, videoId);
+
+  if (videoUrlFromStatus) {
+    const videoBase64 = await convertVideoUrlToBase64(videoUrlFromStatus);
+    console.log(`✅ ${resolvedModelName} 视频已转换为base64格式`);
+    return videoBase64;
+  }
 
   // Step 3: 下载视频内容
   const maxDownloadRetries = 5;
@@ -277,7 +281,7 @@ export const generateVideo = async (
   const isAsyncMode =
     (resolvedVideoModel?.params as any)?.mode === 'async' ||
     requestModel === 'sora-2' ||
-    requestModel === 'veo_3_1-fast';
+    requestModel.toLowerCase().startsWith('veo_3_1-fast');
 
   // 异步模式
   if (isAsyncMode) {

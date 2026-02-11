@@ -72,9 +72,11 @@ const DEFAULT_API_BASE = 'https://api.antsk.cn';
  */
 export const resolveModel = (type: 'chat' | 'image' | 'video', modelId?: string) => {
   if (modelId) {
-    const model = getModelById(modelId);
+    const normalizedModelId = modelId.toLowerCase();
+    const lookupId = normalizedModelId === 'veo_3_1-fast-4k' ? 'veo_3_1-fast' : modelId;
+    const model = getModelById(lookupId);
     if (model && model.type === type) return model;
-    const candidates = getModels(type).filter(m => m.apiModel === modelId);
+    const candidates = getModels(type).filter(m => m.apiModel === lookupId);
     if (candidates.length === 1) return candidates[0];
   }
   return getActiveModel(type);
@@ -84,6 +86,9 @@ export const resolveModel = (type: 'chat' | 'image' | 'video', modelId?: string)
  * 解析请求用的模型名称（apiModel 字段）
  */
 export const resolveRequestModel = (type: 'chat' | 'image' | 'video', modelId?: string): string => {
+  if (modelId && modelId.toLowerCase() === 'veo_3_1-fast-4k') {
+    return modelId;
+  }
   const resolved = resolveModel(type, modelId);
   return resolved?.apiModel || resolved?.id || modelId || '';
 };
