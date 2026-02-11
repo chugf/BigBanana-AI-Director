@@ -139,6 +139,16 @@
 **适合场景**：日常创作、快速原型、灵感验证  
 **本项目更适合**：系统化短剧制作、批量视频生产、工业化工作流
 
+## 客户端下载
+
+直接下载安装包，开箱即用，无需配置开发环境：
+
+**[📥 下载 BigBanana AI Director 客户端 (Windows)](https://tree456.oss-cn-beijing.aliyuncs.com/BigBanana%20AI%20Director%20Setup%201.0.0.exe?Expires=1770775458&OSSAccessKeyId=TMP.3KncdCtzLhRNsXKYuq64tfx2oRiDRR8brh1A4wEboqQWwZVyJVmY6ErervFMUaoM3hKMEHGUbhYvtUBcoeaEi5infDxJNJ&Signature=f9EDzG1v23IXp3Ocoa4lN%2FUa85Y%3D)**
+
+> 💡 下载后双击安装即可使用，支持 Windows 系统。
+
+---
+
 ## 项目启动
 
 ### 方式一：本地开发

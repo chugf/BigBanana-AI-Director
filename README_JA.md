@@ -137,6 +137,16 @@ QRコードをスキャンして **BigBanana プロダクト体験グループ**
 **最適な用途**：日常的な創作、高速プロトタイピング、アイデア検証  
 **本プロジェクトの用途**：体系的なドラマ制作、バッチ動画生成、産業用ワークフロー
 
+## クライアントダウンロード
+
+インストーラーをダウンロードして、すぐに使い始められます。開発環境の構築は不要です：
+
+**[📥 BigBanana AI Director クライアントをダウンロード (Windows)](https://tree456.oss-cn-beijing.aliyuncs.com/BigBanana%20AI%20Director%20Setup%201.0.0.exe?Expires=1770775458&OSSAccessKeyId=TMP.3KncdCtzLhRNsXKYuq64tfx2oRiDRR8brh1A4wEboqQWwZVyJVmY6ErervFMUaoM3hKMEHGUbhYvtUBcoeaEi5infDxJNJ&Signature=f9EDzG1v23IXp3Ocoa4lN%2FUa85Y%3D)**
+
+> 💡 ダウンロードしてインストールするだけで使えます。Windows に対応しています。
+
+---
+
 ## プロジェクトの起動
 
 ### 方法 1：ローカル開発

@@ -134,6 +134,16 @@ For **quick one-off creative tasks**, try our online tool platform:
 **Best For**: Daily creation, rapid prototyping, idea validation  
 **This Project Is For**: Systematic drama production, batch video generation, industrial workflows
 
+## Client Download
+
+Download the installer and get started right away — no development environment needed:
+
+**[📥 Download BigBanana AI Director Client (Windows)](https://tree456.oss-cn-beijing.aliyuncs.com/BigBanana%20AI%20Director%20Setup%201.0.0.exe?Expires=1770775458&OSSAccessKeyId=TMP.3KncdCtzLhRNsXKYuq64tfx2oRiDRR8brh1A4wEboqQWwZVyJVmY6ErervFMUaoM3hKMEHGUbhYvtUBcoeaEi5infDxJNJ&Signature=f9EDzG1v23IXp3Ocoa4lN%2FUa85Y%3D)**
+
+> 💡 Just download and install — supports Windows.
+
+---
+
 ## Getting Started
 
 ### Option 1: Local Development
