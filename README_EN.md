@@ -108,6 +108,14 @@ This project deeply integrates [**AntSK API Platform**](https://api.antsk.cn/), 
 
 [**Sign Up for Free Credits**](https://api.antsk.cn/) →
 
+## ⚠️ Open-Source & “Free” Clarification (Please Read)
+
+* **Model usage note**: This open-source project’s default workflow requires a capability-matched model stack, for example an LLM (such as **gpt-5.2**), an image model (such as **Nano Banana Pro**), and a video model (such as **Sora-2** / **Veo-3.1**). If you want to connect other providers or models, you can modify and adapt it yourself.
+* **Why we open-sourced this**: Our goal is to lower the barrier to entry and make creation more accessible. The project code is open-source, and model configuration is replaceable.
+* **About our API service**: The API we provide is mainly for quick experience and integration, not as a core profit source.
+* **Freedom of choice**: If our API does not meet your expectations, you can absolutely use official OpenAI or Google services directly (even at a higher price). That is a normal and respected choice.
+* **About “always free” expectations**: If your primary criterion is long-term “must be free,” this project may not be the best fit for you.
+
 ---
 
 ## 💬 Join Our Community
