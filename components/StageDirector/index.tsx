@@ -792,6 +792,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     }
     
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
+    const shotGenerationModel = project.shotGenerationModel || 'gpt-5.1';
     
     // 3. 显示弹窗并设置生成状态（仅生成面板描述）
     setShowNineGrid(true);
@@ -814,7 +815,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
           atmosphere: scene.atmosphere
         },
         characterNames,
-        visualStyle
+        visualStyle,
+        shotGenerationModel
       );
       
       // 5. 更新状态为 panels_ready，等待用户确认

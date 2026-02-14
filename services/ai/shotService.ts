@@ -693,12 +693,13 @@ export const generateNineGridPanels = async (
   cameraMovement: string,
   sceneInfo: { location: string; time: string; atmosphere: string },
   characterNames: string[],
-  visualStyle: string
+  visualStyle: string,
+  model?: string
 ): Promise<NineGridPanel[]> => {
   const startTime = Date.now();
   console.log('🎬 九宫格分镜 - 开始AI拆分视角...');
 
-  const model = getActiveChatModel()?.id || 'gpt-5.1';
+  const resolvedModel = model || getActiveChatModel()?.id || 'gpt-5.1';
 
   const systemPrompt = `你是一位专业的电影分镜师和摄影指导。你的任务是将一个镜头动作拆解为9个不同的摄影视角，用于九宫格分镜预览。
 每个视角必须展示相同场景的不同景别和机位角度组合，确保覆盖从远景到特写、从俯拍到仰拍的多样化视角。`;
@@ -740,7 +741,7 @@ export const generateNineGridPanels = async (
   const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
   try {
-    const responseText = await retryOperation(() => chatCompletion(fullPrompt, model, 0.7, 4096, 'json_object'));
+    const responseText = await retryOperation(() => chatCompletion(fullPrompt, resolvedModel, 0.7, 4096, 'json_object'));
     const duration = Date.now() - startTime;
 
     const cleaned = cleanJsonString(responseText);
