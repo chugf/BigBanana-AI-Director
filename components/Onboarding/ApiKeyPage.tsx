@@ -79,6 +79,27 @@ const ApiKeyPage: React.FC<ApiKeyPageProps> = ({
         需要 API Key 才能使用 AI 生成功能
       </p>
 
+      {/* 使用预期提醒 */}
+      <div className="w-full max-w-sm mb-6 text-left border border-[var(--border-primary)] bg-[var(--bg-surface)]/60 rounded-lg p-3">
+        <h3 className="text-xs font-bold text-[var(--text-primary)] mb-2">
+          使用预期提醒
+        </h3>
+        <div className="space-y-2 text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+          <p>
+            如果你的核心诉求是“必须先给免费额度”，这个项目可能不太适合你。
+          </p>
+          <p>
+            更建议先体验元宝或者豆包，产品成熟，也常有活动福利。
+          </p>
+          <p>
+            我们做开源的初衷是降低门槛，让技术更普惠；这里提供的 API 主要用于快速体验和集成，不是盈利核心。
+          </p>
+          <p>
+            项目本身支持自配模型。若我们的 API 不符合你的预期，你也可以直接使用 OpenAI 或 Google 官方服务，哪怕价格更高也完全没问题。
+          </p>
+        </div>
+      </div>
+
       {/* 输入框 */}
       <div className="w-full max-w-sm mb-4">
         <input
