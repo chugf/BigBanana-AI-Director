@@ -37,6 +37,15 @@ interface LegacyProjectState {
 
 export async function runV2ToV3Migration(db: IDBDatabase): Promise<void> {
   if (!db.objectStoreNames.contains('projects')) return;
+  if (!db.objectStoreNames.contains('seriesProjects')) return;
+
+  const alreadyMigrated = await new Promise<boolean>((resolve, reject) => {
+    const tx = db.transaction('seriesProjects', 'readonly');
+    const req = tx.objectStore('seriesProjects').count();
+    req.onsuccess = () => resolve(req.result > 0);
+    req.onerror = () => reject(req.error);
+  });
+  if (alreadyMigrated) return;
 
   const legacyProjects = await new Promise<LegacyProjectState[]>((resolve, reject) => {
     const tx = db.transaction('projects', 'readonly');

@@ -25,20 +25,20 @@ export interface IndexedDBExportPayload {
   };
 }
 
-let migrationDone = false;
+let dbPromise: Promise<IDBDatabase> | null = null;
 
 const openDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+
+  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => { dbPromise = null; reject(request.error); };
     request.onsuccess = () => {
       const db = request.result;
-      if (!migrationDone) {
-        migrationDone = true;
-        runV2ToV3Migration(db).then(() => resolve(db)).catch(() => resolve(db));
-      } else {
-        resolve(db);
-      }
+      db.onclose = () => { dbPromise = null; };
+      runV2ToV3Migration(db)
+        .then(() => resolve(db))
+        .catch((e) => { console.error('Migration error (non-fatal):', e); resolve(db); });
     };
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
@@ -62,6 +62,8 @@ const openDB = (): Promise<IDBDatabase> => {
       }
     };
   });
+
+  return dbPromise;
 };
 
 // =============================================
@@ -441,16 +443,47 @@ export const importIndexedDBData = async (
     const epStore = tx.objectStore(EP_STORE);
     (payload.stores.episodes || []).forEach((ep: Episode) => { epStore.put(ep); count++; });
 
-    // Legacy v1 format compat: if only projects[] present, write to episodes
     if (payload.stores.projects && payload.stores.projects.length > 0 && !(payload.stores.episodes && payload.stores.episodes.length > 0)) {
       payload.stores.projects.forEach((p: any) => {
         if (p.shots) p.shots.forEach((s: any) => { if (s.videoModel === 'veo-r2v') s.videoModel = 'veo'; });
-        if (!p.characterRefs) p.characterRefs = [];
-        if (!p.projectId) p.projectId = '';
-        if (!p.seriesId) p.seriesId = '';
-        if (!p.episodeNumber) p.episodeNumber = 1;
-        epStore.put(p);
-        count++;
+        if (!p.renderLogs) p.renderLogs = [];
+        if (p.scriptData && !p.scriptData.props) p.scriptData.props = [];
+
+        const genId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        const projectId = genId('sproj');
+        const seriesId = genId('series');
+        const episodeId = genId('ep');
+
+        const chars = p.scriptData?.characters || [];
+        const scenes = p.scriptData?.scenes || [];
+        const props = p.scriptData?.props || [];
+
+        const sp: SeriesProject = {
+          id: projectId, title: p.title, createdAt: p.createdAt || Date.now(), lastModified: p.lastModified || Date.now(),
+          visualStyle: p.visualStyle || 'live-action', language: p.language || '中文',
+          artDirection: p.scriptData?.artDirection,
+          characterLibrary: chars.map((c: any) => ({ ...c, version: 1 })),
+          sceneLibrary: scenes.map((s: any) => ({ ...s })),
+          propLibrary: props.map((pr: any) => ({ ...pr })),
+        };
+        spStore.put(sp);
+
+        const s: Series = { id: seriesId, projectId, title: '第一季', sortOrder: 0, createdAt: Date.now(), lastModified: Date.now() };
+        seriesStr.put(s);
+
+        const ep: Episode = {
+          id: episodeId, projectId, seriesId, episodeNumber: 1,
+          title: p.scriptData?.title || p.title || '未命名',
+          createdAt: p.createdAt || Date.now(), lastModified: p.lastModified || Date.now(),
+          stage: p.stage || 'script', rawScript: p.rawScript || '', targetDuration: p.targetDuration || '60s',
+          language: p.language || '中文', visualStyle: p.visualStyle || 'live-action',
+          shotGenerationModel: p.shotGenerationModel || 'gpt-5.1',
+          scriptData: p.scriptData ? { ...p.scriptData, characters: chars.map((c: any) => ({ ...c, libraryId: c.id, libraryVersion: 1 })) } : null,
+          shots: p.shots || [], isParsingScript: false, renderLogs: p.renderLogs || [],
+          characterRefs: chars.map((c: any) => ({ characterId: c.id, syncedVersion: 1, syncStatus: 'synced' as const })),
+        };
+        epStore.put(ep);
+        count += 3;
       });
     }
 
