@@ -131,8 +131,14 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       scriptData.visualStyle = finalVisualStyle;
       scriptData.shotGenerationModel = finalModel;
 
-      if (localTitle && localTitle !== "未命名项目") {
-        scriptData.title = localTitle;
+      const trimmedLocalTitle = localTitle.trim();
+      const isPlaceholderTitle =
+        !trimmedLocalTitle ||
+        trimmedLocalTitle === '未命名项目' ||
+        /^新建项目\s\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}$/.test(trimmedLocalTitle);
+
+      if (!isPlaceholderTitle) {
+        scriptData.title = trimmedLocalTitle;
       }
 
       console.log('📞 调用 generateShotList, 传入模型:', finalModel);
