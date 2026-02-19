@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { AlertProvider } from './components/GlobalAlert';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -12,10 +13,12 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <ThemeProvider>
-      <AlertProvider>
-        <App />
-      </AlertProvider>
-    </ThemeProvider>
+    <BrowserRouter>
+      <ThemeProvider>
+        <AlertProvider>
+          <App />
+        </AlertProvider>
+      </ThemeProvider>
+    </BrowserRouter>
   </React.StrictMode>
 );

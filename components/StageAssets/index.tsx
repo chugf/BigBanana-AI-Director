@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Sparkles, RefreshCw, Loader2, MapPin, Archive, X, Search, Trash2, Package } from 'lucide-react';
+import { Users, Sparkles, RefreshCw, Loader2, MapPin, Archive, X, Search, Trash2, Package, Link2 } from 'lucide-react';
 import { ProjectState, CharacterVariation, Character, Scene, Prop, AspectRatio, AssetLibraryItem, CharacterTurnaroundPanel } from '../../types';
 import { generateImage, generateVisualPrompts, generateCharacterTurnaroundPanels, generateCharacterTurnaroundImage } from '../../services/aiService';
 import { 
@@ -23,6 +23,8 @@ import { getAllAssetLibraryItems, saveAssetToLibrary, deleteAssetFromLibrary } f
 import { applyLibraryItemToProject, createLibraryItemFromCharacter, createLibraryItemFromScene, createLibraryItemFromProp, cloneCharacterForProject } from '../../services/assetLibraryService';
 import { AspectRatioSelector } from '../AspectRatioSelector';
 import { getUserAspectRatio, setUserAspectRatio, getActiveImageModel } from '../../services/modelRegistry';
+import CharacterLibraryPickerModal from './CharacterLibraryPicker';
+import { loadSeriesProject } from '../../services/storageService';
 
 interface Props {
   project: ProjectState;
@@ -44,7 +46,19 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const [libraryProjectFilter, setLibraryProjectFilter] = useState('all');
   const [replaceTargetCharId, setReplaceTargetCharId] = useState<string | null>(null);
   const [turnaroundCharId, setTurnaroundCharId] = useState<string | null>(null);
-  
+  const [showCharLibraryPicker, setShowCharLibraryPicker] = useState(false);
+  const [pickerProject, setPickerProject] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = () => {
+      if (project.projectId) {
+        loadSeriesProject(project.projectId).then(sp => { setPickerProject(sp); setShowCharLibraryPicker(true); }).catch(() => {});
+      }
+    };
+    window.addEventListener('openCharacterLibraryPicker', handler);
+    return () => window.removeEventListener('openCharacterLibraryPicker', handler);
+  }, [project.projectId]);
+
   // 横竖屏选择状态（从持久化配置读取）
   const [aspectRatio, setAspectRatioState] = useState<AspectRatio>(() => getUserAspectRatio());
   
@@ -1415,6 +1429,17 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
                 <Archive className="w-3 h-3" />
                 从资产库选择
               </button>
+              <button
+                onClick={() => {
+                  const event = new CustomEvent('openCharacterLibraryPicker');
+                  window.dispatchEvent(event);
+                }}
+                disabled={!!batchProgress}
+                className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors border border-blue-500/30 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <Link2 className="w-3 h-3" />
+                从角色库添加
+              </button>
               <button 
                 onClick={() => handleBatchGenerate('character')}
                 disabled={!!batchProgress}
@@ -1568,6 +1593,37 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         </section>
       </div>
 
+      {/* Character Library Picker */}
+      {showCharLibraryPicker && (
+        <CharacterLibraryPickerModal
+          isOpen={showCharLibraryPicker}
+          onClose={() => setShowCharLibraryPicker(false)}
+          project={pickerProject}
+          existingCharacterIds={(project.scriptData?.characters || []).filter(c => c.libraryId).map(c => c.libraryId!)}
+          onSelect={(libChar) => {
+            if (!project.scriptData) return;
+            const newChar: Character = {
+              ...libChar,
+              id: generateId('char'),
+              libraryId: libChar.id,
+              libraryVersion: libChar.version || 1,
+              variations: libChar.variations?.map(v => ({ ...v })) || [],
+            };
+            const newChars = [...project.scriptData.characters, newChar];
+            const newRefs = [...(project.characterRefs || []), {
+              characterId: libChar.id,
+              syncedVersion: libChar.version || 1,
+              syncStatus: 'synced' as const,
+            }];
+            updateProject(prev => ({
+              ...prev,
+              scriptData: { ...prev.scriptData!, characters: newChars },
+              characterRefs: newRefs,
+            }));
+            setShowCharLibraryPicker(false);
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import StageScript from './components/StageScript';
 import StageAssets from './components/StageAssets';
@@ -6,373 +7,270 @@ import StageDirector from './components/StageDirector';
 import StageExport from './components/StageExport';
 import StagePrompts from './components/StagePrompts';
 import Dashboard from './components/Dashboard';
+import ProjectOverview from './components/ProjectOverview';
+import CharacterLibraryPage from './components/CharacterLibrary';
 import Onboarding, { shouldShowOnboarding, resetOnboarding } from './components/Onboarding';
 import ModelConfigModal from './components/ModelConfig';
 import { ProjectState } from './types';
-import { Save, CheckCircle, X } from 'lucide-react';
-import { saveProjectToDB } from './services/storageService';
+import { Save, CheckCircle } from 'lucide-react';
+import { saveEpisode, loadEpisode } from './services/storageService';
 import { setGlobalApiKey } from './services/aiService';
 import { setLogCallback, clearLogCallback } from './services/renderLogService';
 import { useAlert } from './components/GlobalAlert';
+import { ProjectProvider, useProjectContext } from './contexts/ProjectContext';
+import { checkCharacterSync } from './services/characterSyncService';
+import CharacterSyncBanner from './components/CharacterLibrary/CharacterSyncBanner';
 import logoImg from './logo.png';
 
-function App() {
+function MobileWarning() {
+  return (
+    <div className="h-screen bg-[var(--bg-base)] flex items-center justify-center p-6">
+      <div className="max-w-md text-center space-y-6">
+        <img src={logoImg} alt="Logo" className="w-20 h-20 mx-auto mb-4" />
+        <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">BigBanana AI Director</h1>
+        <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-8">
+          <p className="text-[var(--text-tertiary)] text-base leading-relaxed mb-4">为了获得最佳体验，请使用 PC 端浏览器访问。</p>
+          <p className="text-[var(--text-muted)] text-sm">本应用需要较大的屏幕空间和桌面级浏览器环境才能正常运行。</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EpisodeWorkspace() {
+  const { episodeId } = useParams<{ episodeId: string }>();
+  const navigate = useNavigate();
   const { showAlert } = useAlert();
-  const [project, setProject] = useState<ProjectState | null>(null);
-  const [apiKey, setApiKey] = useState<string>('');
+  const { project, currentEpisode, setCurrentEpisode, updateEpisode, syncAllCharactersToEpisode, syncCharacterToEpisode } = useProjectContext();
+  const [isGenerating, setIsGenerating] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
   const [showSaveStatus, setShowSaveStatus] = useState(false);
-  const [showQrCode, setShowQrCode] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showModelConfig, setShowModelConfig] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  
-  // Ref to hold debounce timer
   const saveTimeoutRef = useRef<any>(null);
   const hideStatusTimeoutRef = useRef<any>(null);
 
-  // Detect mobile device on mount
   useEffect(() => {
-    const checkMobile = () => {
-      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 1024;
-      setIsMobile(isMobileDevice);
-    };
-    
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+    if (!episodeId) return;
+    loadEpisode(episodeId).then(ep => setCurrentEpisode(ep)).catch(() => navigate('/'));
+    return () => setCurrentEpisode(null);
+  }, [episodeId]);
 
-  // Load API Key from localStorage on mount
   useEffect(() => {
-    const storedKey = localStorage.getItem('antsk_api_key');
-    if (storedKey) {
-      setApiKey(storedKey);
-      setGlobalApiKey(storedKey);
-    }
-    // 检查是否需要显示首次引导（无论有没有 API Key）
-    if (shouldShowOnboarding()) {
-      setShowOnboarding(true);
-    }
-  }, []);
-
-  // 处理引导完成
-  const handleOnboardingComplete = () => {
-    setShowOnboarding(false);
-  };
-
-  // 处理快速开始选项
-  const handleOnboardingQuickStart = (option: 'script' | 'example') => {
-    setShowOnboarding(false);
-    // 如果选择"从剧本开始"，可以后续扩展为创建新项目
-    // 如果选择"看看示例项目"，可以后续扩展为打开示例项目
-    console.log('Quick start option:', option);
-  };
-
-  // 重新显示引导（供帮助菜单调用）
-  const handleShowOnboarding = () => {
-    resetOnboarding();
-    setShowOnboarding(true);
-  };
-
-  // 保存 API Key（从设置或引导中）
-  const handleSaveApiKey = (key: string) => {
-    if (key) {
-      setApiKey(key);
-      setGlobalApiKey(key);
-      localStorage.setItem('antsk_api_key', key);
-    } else {
-      setApiKey('');
-      setGlobalApiKey('');
-      localStorage.removeItem('antsk_api_key');
-    }
-  };
-
-  // 显示模型配置弹窗
-  const handleShowModelConfig = () => {
-    setShowModelConfig(true);
-  };
-
-  // Global error handler to catch API Key errors
-  useEffect(() => {
-    const handleError = (event: ErrorEvent) => {
-      // Check if error is related to API Key
-      if (event.error?.name === 'ApiKeyError' || 
-          event.error?.message?.includes('API Key missing') ||
-          event.error?.message?.includes('AntSK API Key')) {
-        console.warn('🔐 检测到 API Key 错误，请配置 API Key...');
-        setShowModelConfig(true); // 打开模型配置弹窗让用户配置
-        event.preventDefault(); // Prevent default error display
-      }
-    };
-
-    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
-      // Check if rejection is related to API Key
-      if (event.reason?.name === 'ApiKeyError' ||
-          event.reason?.message?.includes('API Key missing') ||
-          event.reason?.message?.includes('AntSK API Key')) {
-        console.warn('🔐 检测到 API Key 错误，请配置 API Key...');
-        setShowModelConfig(true); // 打开模型配置弹窗让用户配置
-        event.preventDefault(); // Prevent default error display
-      }
-    };
-
-    window.addEventListener('error', handleError);
-    window.addEventListener('unhandledrejection', handleUnhandledRejection);
-
-    return () => {
-      window.removeEventListener('error', handleError);
-      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
-    };
-  }, []);
-
-  // Setup render log callback
-  useEffect(() => {
-    if (project) {
+    if (currentEpisode) {
       setLogCallback((log) => {
-        setProject(prev => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            renderLogs: [...(prev.renderLogs || []), log]
-          };
-        });
+        updateEpisode(prev => ({
+          ...prev,
+          renderLogs: [...(prev.renderLogs || []), log]
+        }));
       });
     } else {
       clearLogCallback();
     }
-    
     return () => clearLogCallback();
-  }, [project?.id]); // Re-setup when project changes
+  }, [currentEpisode?.id]);
 
-  // Auto-save logic
   useEffect(() => {
-    if (!project) return;
-
+    if (!currentEpisode) return;
     setSaveStatus('unsaved');
     setShowSaveStatus(true);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-
     saveTimeoutRef.current = setTimeout(async () => {
       setSaveStatus('saving');
       try {
-        await saveProjectToDB(project);
+        await saveEpisode(currentEpisode);
         setSaveStatus('saved');
       } catch (e) {
         console.error("Auto-save failed", e);
       }
-    }, 1000); // Debounce 1s
+    }, 1000);
+    return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
+  }, [currentEpisode]);
 
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
-  }, [project]);
-
-  // Auto-hide save status after 2 seconds
   useEffect(() => {
     if (saveStatus === 'saved') {
       if (hideStatusTimeoutRef.current) clearTimeout(hideStatusTimeoutRef.current);
-      hideStatusTimeoutRef.current = setTimeout(() => {
-        setShowSaveStatus(false);
-      }, 2000);
+      hideStatusTimeoutRef.current = setTimeout(() => setShowSaveStatus(false), 2000);
     } else if (saveStatus === 'saving') {
       setShowSaveStatus(true);
       if (hideStatusTimeoutRef.current) clearTimeout(hideStatusTimeoutRef.current);
     }
-
-    return () => {
-      if (hideStatusTimeoutRef.current) clearTimeout(hideStatusTimeoutRef.current);
-    };
+    return () => { if (hideStatusTimeoutRef.current) clearTimeout(hideStatusTimeoutRef.current); };
   }, [saveStatus]);
 
-
-  const updateProject = (updates: Partial<ProjectState> | ((prev: ProjectState) => ProjectState)) => {
-    if (!project) return;
-    setProject(prev => {
-      if (!prev) return null;
-      // 支持函数式更新
-      if (typeof updates === 'function') {
-        return updates(prev);
-      }
-      return { ...prev, ...updates };
-    });
+  const handleUpdateProject = (updates: Partial<ProjectState> | ((prev: ProjectState) => ProjectState)) => {
+    updateEpisode(updates);
   };
 
   const setStage = (stage: 'script' | 'assets' | 'director' | 'export' | 'prompts') => {
     if (isGenerating) {
-      showAlert('当前正在执行生成任务（剧本分镜 / 首帧 / 视频等），切换页面会导致生成数据丢失，且已扣除的费用无法恢复。\n\n确定要离开当前页面吗？', {
-        title: '生成任务进行中',
-        type: 'warning',
-        showCancel: true,
-        confirmText: '确定离开',
-        cancelText: '继续等待',
-        onConfirm: () => {
-          setIsGenerating(false);
-          updateProject({ stage });
-        }
+      showAlert('当前正在执行生成任务，切换页面会导致生成数据丢失。\n\n确定要离开当前页面吗？', {
+        title: '生成任务进行中', type: 'warning', showCancel: true, confirmText: '确定离开', cancelText: '继续等待',
+        onConfirm: () => { setIsGenerating(false); handleUpdateProject({ stage }); }
       });
       return;
     }
-    updateProject({ stage });
+    handleUpdateProject({ stage });
   };
 
-  const handleOpenProject = (proj: ProjectState) => {
-    setProject(proj);
-  };
-
-  const handleExitProject = async () => {
+  const handleExit = async () => {
     if (isGenerating) {
-      showAlert('当前正在执行生成任务（剧本分镜 / 首帧 / 视频等），退出项目会导致生成数据丢失，且已扣除的费用无法恢复。\n\n确定要退出吗？', {
-        title: '生成任务进行中',
-        type: 'warning',
-        showCancel: true,
-        confirmText: '确定退出',
-        cancelText: '继续等待',
+      showAlert('当前正在执行生成任务，退出会导致数据丢失。\n\n确定要退出吗？', {
+        title: '生成任务进行中', type: 'warning', showCancel: true, confirmText: '确定退出', cancelText: '继续等待',
         onConfirm: async () => {
           setIsGenerating(false);
-          if (project) {
-            await saveProjectToDB(project);
-          }
-          setProject(null);
+          if (currentEpisode) await saveEpisode(currentEpisode);
+          navigate(`/project/${currentEpisode?.projectId || ''}`);
         }
       });
       return;
     }
-    // Force save before exiting
-    if (project) {
-        await saveProjectToDB(project);
-    }
-    setProject(null);
+    if (currentEpisode) await saveEpisode(currentEpisode);
+    navigate(`/project/${currentEpisode?.projectId || ''}`);
   };
 
+  if (!currentEpisode) {
+    return <div className="h-screen flex items-center justify-center text-[var(--text-muted)]">加载中...</div>;
+  }
+
   const renderStage = () => {
-    if (!project) return null;
-    switch (project.stage) {
+    switch (currentEpisode.stage) {
       case 'script':
-        return (
-          <StageScript
-            project={project}
-            updateProject={updateProject}
-            onShowModelConfig={handleShowModelConfig}
-            onGeneratingChange={setIsGenerating}
-          />
-        );
+        return <StageScript project={currentEpisode} updateProject={handleUpdateProject} onShowModelConfig={() => setShowModelConfig(true)} onGeneratingChange={setIsGenerating} />;
       case 'assets':
-        return <StageAssets project={project} updateProject={updateProject} onGeneratingChange={setIsGenerating} />;
+        return <StageAssets project={currentEpisode} updateProject={handleUpdateProject} onGeneratingChange={setIsGenerating} />;
       case 'director':
-        return <StageDirector project={project} updateProject={updateProject} onGeneratingChange={setIsGenerating} />;
+        return <StageDirector project={currentEpisode} updateProject={handleUpdateProject} onGeneratingChange={setIsGenerating} />;
       case 'export':
-        return <StageExport project={project} />;
+        return <StageExport project={currentEpisode} />;
       case 'prompts':
-        return <StagePrompts project={project} updateProject={updateProject} />;
+        return <StagePrompts project={currentEpisode} updateProject={handleUpdateProject} />;
       default:
         return <div className="text-[var(--text-primary)]">未知阶段</div>;
     }
   };
 
-  // Mobile Warning Screen
-  if (isMobile) {
-    return (
-      <div className="h-screen bg-[var(--bg-base)] flex items-center justify-center p-6">
-        <div className="max-w-md text-center space-y-6">
-          <img src={logoImg} alt="Logo" className="w-20 h-20 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">BigBanana AI Director</h1>
-          <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-8">
-            <p className="text-[var(--text-tertiary)] text-base leading-relaxed mb-4">
-              为了获得最佳体验，请使用 PC 端浏览器访问。
-            </p>
-            <p className="text-[var(--text-muted)] text-sm">
-              本应用需要较大的屏幕空间和桌面级浏览器环境才能正常运行。
-            </p>
-          </div>
-          <div className="text-xs text-[var(--text-muted)]">
-            <a href="https://director.tree456.com/" target="_blank" rel="noreferrer" className="hover:text-[var(--accent-text)] transition-colors">
-              访问产品首页了解更多
-            </a>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const episodeLabel = project ? `${project.title} / ${currentEpisode.title}` : currentEpisode.title;
 
-  // Dashboard View
-  if (!project) {
-    return (
-       <>
-         <Dashboard 
-           onOpenProject={handleOpenProject} 
-           onShowOnboarding={handleShowOnboarding}
-           onShowModelConfig={handleShowModelConfig}
-         />
-         {showOnboarding && (
-           <Onboarding 
-             onComplete={handleOnboardingComplete}
-             onQuickStart={handleOnboardingQuickStart}
-             currentApiKey={apiKey}
-             onSaveApiKey={handleSaveApiKey}
-           />
-         )}
-         <ModelConfigModal
-           isOpen={showModelConfig}
-           onClose={() => setShowModelConfig(false)}
-         />
-       </>
-    );
-  }
-
-  // Workspace View
   return (
     <div className="flex h-screen bg-[var(--bg-secondary)] font-sans text-[var(--text-secondary)] selection:bg-[var(--accent-bg)]">
-      <Sidebar 
-        currentStage={project.stage} 
-        setStage={setStage} 
-        onExit={handleExitProject} 
-        projectName={project.title}
-        onShowOnboarding={handleShowOnboarding}
+      <Sidebar
+        currentStage={currentEpisode.stage}
+        setStage={setStage}
+        onExit={handleExit}
+        projectName={episodeLabel}
+        onShowOnboarding={() => { resetOnboarding(); setShowOnboarding(true); }}
         onShowModelConfig={() => setShowModelConfig(true)}
         isNavigationLocked={isGenerating}
+        episodeInfo={project ? { projectId: project.id, projectTitle: project.title, episodeTitle: currentEpisode.title } : undefined}
+        onGoToProject={project ? () => navigate(`/project/${project.id}`) : undefined}
       />
-      
       <main className="ml-72 flex-1 h-screen overflow-hidden relative">
+        {project && currentEpisode && (() => {
+          const { outdatedRefs } = checkCharacterSync(currentEpisode, project);
+          if (outdatedRefs.length === 0) return null;
+          return (
+            <CharacterSyncBanner
+              outdatedRefs={outdatedRefs}
+              characterLibrary={project.characterLibrary}
+              onSyncAll={syncAllCharactersToEpisode}
+              onSyncOne={syncCharacterToEpisode}
+            />
+          );
+        })()}
         {renderStage()}
-        
-        {/* Save Status Indicator */}
         {showSaveStatus && (
-          <div className="absolute top-4 right-6 pointer-events-none flex items-center gap-2 text-xs font-mono text-[var(--text-tertiary)] bg-[var(--overlay-medium)] px-2 py-1 rounded-full backdrop-blur-sm z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-             {saveStatus === 'saving' ? (
-               <>
-                 <Save className="w-3 h-3 animate-pulse" />
-                 保存中...
-               </>
-             ) : (
-               <>
-                 <CheckCircle className="w-3 h-3 text-[var(--success)]" />
-                 已保存
-               </>
-             )}
+          <div className="absolute top-4 right-6 pointer-events-none flex items-center gap-2 text-xs font-mono text-[var(--text-tertiary)] bg-[var(--overlay-medium)] px-2 py-1 rounded-full backdrop-blur-sm z-50">
+            {saveStatus === 'saving' ? (<><Save className="w-3 h-3 animate-pulse" />保存中...</>) : (<><CheckCircle className="w-3 h-3 text-[var(--success)]" />已保存</>)}
           </div>
         )}
       </main>
-
-      {/* Onboarding Modal */}
-      {showOnboarding && (
-        <Onboarding 
-          onComplete={handleOnboardingComplete}
-          onQuickStart={handleOnboardingQuickStart}
-          currentApiKey={apiKey}
-          onSaveApiKey={handleSaveApiKey}
-        />
-      )}
-
-      {/* Model Config Modal */}
-      <ModelConfigModal
-        isOpen={showModelConfig}
-        onClose={() => setShowModelConfig(false)}
-      />
+      {showOnboarding && <Onboarding onComplete={() => setShowOnboarding(false)} onQuickStart={() => setShowOnboarding(false)} currentApiKey="" onSaveApiKey={() => {}} />}
+      <ModelConfigModal isOpen={showModelConfig} onClose={() => setShowModelConfig(false)} />
     </div>
   );
+}
+
+function AppRoutes() {
+  const navigate = useNavigate();
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showModelConfig, setShowModelConfig] = useState(false);
+  const [apiKey, setApiKeyState] = useState('');
+
+  useEffect(() => {
+    const storedKey = localStorage.getItem('antsk_api_key');
+    if (storedKey) { setApiKeyState(storedKey); setGlobalApiKey(storedKey); }
+    if (shouldShowOnboarding()) setShowOnboarding(true);
+  }, []);
+
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      if (event.error?.message?.includes('API Key missing') || event.error?.message?.includes('AntSK API Key')) {
+        setShowModelConfig(true); event.preventDefault();
+      }
+    };
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      if (event.reason?.message?.includes('API Key missing') || event.reason?.message?.includes('AntSK API Key')) {
+        setShowModelConfig(true); event.preventDefault();
+      }
+    };
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => { window.removeEventListener('error', handleError); window.removeEventListener('unhandledrejection', handleRejection); };
+  }, []);
+
+  const handleSaveApiKey = (key: string) => {
+    if (key) { setApiKeyState(key); setGlobalApiKey(key); localStorage.setItem('antsk_api_key', key); }
+    else { setApiKeyState(''); setGlobalApiKey(''); localStorage.removeItem('antsk_api_key'); }
+  };
+
+  return (
+    <>
+      <Routes>
+        <Route path="/" element={
+          <Dashboard
+            onOpenProject={(proj) => {
+              if (proj.projectId) navigate(`/project/${proj.projectId}`);
+              else navigate(`/project/${proj.id}/episode/${proj.id}`);
+            }}
+            onShowOnboarding={() => { resetOnboarding(); setShowOnboarding(true); }}
+            onShowModelConfig={() => setShowModelConfig(true)}
+          />
+        } />
+        <Route path="/project/:projectId" element={
+          <ProjectProvider>
+            <ProjectOverview />
+          </ProjectProvider>
+        } />
+        <Route path="/project/:projectId/characters" element={
+          <ProjectProvider>
+            <CharacterLibraryPage />
+          </ProjectProvider>
+        } />
+        <Route path="/project/:projectId/episode/:episodeId" element={
+          <ProjectProvider>
+            <EpisodeWorkspace />
+          </ProjectProvider>
+        } />
+      </Routes>
+      {showOnboarding && <Onboarding onComplete={() => setShowOnboarding(false)} onQuickStart={() => setShowOnboarding(false)} currentApiKey={apiKey} onSaveApiKey={handleSaveApiKey} />}
+      <ModelConfigModal isOpen={showModelConfig} onClose={() => setShowModelConfig(false)} />
+    </>
+  );
+}
+
+function App() {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 1024);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  if (isMobile) return <MobileWarning />;
+  return <AppRoutes />;
 }
 
 export default App;

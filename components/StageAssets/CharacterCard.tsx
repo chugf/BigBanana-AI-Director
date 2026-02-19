@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Check, Shirt, Trash2, Edit2, AlertCircle, FolderPlus, Grid3x3 } from 'lucide-react';
+import { User, Check, Shirt, Trash2, Edit2, AlertCircle, FolderPlus, Grid3x3, Link2 } from 'lucide-react';
 import { Character } from '../../types';
 import PromptEditor from './PromptEditor';
 import ImageUploadButton from './ImageUploadButton';
@@ -61,8 +61,16 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
     }
   };
 
+  const isLinked = !!character.libraryId;
+
   return (
-    <div className="bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl overflow-hidden flex flex-col group hover:border-[var(--border-secondary)] transition-all hover:shadow-lg">
+    <div className={`bg-[var(--bg-surface)] border rounded-xl overflow-hidden flex flex-col group transition-all hover:shadow-lg ${isLinked ? 'border-blue-500/40 hover:border-blue-500/70' : 'border-[var(--border-primary)] hover:border-[var(--border-secondary)]'}`}>
+      {isLinked && (
+        <div className="px-4 py-1.5 bg-blue-500/10 border-b border-blue-500/20 flex items-center gap-1.5">
+          <Link2 className="w-3 h-3 text-blue-400" />
+          <span className="text-[9px] font-mono text-blue-400 uppercase tracking-widest">项目角色</span>
+        </div>
+      )}
       <div className="flex gap-4 p-4 pb-0">
         {/* Character Image */}
         <div className="w-48 flex-shrink-0">

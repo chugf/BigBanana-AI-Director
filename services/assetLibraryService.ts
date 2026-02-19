@@ -1,4 +1,4 @@
-import { AssetLibraryItem, Character, ProjectState, Prop, Scene } from '../types';
+import { AssetLibraryItem, Character, ProjectState, Prop, Scene, SeriesProject, Episode, EpisodeCharacterRef } from '../types';
 
 const generateId = (prefix: string): string => {
   const rand = Math.random().toString(36).slice(2, 6);
@@ -8,7 +8,7 @@ const generateId = (prefix: string): string => {
 const cloneCharacterVariation = (variation: Character['variations'][number]) => ({
   ...variation,
   id: generateId('var'),
-  status: variation.referenceImage ? 'completed' : 'pending'
+  status: (variation.referenceImage ? 'completed' : 'pending') as 'pending' | 'generating' | 'completed' | 'failed',
 });
 
 export const createLibraryItemFromCharacter = (
@@ -111,5 +111,45 @@ export const applyLibraryItemToProject = (project: ProjectState, item: AssetLibr
   return {
     ...project,
     scriptData: newData
+  };
+};
+
+export const linkCharacterFromLibrary = (
+  episode: Episode,
+  libraryChar: Character
+): Episode => {
+  if (!episode.scriptData) throw new Error('Episode has no scriptData');
+
+  const newChar: Character = {
+    ...libraryChar,
+    id: generateId('char'),
+    libraryId: libraryChar.id,
+    libraryVersion: libraryChar.version || 1,
+    variations: (libraryChar.variations || []).map(v => ({ ...v })),
+  };
+
+  const newRef: EpisodeCharacterRef = {
+    characterId: libraryChar.id,
+    syncedVersion: libraryChar.version || 1,
+    syncStatus: 'synced',
+  };
+
+  return {
+    ...episode,
+    scriptData: {
+      ...episode.scriptData,
+      characters: [...episode.scriptData.characters, newChar],
+    },
+    characterRefs: [...(episode.characterRefs || []), newRef],
+  };
+};
+
+export const unlinkCharacterFromLibrary = (
+  character: Character
+): Character => {
+  return {
+    ...character,
+    libraryId: undefined,
+    libraryVersion: undefined,
   };
 };

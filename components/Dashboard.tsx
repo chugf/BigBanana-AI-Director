@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Loader2, Folder, ChevronRight, Calendar, AlertTriangle, X, HelpCircle, Cpu, Archive, Search, Users, MapPin, Database, Settings, Sun, Moon } from 'lucide-react';
-import { ProjectState, AssetLibraryItem, Character, Scene } from '../types';
-import { getAllProjectsMetadata, createNewProjectState, deleteProjectFromDB, getAllAssetLibraryItems, deleteAssetFromLibrary, loadProjectFromDB, saveProjectToDB, exportIndexedDBData, importIndexedDBData } from '../services/storageService';
-import { applyLibraryItemToProject } from '../services/assetLibraryService';
+import { Plus, Trash2, Loader2, Folder, ChevronRight, Calendar, AlertTriangle, X, HelpCircle, Cpu, Archive, Search, Users, MapPin, Database, Settings, Sun, Moon, Film } from 'lucide-react';
+import { SeriesProject, AssetLibraryItem, Character, Scene, ProjectState } from '../types';
+import { getAllSeriesProjects, createNewSeriesProject, saveSeriesProject, deleteSeriesProject, createNewSeries, saveSeries, createNewEpisode, saveEpisode, getAllAssetLibraryItems, deleteAssetFromLibrary, exportIndexedDBData, importIndexedDBData } from '../services/storageService';
 import { useAlert } from './GlobalAlert';
 import { useTheme } from '../contexts/ThemeContext';
+import { useNavigate } from 'react-router-dom';
 import qrCodeImg from '../images/qrcode.jpg';
 
 interface Props {
@@ -16,7 +16,8 @@ interface Props {
 const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowModelConfig }) => {
   const { showAlert } = useAlert();
   const { theme, toggleTheme } = useTheme();
-  const [projects, setProjects] = useState<ProjectState[]>([]);
+  const navigate = useNavigate();
+  const [projects, setProjects] = useState<SeriesProject[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showGroupQr, setShowGroupQr] = useState(false);
@@ -35,7 +36,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
   const loadProjects = async () => {
     setIsLoading(true);
     try {
-      const list = await getAllProjectsMetadata();
+      const list = await getAllSeriesProjects();
       setProjects(list);
     } catch (e) {
       console.error("Failed to load projects", e);
@@ -66,9 +67,14 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
     }
   }, [showLibraryModal]);
 
-  const handleCreate = () => {
-    const newProject = createNewProjectState();
-    onOpenProject(newProject);
+  const handleCreate = async () => {
+    const sp = createNewSeriesProject();
+    await saveSeriesProject(sp);
+    const s = createNewSeries(sp.id, '第一季', 0);
+    await saveSeries(s);
+    const ep = createNewEpisode(sp.id, s.id, 1, '第 1 集');
+    await saveEpisode(ep);
+    navigate(`/project/${sp.id}`);
   };
 
   const requestDelete = (e: React.MouseEvent, id: string) => {
@@ -83,23 +89,14 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
 
   const confirmDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    
-    // 获取项目名称用于提示
-    const project = projects.find(p => p.id === id);
-    const projectName = project?.title || '未命名项目';
-    
+    const proj = projects.find(p => p.id === id);
+    const projectName = proj?.title || '未命名项目';
     try {
-        console.log('📋 准备删除项目及所有关联资源...');
-        await deleteProjectFromDB(id);
-        console.log('💾 重新加载项目列表...');
+        await deleteSeriesProject(id);
         await loadProjects();
-        console.log(`✅ 项目 "${projectName}" 已成功删除`);
-        
-        // 可选：添加成功提示（如果不想打扰用户可以注释掉）
-        // alert(`项目 "${projectName}" 已删除`);
+        console.log(`Project "${projectName}" deleted`);
     } catch (error) {
-        console.error("❌ 删除项目失败:", error);
-        showAlert(`删除项目失败: ${error instanceof Error ? error.message : '未知错误'}\n\n请检查浏览器控制台查看详细信息`, { type: 'error' });
+        showAlert(`删除项目失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
     } finally {
         setDeleteConfirmId(null);
     }
@@ -122,15 +119,8 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
 
   const handleUseAsset = async (projectId: string) => {
     if (!assetToUse) return;
-    try {
-      const project = await loadProjectFromDB(projectId);
-      const updated = applyLibraryItemToProject(project, assetToUse);
-      await saveProjectToDB(updated);
-      onOpenProject(updated);
-      setAssetToUse(null);
-    } catch (error) {
-      showAlert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-    }
+    setAssetToUse(null);
+    navigate(`/project/${projectId}`);
   };
 
   const formatDate = (ts: number) => {
@@ -306,72 +296,42 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
             {projects.map((proj) => (
               <div 
                 key={proj.id}
-                onClick={() => onOpenProject(proj)}
+                onClick={() => navigate(`/project/${proj.id}`)}
                 className="group bg-[var(--bg-primary)] border border-[var(--border-primary)] hover:border-[var(--border-secondary)] p-0 flex flex-col cursor-pointer transition-all relative overflow-hidden h-[280px]"
               >
-                  {/* Delete Confirmation Overlay */}
                   {deleteConfirmId === proj.id && (
-                    <div 
-                        className="absolute inset-0 z-20 bg-[var(--bg-primary)] flex flex-col items-center justify-center p-6 space-y-4 animate-in fade-in duration-200"
-                        onClick={(e) => e.stopPropagation()} 
-                    >
+                    <div className="absolute inset-0 z-20 bg-[var(--bg-primary)] flex flex-col items-center justify-center p-6 space-y-4 animate-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
                         <div className="w-10 h-10 bg-[var(--error-hover-bg)] flex items-center justify-center rounded-full">
                            <AlertTriangle className="w-5 h-5 text-[var(--error)]" />
                         </div>
                         <div className="text-center space-y-2">
                             <p className="text-[var(--text-primary)] font-bold text-xs uppercase tracking-widest">确认删除项目？</p>
-                            <p className="text-[var(--text-tertiary)] text-[10px] font-mono">此操作无法撤销</p>
-                            <div className="text-[9px] text-[var(--text-muted)] space-y-1 pt-2 border-t border-[var(--border-subtle)]">
-                              <p>将同时删除以下所有资源：</p>
-                              <p className="text-[var(--text-muted)] font-mono">· 角色和场景参考图</p>
-                              <p className="text-[var(--text-muted)] font-mono">· 所有关键帧图像</p>
-                              <p className="text-[var(--text-muted)] font-mono">· 所有生成的视频片段</p>
-                              <p className="text-[var(--text-muted)] font-mono">· 渲染历史记录</p>
-                            </div>
+                            <p className="text-[var(--text-tertiary)] text-[10px] font-mono">将删除所有剧集和角色库数据</p>
                         </div>
                         <div className="flex gap-2 w-full pt-2">
-                            <button 
-                                onClick={cancelDelete}
-                                className="flex-1 py-3 bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] text-[10px] font-bold uppercase tracking-wider transition-colors border border-[var(--border-primary)]"
-                            >
-                                取消
-                            </button>
-                            <button 
-                                onClick={(e) => confirmDelete(e, proj.id)}
-                                className="flex-1 py-3 bg-[var(--error-hover-bg)] hover:bg-[var(--error-hover-bg-strong)] text-[var(--error-text)] hover:text-[var(--error-text)] text-[10px] font-bold uppercase tracking-wider transition-colors border border-[var(--error-border)]"
-                            >
-                                永久删除
-                            </button>
+                            <button onClick={cancelDelete} className="flex-1 py-3 bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] text-[10px] font-bold uppercase tracking-wider transition-colors border border-[var(--border-primary)]">取消</button>
+                            <button onClick={(e) => confirmDelete(e, proj.id)} className="flex-1 py-3 bg-[var(--error-hover-bg)] text-[var(--error-text)] text-[10px] font-bold uppercase tracking-wider transition-colors border border-[var(--error-border)]">永久删除</button>
                         </div>
-
                     </div>
                   )}
 
-                  {/* Normal Content */}
                   <div className="flex-1 p-6 relative flex flex-col">
-                     {/* Delete Button */}
-                     <button 
-                        onClick={(e) => requestDelete(e, proj.id)}
-                        className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--error-text)] transition-all rounded-sm z-10"
-                        title="删除项目"
-                    >
+                     <button onClick={(e) => requestDelete(e, proj.id)} className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--error-text)] transition-all rounded-sm z-10" title="删除项目">
                         <Trash2 className="w-4 h-4" />
                     </button>
-
                      <div className="flex-1">
                         <Folder className="w-8 h-8 text-[var(--text-muted)] mb-6 group-hover:text-[var(--text-tertiary)] transition-colors" />
                         <h3 className="text-sm font-bold text-[var(--text-primary)] mb-2 line-clamp-1 tracking-wide">{proj.title}</h3>
                         <div className="flex flex-wrap gap-2 mb-4">
                             <span className="text-[9px] font-mono text-[var(--text-tertiary)] border border-[var(--border-primary)] px-1.5 py-0.5 uppercase tracking-wider">
-                              {proj.stage === 'script' ? '剧本阶段' : 
-                               proj.stage === 'assets' ? '资产生成' :
-                               proj.stage === 'director' ? '导演工作台' : '导出阶段'}
+                              <Users className="w-3 h-3 inline mr-1" />{proj.characterLibrary?.length || 0} 角色
+                            </span>
+                            <span className="text-[9px] font-mono text-[var(--text-tertiary)] border border-[var(--border-primary)] px-1.5 py-0.5 uppercase tracking-wider">
+                              <Film className="w-3 h-3 inline mr-1" />多剧集
                             </span>
                         </div>
-                        {proj.scriptData?.logline && (
-                            <p className="text-[10px] text-[var(--text-muted)] line-clamp-2 leading-relaxed font-mono border-l border-[var(--border-primary)] pl-2">
-                            {proj.scriptData.logline}
-                            </p>
+                        {proj.description && (
+                            <p className="text-[10px] text-[var(--text-muted)] line-clamp-2 leading-relaxed font-mono border-l border-[var(--border-primary)] pl-2">{proj.description}</p>
                         )}
                      </div>
                   </div>

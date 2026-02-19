@@ -39,12 +39,15 @@ export interface Character {
   age: string;
   personality: string;
   visualPrompt?: string;
-  negativePrompt?: string; // 负面提示词，用于排除不想要的元素
-  coreFeatures?: string; // 核心固定特征，用于保持角色一致性
-  referenceImage?: string; // 角色基础参考图，存储为base64格式（data:image/png;base64,...）
-  turnaround?: CharacterTurnaroundData; // 角色九宫格造型设计，多视角参考图
-  variations: CharacterVariation[]; // Added: List of alternative looks
-  status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
+  negativePrompt?: string;
+  coreFeatures?: string;
+  referenceImage?: string;
+  turnaround?: CharacterTurnaroundData;
+  variations: CharacterVariation[];
+  status?: 'pending' | 'generating' | 'completed' | 'failed';
+  libraryId?: string;
+  libraryVersion?: number;
+  version?: number;
 }
 
 export interface Scene {
@@ -207,25 +210,59 @@ export interface RenderLog {
   duration?: number; // Time taken in milliseconds
 }
 
-export interface ProjectState {
+export interface SeriesProject {
   id: string;
+  title: string;
+  description?: string;
+  coverImage?: string;
+  createdAt: number;
+  lastModified: number;
+  visualStyle: string;
+  language: string;
+  artDirection?: ArtDirection;
+  characterLibrary: Character[];
+  sceneLibrary: Scene[];
+  propLibrary: Prop[];
+}
+
+export interface Series {
+  id: string;
+  projectId: string;
+  title: string;
+  description?: string;
+  sortOrder: number;
+  createdAt: number;
+  lastModified: number;
+}
+
+export interface EpisodeCharacterRef {
+  characterId: string;
+  syncedVersion: number;
+  syncStatus: 'synced' | 'outdated' | 'local-only';
+}
+
+export interface Episode {
+  id: string;
+  projectId: string;
+  seriesId: string;
+  episodeNumber: number;
   title: string;
   createdAt: number;
   lastModified: number;
   stage: 'script' | 'assets' | 'director' | 'export' | 'prompts';
-  
-  // Script Phase Data
   rawScript: string;
   targetDuration: string;
   language: string;
-  visualStyle: string; // Visual style: live-action, anime, 3d-animation, etc.
-  shotGenerationModel: string; // Model for shot generation
-  
+  visualStyle: string;
+  shotGenerationModel: string;
   scriptData: ScriptData | null;
   shots: Shot[];
   isParsingScript: boolean;
-  renderLogs: RenderLog[]; // History of all API calls for this project
+  renderLogs: RenderLog[];
+  characterRefs: EpisodeCharacterRef[];
 }
+
+export type ProjectState = Episode;
 
 // ============================================
 // 模型管理相关类型定义
