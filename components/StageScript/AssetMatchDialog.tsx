@@ -9,19 +9,16 @@ interface Props {
   onCancel: () => void;
 }
 
-function MatchRow<T extends { id: string }>({
-  item,
-  getAiLabel,
-  getLibLabel,
-  getLibImage,
-  onToggle,
-}: {
+interface MatchRowProps<T> {
   item: AssetMatchItem<T>;
   getAiLabel: (a: T) => string;
   getLibLabel: (a: T) => string;
   getLibImage: (a: T) => string | undefined;
   onToggle: () => void;
-}) {
+}
+
+function MatchRow<T extends { id: string }>(props: MatchRowProps<T>) {
+  const { item, getAiLabel, getLibLabel, getLibImage, onToggle } = props;
   const hasMatch = !!item.libraryAsset;
   const hasImage = hasMatch && !!getLibImage(item.libraryAsset!);
 

@@ -194,6 +194,38 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     }
   };
 
+  const handleAssetMatchConfirm = (finalMatches: AssetMatchResult) => {
+    if (!pendingParseResult) return;
+    const { scriptData, shots } = pendingParseResult;
+    const result = applyAssetMatches(scriptData, shots, finalMatches);
+
+    updateProject({
+      scriptData: result.scriptData,
+      shots: result.shots,
+      characterRefs: result.characterRefs,
+      isParsingScript: false,
+      title: result.scriptData.title,
+    });
+
+    setPendingParseResult(null);
+    setActiveTab('script');
+  };
+
+  const handleAssetMatchCancel = () => {
+    if (!pendingParseResult) return;
+    const { scriptData, shots, title } = pendingParseResult;
+
+    updateProject({
+      scriptData,
+      shots,
+      isParsingScript: false,
+      title,
+    });
+
+    setPendingParseResult(null);
+    setActiveTab('script');
+  };
+
   const handleContinueScript = async () => {
     const finalModel = getFinalValue(localModel, customModelInput);
     
@@ -673,6 +705,14 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
           onAddSubShot={handleAddSubShot}
           onDeleteShot={handleDeleteShot}
           onBackToStory={() => setActiveTab('story')}
+        />
+      )}
+
+      {pendingParseResult && (
+        <AssetMatchDialog
+          matches={pendingParseResult.matches}
+          onConfirm={handleAssetMatchConfirm}
+          onCancel={handleAssetMatchCancel}
         />
       )}
     </div>
