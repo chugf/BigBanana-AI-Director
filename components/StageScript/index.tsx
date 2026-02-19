@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ProjectState, Shot } from '../../types';
+import { ProjectState, ScriptData, Shot } from '../../types';
 import { useAlert } from '../GlobalAlert';
 import { parseScriptToData, generateShotList, continueScript, continueScriptStream, rewriteScript, rewriteScriptStream, setScriptLogCallback, clearScriptLogCallback, logScriptProgress } from '../../services/aiService';
 import { getFinalValue, validateConfig } from './utils';
@@ -7,6 +7,9 @@ import { DEFAULTS } from './constants';
 import ConfigPanel from './ConfigPanel';
 import ScriptEditor from './ScriptEditor';
 import SceneBreakdown from './SceneBreakdown';
+import AssetMatchDialog from './AssetMatchDialog';
+import { findAssetMatches, applyAssetMatches, AssetMatchResult } from '../../services/assetMatchService';
+import { loadSeriesProject } from '../../services/storageService';
 
 interface Props {
   project: ProjectState;
@@ -39,6 +42,14 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
   const [error, setError] = useState<string | null>(null);
   const [processingMessage, setProcessingMessage] = useState('');
   const [processingLogs, setProcessingLogs] = useState<string[]>([]);
+
+  // Asset match state
+  const [pendingParseResult, setPendingParseResult] = useState<{
+    scriptData: ScriptData;
+    shots: Shot[];
+    matches: AssetMatchResult;
+    title: string;
+  } | null>(null);
 
   // Editing state - unified
   const [editingCharacterId, setEditingCharacterId] = useState<string | null>(null);
@@ -145,6 +156,24 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       logScriptProgress('开始生成分镜...');
       setProcessingMessage('正在生成分镜...');
       const shots = await generateShotList(scriptData, finalModel);
+
+      if (project.projectId) {
+        try {
+          const seriesProject = await loadSeriesProject(project.projectId);
+          if (seriesProject) {
+            const matches = findAssetMatches(scriptData, seriesProject);
+            if (matches.hasAnyMatch) {
+              setPendingParseResult({ scriptData, shots, matches, title: scriptData.title });
+              updateProject({ isParsingScript: false });
+              setIsProcessing(false);
+              setProcessingMessage('');
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn('Asset match check failed, proceeding without match:', e);
+        }
+      }
 
       updateProject({ 
         scriptData, 
