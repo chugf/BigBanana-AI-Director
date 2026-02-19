@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Sparkles, RefreshCw, Loader2, MapPin, Archive, X, Search, Trash2, Package, Link2 } from 'lucide-react';
+import { Users, Sparkles, RefreshCw, Loader2, MapPin, Archive, X, Search, Trash2, Package } from 'lucide-react';
 import { ProjectState, CharacterVariation, Character, Scene, Prop, AspectRatio, AssetLibraryItem, CharacterTurnaroundPanel } from '../../types';
 import { generateImage, generateVisualPrompts, generateCharacterTurnaroundPanels, generateCharacterTurnaroundImage } from '../../services/aiService';
 import { 
@@ -1428,17 +1428,6 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
               >
                 <Archive className="w-3 h-3" />
                 从资产库选择
-              </button>
-              <button
-                onClick={() => {
-                  const event = new CustomEvent('openCharacterLibraryPicker');
-                  window.dispatchEvent(event);
-                }}
-                disabled={!!batchProgress}
-                className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors border border-blue-500/30 disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <Link2 className="w-3 h-3" />
-                从角色库添加
               </button>
               <button 
                 onClick={() => handleBatchGenerate('character')}
