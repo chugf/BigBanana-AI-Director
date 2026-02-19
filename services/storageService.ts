@@ -125,9 +125,15 @@ export const deleteSeriesProject = async (id: string): Promise<void> => {
 };
 
 export const createNewSeriesProject = (title?: string): SeriesProject => {
+  const now = new Date();
+  const datePart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const timePart = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const autoTitle = `新建项目 ${datePart} ${timePart}`;
+  const finalTitle = title?.trim() || autoTitle;
+
   return {
     id: 'sproj_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
-    title: title || '未命名项目',
+    title: finalTitle,
     createdAt: Date.now(),
     lastModified: Date.now(),
     visualStyle: 'live-action',
