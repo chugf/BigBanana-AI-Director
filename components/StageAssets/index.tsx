@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Sparkles, RefreshCw, Loader2, MapPin, Archive, X, Search, Trash2, Package } from 'lucide-react';
+import { Users, Sparkles, RefreshCw, Loader2, MapPin, Archive, X, Search, Trash2, Package, Link2 } from 'lucide-react';
 import { ProjectState, CharacterVariation, Character, Scene, Prop, AspectRatio, AssetLibraryItem, CharacterTurnaroundPanel } from '../../types';
 import { generateImage, generateVisualPrompts, generateCharacterTurnaroundPanels, generateCharacterTurnaroundImage } from '../../services/aiService';
 import { 
@@ -24,7 +24,9 @@ import { applyLibraryItemToProject, createLibraryItemFromCharacter, createLibrar
 import { AspectRatioSelector } from '../AspectRatioSelector';
 import { getUserAspectRatio, setUserAspectRatio, getActiveImageModel } from '../../services/modelRegistry';
 import CharacterLibraryPickerModal from './CharacterLibraryPicker';
+import ProjectAssetPicker from './ProjectAssetPicker';
 import { loadSeriesProject } from '../../services/storageService';
+import { SeriesProject } from '../../types';
 
 interface Props {
   project: ProjectState;
@@ -47,13 +49,22 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const [replaceTargetCharId, setReplaceTargetCharId] = useState<string | null>(null);
   const [turnaroundCharId, setTurnaroundCharId] = useState<string | null>(null);
   const [showCharLibraryPicker, setShowCharLibraryPicker] = useState(false);
-  const [pickerProject, setPickerProject] = useState<any>(null);
+  const [showSceneLibraryPicker, setShowSceneLibraryPicker] = useState(false);
+  const [showPropLibraryPicker, setShowPropLibraryPicker] = useState(false);
+  const [pickerProject, setPickerProject] = useState<SeriesProject | null>(null);
+
+  const loadPickerProject = async (): Promise<SeriesProject | null> => {
+    if (!project.projectId) return null;
+    try {
+      const sp = await loadSeriesProject(project.projectId);
+      setPickerProject(sp);
+      return sp;
+    } catch { return null; }
+  };
 
   useEffect(() => {
     const handler = () => {
-      if (project.projectId) {
-        loadSeriesProject(project.projectId).then(sp => { setPickerProject(sp); setShowCharLibraryPicker(true); }).catch(() => {});
-      }
+      loadPickerProject().then(sp => { if (sp) setShowCharLibraryPicker(true); });
     };
     window.addEventListener('openCharacterLibraryPicker', handler);
     return () => window.removeEventListener('openCharacterLibraryPicker', handler);
@@ -1421,6 +1432,20 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
                 <Users className="w-3 h-3" />
                 新建角色
               </button>
+              {project.projectId && (
+                <button
+                  onClick={() => {
+                    if (project.projectId) {
+                      loadSeriesProject(project.projectId).then(sp => { setPickerProject(sp); setShowCharLibraryPicker(true); }).catch(() => {});
+                    }
+                  }}
+                  disabled={!!batchProgress}
+                  className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <Link2 className="w-3 h-3" />
+                  从角色库添加
+                </button>
+              )}
               <button 
                 onClick={() => openLibrary('character')}
                 disabled={!!batchProgress}
@@ -1480,6 +1505,16 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
                 <MapPin className="w-3 h-3" />
                 新建场景
               </button>
+              {project.projectId && (
+                <button
+                  onClick={() => { loadPickerProject().then(sp => { if (sp) setShowSceneLibraryPicker(true); }); }}
+                  disabled={!!batchProgress}
+                  className="px-3 py-1.5 bg-green-500/10 hover:bg-green-500/20 text-green-400 hover:text-green-300 border border-green-500/30 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <Link2 className="w-3 h-3" />
+                  从场景库添加
+                </button>
+              )}
               <button 
                 onClick={() => openLibrary('scene')}
                 disabled={!!batchProgress}
@@ -1536,6 +1571,16 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
                 <Package className="w-3 h-3" />
                 新建道具
               </button>
+              {project.projectId && (
+                <button
+                  onClick={() => { loadPickerProject().then(sp => { if (sp) setShowPropLibraryPicker(true); }); }}
+                  disabled={!!batchProgress}
+                  className="px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 hover:text-purple-300 border border-purple-500/30 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <Link2 className="w-3 h-3" />
+                  从道具库添加
+                </button>
+              )}
               <button 
                 onClick={() => openLibrary('prop')}
                 disabled={!!batchProgress}
@@ -1610,6 +1655,48 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
               characterRefs: newRefs,
             }));
             setShowCharLibraryPicker(false);
+          }}
+        />
+      )}
+
+      {/* Scene Library Picker */}
+      {showSceneLibraryPicker && (
+        <ProjectAssetPicker
+          isOpen={showSceneLibraryPicker}
+          onClose={() => setShowSceneLibraryPicker(false)}
+          project={pickerProject}
+          assetType="scene"
+          existingIds={(project.scriptData?.scenes || []).map(s => s.id)}
+          onSelectScene={(libScene) => {
+            if (!project.scriptData) return;
+            const newScene = { ...libScene, id: generateId('scene') };
+            const newScenes = [...project.scriptData.scenes, newScene];
+            updateProject(prev => ({
+              ...prev,
+              scriptData: { ...prev.scriptData!, scenes: newScenes },
+            }));
+            setShowSceneLibraryPicker(false);
+          }}
+        />
+      )}
+
+      {/* Prop Library Picker */}
+      {showPropLibraryPicker && (
+        <ProjectAssetPicker
+          isOpen={showPropLibraryPicker}
+          onClose={() => setShowPropLibraryPicker(false)}
+          project={pickerProject}
+          assetType="prop"
+          existingIds={(project.scriptData?.props || []).map(p => p.id)}
+          onSelectProp={(libProp) => {
+            if (!project.scriptData) return;
+            const newProp = { ...libProp, id: generateId('prop') };
+            const newProps = [...(project.scriptData.props || []), newProp];
+            updateProject(prev => ({
+              ...prev,
+              scriptData: { ...prev.scriptData!, props: newProps },
+            }));
+            setShowPropLibraryPicker(false);
           }}
         />
       )}
