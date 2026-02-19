@@ -9,16 +9,13 @@ interface Props {
   onCancel: () => void;
 }
 
-interface MatchRowProps<T> {
-  item: AssetMatchItem<T>;
-  getAiLabel: (a: T) => string;
-  getLibLabel: (a: T) => string;
-  getLibImage: (a: T) => string | undefined;
+const MatchRow: React.FC<{
+  item: AssetMatchItem<any>;
+  getAiLabel: (a: any) => string;
+  getLibLabel: (a: any) => string;
+  getLibImage: (a: any) => string | undefined;
   onToggle: () => void;
-}
-
-function MatchRow<T extends { id: string }>(props: MatchRowProps<T>) {
-  const { item, getAiLabel, getLibLabel, getLibImage, onToggle } = props;
+}> = ({ item, getAiLabel, getLibLabel, getLibImage, onToggle }) => {
   const hasMatch = !!item.libraryAsset;
   const hasImage = hasMatch && !!getLibImage(item.libraryAsset!);
 
@@ -77,7 +74,7 @@ function MatchRow<T extends { id: string }>(props: MatchRowProps<T>) {
       )}
     </div>
   );
-}
+};
 
 const AssetMatchDialog: React.FC<Props> = ({ matches, onConfirm, onCancel }) => {
   const [local, setLocal] = useState<AssetMatchResult>(() => ({
