@@ -33,7 +33,7 @@ const ProjectAssetPicker: React.FC<Props> = ({ isOpen, onClose, project, assetTy
       <div className="w-full max-w-2xl bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl overflow-hidden max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
           <h3 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-widest flex items-center gap-2">
-            <Link2 className="w-4 h-4 text-blue-400" />{title}
+            <Link2 className="w-4 h-4 text-[var(--accent-text)]" />{title}
           </h3>
           <button onClick={onClose} className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)]"><X className="w-4 h-4" /></button>
         </div>
@@ -70,7 +70,7 @@ const ProjectAssetPicker: React.FC<Props> = ({ isOpen, onClose, project, assetTy
                       if (!isScene && onSelectProp) onSelectProp(item as Prop);
                     }}
                     disabled={linked}
-                    className={`text-left bg-[var(--bg-surface)] border rounded-lg overflow-hidden transition-all ${linked ? 'border-green-500/40 opacity-60 cursor-not-allowed' : 'border-[var(--border-primary)] hover:border-blue-500/60 cursor-pointer'}`}
+                    className={`text-left bg-[var(--bg-surface)] border rounded-lg overflow-hidden transition-all ${linked ? 'border-[var(--success-border)] opacity-60 cursor-not-allowed' : 'border-[var(--border-primary)] hover:border-[var(--accent-border)] cursor-pointer'}`}
                   >
                     <div className="aspect-video bg-[var(--bg-elevated)] relative">
                       {img ? (
@@ -78,12 +78,12 @@ const ProjectAssetPicker: React.FC<Props> = ({ isOpen, onClose, project, assetTy
                       ) : (
                         <div className="w-full h-full flex items-center justify-center"><Icon className="w-6 h-6 text-[var(--text-muted)] opacity-30" /></div>
                       )}
-                      {linked && <div className="absolute top-2 right-2 p-1 bg-green-500/20 rounded"><Check className="w-3 h-3 text-green-400" /></div>}
+                      {linked && <div className="absolute top-2 right-2 p-1 bg-[var(--success-bg)] rounded"><Check className="w-3 h-3 text-[var(--success-text)]" /></div>}
                     </div>
                     <div className="p-3">
                       <div className="text-xs font-bold text-[var(--text-primary)]">{label}</div>
                       <div className="text-[10px] text-[var(--text-muted)] font-mono">{subtitle}</div>
-                      {linked && <div className="text-[9px] text-green-400 mt-1 font-mono">已添加</div>}
+                      {linked && <div className="text-[9px] text-[var(--success-text)] mt-1 font-mono">已添加</div>}
                     </div>
                   </button>
                 );

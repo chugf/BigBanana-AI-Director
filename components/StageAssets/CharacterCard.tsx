@@ -64,11 +64,11 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
   const isLinked = !!character.libraryId;
 
   return (
-    <div className={`bg-[var(--bg-surface)] border rounded-xl overflow-hidden flex flex-col group transition-all hover:shadow-lg ${isLinked ? 'border-blue-500/40 hover:border-blue-500/70' : 'border-[var(--border-primary)] hover:border-[var(--border-secondary)]'}`}>
+    <div className={`bg-[var(--bg-surface)] border rounded-xl overflow-hidden flex flex-col group transition-all hover:shadow-lg ${isLinked ? 'border-[var(--accent-border)] hover:border-[var(--accent)]' : 'border-[var(--border-primary)] hover:border-[var(--border-secondary)]'}`}>
       {isLinked && (
-        <div className="px-4 py-1.5 bg-blue-500/10 border-b border-blue-500/20 flex items-center gap-1.5">
-          <Link2 className="w-3 h-3 text-blue-400" />
-          <span className="text-[9px] font-mono text-blue-400 uppercase tracking-widest">项目角色</span>
+        <div className="px-4 py-1.5 bg-[var(--accent-bg)] border-b border-[var(--accent-border)] flex items-center gap-1.5">
+          <Link2 className="w-3 h-3 text-[var(--accent-text)]" />
+          <span className="text-[9px] font-mono text-[var(--accent-text)] uppercase tracking-widest">项目角色</span>
         </div>
       )}
       <div className="flex gap-4 p-4 pb-0">

@@ -1440,7 +1440,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
                     }
                   }}
                   disabled={!!batchProgress}
-                  className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 border border-blue-500/30 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  className={STYLES.secondaryButton}
                 >
                   <Link2 className="w-3 h-3" />
                   从角色库添加
@@ -1509,7 +1509,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
                 <button
                   onClick={() => { loadPickerProject().then(sp => { if (sp) setShowSceneLibraryPicker(true); }); }}
                   disabled={!!batchProgress}
-                  className="px-3 py-1.5 bg-green-500/10 hover:bg-green-500/20 text-green-400 hover:text-green-300 border border-green-500/30 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  className={STYLES.secondaryButton}
                 >
                   <Link2 className="w-3 h-3" />
                   从场景库添加
@@ -1575,7 +1575,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
                 <button
                   onClick={() => { loadPickerProject().then(sp => { if (sp) setShowPropLibraryPicker(true); }); }}
                   disabled={!!batchProgress}
-                  className="px-3 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 hover:text-purple-300 border border-purple-500/30 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  className={STYLES.secondaryButton}
                 >
                   <Link2 className="w-3 h-3" />
                   从道具库添加

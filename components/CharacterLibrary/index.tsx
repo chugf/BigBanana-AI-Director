@@ -117,7 +117,7 @@ const CharacterLibraryPage: React.FC = () => {
             {filteredChars.map(char => {
               const refCount = getRefCount(char.id);
               return (
-                <div key={char.id} className="bg-[var(--bg-primary)] border border-blue-500/30 hover:border-blue-500/60 rounded-xl overflow-hidden group transition-all">
+                <div key={char.id} className="bg-[var(--bg-primary)] border border-[var(--accent-border)] hover:border-[var(--accent)] rounded-xl overflow-hidden group transition-all">
                   <div className="aspect-video bg-[var(--bg-elevated)] relative">
                     {char.referenceImage ? (
                       <img src={char.referenceImage} alt={char.name} className="w-full h-full object-cover cursor-pointer" onClick={() => setPreviewImage(char.referenceImage!)} />
@@ -128,7 +128,7 @@ const CharacterLibraryPage: React.FC = () => {
                         <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleImageUpload(char.id, e.target.files[0])} />
                       </label>
                     )}
-                    <div className="absolute top-2 left-2 px-2 py-0.5 bg-blue-500/20 text-blue-400 text-[9px] font-mono rounded uppercase tracking-widest">
+                    <div className="absolute top-2 left-2 px-2 py-0.5 bg-[var(--accent-bg)] text-[var(--accent-text)] text-[9px] font-mono rounded uppercase tracking-widest">
                       v{char.version || 1}
                     </div>
                     {refCount > 0 && (
