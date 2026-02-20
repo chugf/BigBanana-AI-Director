@@ -1,4 +1,4 @@
-import { ScriptData, SeriesProject, Character, Scene, Prop, Shot, EpisodeCharacterRef } from '../types';
+import { ScriptData, SeriesProject, Character, Scene, Prop, Shot, EpisodeCharacterRef, EpisodeSceneRef, EpisodePropRef } from '../types';
 
 export interface AssetMatchItem<T> {
   aiAsset: T;
@@ -17,6 +17,8 @@ export interface ApplyResult {
   scriptData: ScriptData;
   shots: Shot[];
   characterRefs: EpisodeCharacterRef[];
+  sceneRefs: EpisodeSceneRef[];
+  propRefs: EpisodePropRef[];
 }
 
 function normalize(s: string): string {
@@ -62,6 +64,8 @@ export function applyAssetMatches(
   const sceneIdMap = new Map<string, string>();
   const propIdMap = new Map<string, string>();
   const characterRefs: EpisodeCharacterRef[] = [];
+  const sceneRefs: EpisodeSceneRef[] = [];
+  const propRefs: EpisodePropRef[] = [];
 
   const newCharacters = matches.characters.map(m => {
     if (m.reuse && m.libraryAsset) {
@@ -99,6 +103,11 @@ export function applyAssetMatches(
       const aiId = m.aiAsset.id;
       const newId = 'scene_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
       sceneIdMap.set(aiId, newId);
+      sceneRefs.push({
+        sceneId: lib.id,
+        syncedVersion: lib.version || 1,
+        syncStatus: 'synced',
+      });
 
       return {
         ...m.aiAsset,
@@ -107,6 +116,8 @@ export function applyAssetMatches(
         visualPrompt: lib.visualPrompt || m.aiAsset.visualPrompt,
         negativePrompt: lib.negativePrompt || m.aiAsset.negativePrompt,
         status: lib.referenceImage ? 'completed' as const : m.aiAsset.status,
+        libraryId: lib.id,
+        libraryVersion: lib.version || 1,
       };
     }
     return m.aiAsset;
@@ -118,6 +129,11 @@ export function applyAssetMatches(
       const aiId = m.aiAsset.id;
       const newId = 'prop_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
       propIdMap.set(aiId, newId);
+      propRefs.push({
+        propId: lib.id,
+        syncedVersion: lib.version || 1,
+        syncStatus: 'synced',
+      });
 
       return {
         ...m.aiAsset,
@@ -126,6 +142,8 @@ export function applyAssetMatches(
         visualPrompt: lib.visualPrompt || m.aiAsset.visualPrompt,
         negativePrompt: lib.negativePrompt || m.aiAsset.negativePrompt,
         status: lib.referenceImage ? 'completed' as const : m.aiAsset.status,
+        libraryId: lib.id,
+        libraryVersion: lib.version || 1,
       };
     }
     return m.aiAsset;
@@ -163,5 +181,17 @@ export function applyAssetMatches(
     props: newProps,
   };
 
-  return { scriptData: newScriptData, shots: newShots, characterRefs };
+  const dedupeBy = <T>(items: T[], getKey: (item: T) => string): T[] => {
+    const map = new Map<string, T>();
+    items.forEach(item => map.set(getKey(item), item));
+    return Array.from(map.values());
+  };
+
+  return {
+    scriptData: newScriptData,
+    shots: newShots,
+    characterRefs: dedupeBy(characterRefs, r => r.characterId),
+    sceneRefs: dedupeBy(sceneRefs, r => r.sceneId),
+    propRefs: dedupeBy(propRefs, r => r.propId),
+  };
 }

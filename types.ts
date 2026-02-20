@@ -59,6 +59,9 @@ export interface Scene {
   negativePrompt?: string; // 负面提示词，用于排除不想要的元素
   referenceImage?: string; // 场景参考图，存储为base64格式（data:image/png;base64,...）
   status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
+  libraryId?: string;
+  libraryVersion?: number;
+  version?: number;
 }
 
 /**
@@ -74,6 +77,9 @@ export interface Prop {
   negativePrompt?: string; // 负面提示词，用于排除不想要的元素
   referenceImage?: string; // 道具参考图，存储为base64格式（data:image/png;base64,...）
   status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
+  libraryId?: string;
+  libraryVersion?: number;
+  version?: number;
 }
 
 export type AssetLibraryItemType = 'character' | 'scene' | 'prop';
@@ -235,10 +241,24 @@ export interface Series {
   lastModified: number;
 }
 
+export type AssetSyncStatus = 'synced' | 'outdated' | 'local-only';
+
 export interface EpisodeCharacterRef {
   characterId: string;
   syncedVersion: number;
-  syncStatus: 'synced' | 'outdated' | 'local-only';
+  syncStatus: AssetSyncStatus;
+}
+
+export interface EpisodeSceneRef {
+  sceneId: string;
+  syncedVersion: number;
+  syncStatus: AssetSyncStatus;
+}
+
+export interface EpisodePropRef {
+  propId: string;
+  syncedVersion: number;
+  syncStatus: AssetSyncStatus;
 }
 
 export interface Episode {
@@ -260,6 +280,8 @@ export interface Episode {
   isParsingScript: boolean;
   renderLogs: RenderLog[];
   characterRefs: EpisodeCharacterRef[];
+  sceneRefs: EpisodeSceneRef[];
+  propRefs: EpisodePropRef[];
 }
 
 export type ProjectState = Episode;

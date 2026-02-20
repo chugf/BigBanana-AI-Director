@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { SeriesProject, Series, Episode, Character, EpisodeCharacterRef, ProjectState } from '../types';
+import { SeriesProject, Series, Episode, Character, EpisodeCharacterRef, EpisodeSceneRef, EpisodePropRef, ProjectState } from '../types';
 import {
   loadSeriesProject, saveSeriesProject,
   getSeriesByProject, saveSeries, createNewSeries, deleteSeries as deleteSeriesFromDB,
@@ -34,6 +34,12 @@ interface ProjectContextValue {
   syncCharacterToEpisode: (characterId: string) => void;
   syncAllCharactersToEpisode: () => void;
   getOutdatedCharacters: () => EpisodeCharacterRef[];
+  syncSceneToEpisode: (sceneId: string) => void;
+  syncAllScenesToEpisode: () => void;
+  getOutdatedScenes: () => EpisodeSceneRef[];
+  syncPropToEpisode: (propId: string) => void;
+  syncAllPropsToEpisode: () => void;
+  getOutdatedProps: () => EpisodePropRef[];
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -175,12 +181,16 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
 
     setCurrentEpisode(prev => {
       if (!prev?.scriptData) return prev;
+      const libVersion = libChar.version || 1;
       const newChars = prev.scriptData.characters.map(c =>
-        c.libraryId === characterId ? { ...libChar, libraryId: characterId, libraryVersion: libChar.version || 1, id: c.id, variations: c.variations } : c
+        c.libraryId === characterId ? { ...libChar, libraryId: characterId, libraryVersion: libVersion, id: c.id, variations: c.variations } : c
       );
-      const newRefs = (prev.characterRefs || []).map(r =>
-        r.characterId === characterId ? { ...r, syncedVersion: libChar.version || 1, syncStatus: 'synced' as const } : r
-      );
+      const existingRefs = prev.characterRefs || [];
+      const nextRef = { characterId, syncedVersion: libVersion, syncStatus: 'synced' as const };
+      const hasRef = existingRefs.some(r => r.characterId === characterId);
+      const newRefs = hasRef
+        ? existingRefs.map(r => (r.characterId === characterId ? nextRef : r))
+        : [...existingRefs, nextRef];
       return { ...prev, scriptData: { ...prev.scriptData, characters: newChars }, characterRefs: newRefs };
     });
   }, [project, currentEpisode]);
@@ -199,6 +209,76 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     });
   }, [project, currentEpisode]);
 
+  const syncSceneToEpisode = useCallback((sceneId: string) => {
+    if (!project || !currentEpisode?.scriptData) return;
+    const libScene = project.sceneLibrary.find(s => s.id === sceneId);
+    if (!libScene) return;
+
+    setCurrentEpisode(prev => {
+      if (!prev?.scriptData) return prev;
+      const libVersion = libScene.version || 1;
+      const newScenes = prev.scriptData.scenes.map(s =>
+        s.libraryId === sceneId ? { ...libScene, id: s.id, libraryId: sceneId, libraryVersion: libVersion } : s
+      );
+      const existingRefs = prev.sceneRefs || [];
+      const nextRef = { sceneId, syncedVersion: libVersion, syncStatus: 'synced' as const };
+      const hasRef = existingRefs.some(r => r.sceneId === sceneId);
+      const newRefs = hasRef
+        ? existingRefs.map(r => (r.sceneId === sceneId ? nextRef : r))
+        : [...existingRefs, nextRef];
+      return { ...prev, scriptData: { ...prev.scriptData, scenes: newScenes }, sceneRefs: newRefs };
+    });
+  }, [project, currentEpisode]);
+
+  const syncAllScenesToEpisode = useCallback(() => {
+    const outdated = getOutdatedScenes();
+    outdated.forEach(ref => syncSceneToEpisode(ref.sceneId));
+  }, [syncSceneToEpisode]);
+
+  const getOutdatedScenes = useCallback((): EpisodeSceneRef[] => {
+    if (!project || !currentEpisode) return [];
+    return (currentEpisode.sceneRefs || []).filter(ref => {
+      if (ref.syncStatus === 'local-only') return false;
+      const libScene = project.sceneLibrary.find(s => s.id === ref.sceneId);
+      return libScene && (libScene.version || 1) > ref.syncedVersion;
+    });
+  }, [project, currentEpisode]);
+
+  const syncPropToEpisode = useCallback((propId: string) => {
+    if (!project || !currentEpisode?.scriptData) return;
+    const libProp = project.propLibrary.find(p => p.id === propId);
+    if (!libProp) return;
+
+    setCurrentEpisode(prev => {
+      if (!prev?.scriptData) return prev;
+      const libVersion = libProp.version || 1;
+      const newProps = (prev.scriptData.props || []).map(p =>
+        p.libraryId === propId ? { ...libProp, id: p.id, libraryId: propId, libraryVersion: libVersion } : p
+      );
+      const existingRefs = prev.propRefs || [];
+      const nextRef = { propId, syncedVersion: libVersion, syncStatus: 'synced' as const };
+      const hasRef = existingRefs.some(r => r.propId === propId);
+      const newRefs = hasRef
+        ? existingRefs.map(r => (r.propId === propId ? nextRef : r))
+        : [...existingRefs, nextRef];
+      return { ...prev, scriptData: { ...prev.scriptData, props: newProps }, propRefs: newRefs };
+    });
+  }, [project, currentEpisode]);
+
+  const syncAllPropsToEpisode = useCallback(() => {
+    const outdated = getOutdatedProps();
+    outdated.forEach(ref => syncPropToEpisode(ref.propId));
+  }, [syncPropToEpisode]);
+
+  const getOutdatedProps = useCallback((): EpisodePropRef[] => {
+    if (!project || !currentEpisode) return [];
+    return (currentEpisode.propRefs || []).filter(ref => {
+      if (ref.syncStatus === 'local-only') return false;
+      const libProp = project.propLibrary.find(p => p.id === ref.propId);
+      return libProp && (libProp.version || 1) > ref.syncedVersion;
+    });
+  }, [project, currentEpisode]);
+
   const value: ProjectContextValue = {
     project, loading, allSeries, allEpisodes, currentEpisode,
     reloadProject, updateProject,
@@ -208,6 +288,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     createEpisode: handleCreateEpisode, removeEpisode: handleRemoveEpisode,
     getEpisodesForSeries,
     syncCharacterToEpisode, syncAllCharactersToEpisode, getOutdatedCharacters,
+    syncSceneToEpisode, syncAllScenesToEpisode, getOutdatedScenes,
+    syncPropToEpisode, syncAllPropsToEpisode, getOutdatedProps,
   };
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

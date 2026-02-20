@@ -178,6 +178,9 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       updateProject({ 
         scriptData, 
         shots, 
+        characterRefs: [],
+        sceneRefs: [],
+        propRefs: [],
         isParsingScript: false,
         title: scriptData.title 
       });
@@ -203,6 +206,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       scriptData: result.scriptData,
       shots: result.shots,
       characterRefs: result.characterRefs,
+      sceneRefs: result.sceneRefs,
+      propRefs: result.propRefs,
       isParsingScript: false,
       title: result.scriptData.title,
     });
@@ -218,6 +223,9 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     updateProject({
       scriptData,
       shots,
+      characterRefs: [],
+      sceneRefs: [],
+      propRefs: [],
       isParsingScript: false,
       title,
     });

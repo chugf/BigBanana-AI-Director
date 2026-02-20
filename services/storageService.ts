@@ -8,7 +8,7 @@ const ASSET_STORE_NAME = 'assetLibrary';
 const SP_STORE = 'seriesProjects';
 const SERIES_STORE = 'series';
 const EP_STORE = 'episodes';
-const EXPORT_SCHEMA_VERSION = 2;
+const EXPORT_SCHEMA_VERSION = 3;
 
 export interface IndexedDBExportPayload {
   schemaVersion: number;
@@ -64,6 +64,59 @@ const openDB = (): Promise<IDBDatabase> => {
   });
 
   return dbPromise;
+};
+
+const mergeByKey = <T>(
+  existing: T[] | undefined,
+  inferred: T[],
+  getKey: (item: T) => string
+): T[] => {
+  const merged = new Map<string, T>();
+  inferred.forEach(item => merged.set(getKey(item), item));
+  (existing || []).forEach(item => merged.set(getKey(item), item));
+  return Array.from(merged.values());
+};
+
+const normalizeEpisode = (ep: Episode): Episode => {
+  const scriptData = ep.scriptData
+    ? {
+        ...ep.scriptData,
+        props: ep.scriptData.props || [],
+      }
+    : null;
+
+  const inferredCharacterRefs = (scriptData?.characters || [])
+    .filter(c => !!c.libraryId)
+    .map(c => ({
+      characterId: c.libraryId!,
+      syncedVersion: c.libraryVersion || 1,
+      syncStatus: 'synced' as const,
+    }));
+
+  const inferredSceneRefs = (scriptData?.scenes || [])
+    .filter(s => !!s.libraryId)
+    .map(s => ({
+      sceneId: s.libraryId!,
+      syncedVersion: s.libraryVersion || 1,
+      syncStatus: 'synced' as const,
+    }));
+
+  const inferredPropRefs = (scriptData?.props || [])
+    .filter(p => !!p.libraryId)
+    .map(p => ({
+      propId: p.libraryId!,
+      syncedVersion: p.libraryVersion || 1,
+      syncStatus: 'synced' as const,
+    }));
+
+  return {
+    ...ep,
+    scriptData,
+    renderLogs: ep.renderLogs || [],
+    characterRefs: mergeByKey(ep.characterRefs, inferredCharacterRefs, r => r.characterId),
+    sceneRefs: mergeByKey(ep.sceneRefs, inferredSceneRefs, r => r.sceneId),
+    propRefs: mergeByKey(ep.propRefs, inferredPropRefs, r => r.propId),
+  };
 };
 
 // =============================================
@@ -202,9 +255,10 @@ export const createNewSeries = (projectId: string, title: string, sortOrder: num
 
 export const saveEpisode = async (ep: Episode): Promise<void> => {
   const db = await openDB();
+  const normalized = normalizeEpisode(ep);
   return new Promise((resolve, reject) => {
     const tx = db.transaction(EP_STORE, 'readwrite');
-    tx.objectStore(EP_STORE).put({ ...ep, lastModified: Date.now() });
+    tx.objectStore(EP_STORE).put({ ...normalized, lastModified: Date.now() });
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -217,11 +271,7 @@ export const loadEpisode = async (id: string): Promise<Episode> => {
     const req = tx.objectStore(EP_STORE).get(id);
     req.onsuccess = () => {
       if (req.result) {
-        const ep = req.result as Episode;
-        if (!ep.renderLogs) ep.renderLogs = [];
-        if (!ep.characterRefs) ep.characterRefs = [];
-        if (ep.scriptData && !ep.scriptData.props) ep.scriptData.props = [];
-        resolve(ep);
+        resolve(normalizeEpisode(req.result as Episode));
       } else reject(new Error('Episode not found'));
     };
     req.onerror = () => reject(req.error);
@@ -235,7 +285,7 @@ export const getEpisodesByProject = async (projectId: string): Promise<Episode[]
     const idx = tx.objectStore(EP_STORE).index('projectId');
     const req = idx.getAll(projectId);
     req.onsuccess = () => {
-      const items = (req.result as Episode[]) || [];
+      const items = ((req.result as Episode[]) || []).map(normalizeEpisode);
       items.sort((a, b) => a.episodeNumber - b.episodeNumber);
       resolve(items);
     };
@@ -250,7 +300,7 @@ export const getEpisodesBySeries = async (seriesId: string): Promise<Episode[]> 
     const idx = tx.objectStore(EP_STORE).index('seriesId');
     const req = idx.getAll(seriesId);
     req.onsuccess = () => {
-      const items = (req.result as Episode[]) || [];
+      const items = ((req.result as Episode[]) || []).map(normalizeEpisode);
       items.sort((a, b) => a.episodeNumber - b.episodeNumber);
       resolve(items);
     };
@@ -288,6 +338,8 @@ export const createNewEpisode = (projectId: string, seriesId: string, episodeNum
     isParsingScript: false,
     renderLogs: [],
     characterRefs: [],
+    sceneRefs: [],
+    propRefs: [],
   };
 };
 
@@ -309,7 +361,7 @@ export const getAllProjectsMetadata = async (): Promise<ProjectState[]> => {
     const tx = db.transaction(EP_STORE, 'readonly');
     const req = tx.objectStore(EP_STORE).getAll();
     req.onsuccess = () => {
-      const eps = (req.result as ProjectState[]) || [];
+      const eps = ((req.result as ProjectState[]) || []).map(ep => normalizeEpisode(ep as Episode));
       eps.sort((a, b) => b.lastModified - a.lastModified);
       resolve(eps);
     };
@@ -447,7 +499,7 @@ export const importIndexedDBData = async (
     (payload.stores.series || []).forEach((s: Series) => { seriesStr.put(s); count++; });
 
     const epStore = tx.objectStore(EP_STORE);
-    (payload.stores.episodes || []).forEach((ep: Episode) => { epStore.put(ep); count++; });
+    (payload.stores.episodes || []).forEach((ep: Episode) => { epStore.put(normalizeEpisode(ep)); count++; });
 
     if (payload.stores.projects && payload.stores.projects.length > 0 && !(payload.stores.episodes && payload.stores.episodes.length > 0)) {
       payload.stores.projects.forEach((p: any) => {
@@ -463,14 +515,16 @@ export const importIndexedDBData = async (
         const chars = p.scriptData?.characters || [];
         const scenes = p.scriptData?.scenes || [];
         const props = p.scriptData?.props || [];
+        const episodeScenes = scenes.map((s: any) => ({ ...s, libraryId: s.id, libraryVersion: 1 }));
+        const episodeProps = props.map((pr: any) => ({ ...pr, libraryId: pr.id, libraryVersion: 1 }));
 
         const sp: SeriesProject = {
           id: projectId, title: p.title, createdAt: p.createdAt || Date.now(), lastModified: p.lastModified || Date.now(),
           visualStyle: p.visualStyle || 'live-action', language: p.language || '中文',
           artDirection: p.scriptData?.artDirection,
           characterLibrary: chars.map((c: any) => ({ ...c, version: 1 })),
-          sceneLibrary: scenes.map((s: any) => ({ ...s })),
-          propLibrary: props.map((pr: any) => ({ ...pr })),
+          sceneLibrary: scenes.map((s: any) => ({ ...s, version: 1 })),
+          propLibrary: props.map((pr: any) => ({ ...pr, version: 1 })),
         };
         spStore.put(sp);
 
@@ -484,11 +538,20 @@ export const importIndexedDBData = async (
           stage: p.stage || 'script', rawScript: p.rawScript || '', targetDuration: p.targetDuration || '60s',
           language: p.language || '中文', visualStyle: p.visualStyle || 'live-action',
           shotGenerationModel: p.shotGenerationModel || 'gpt-5.1',
-          scriptData: p.scriptData ? { ...p.scriptData, characters: chars.map((c: any) => ({ ...c, libraryId: c.id, libraryVersion: 1 })) } : null,
+          scriptData: p.scriptData
+            ? {
+                ...p.scriptData,
+                characters: chars.map((c: any) => ({ ...c, libraryId: c.id, libraryVersion: 1 })),
+                scenes: episodeScenes,
+                props: episodeProps,
+              }
+            : null,
           shots: p.shots || [], isParsingScript: false, renderLogs: p.renderLogs || [],
           characterRefs: chars.map((c: any) => ({ characterId: c.id, syncedVersion: 1, syncStatus: 'synced' as const })),
+          sceneRefs: scenes.map((s: any) => ({ sceneId: s.id, syncedVersion: 1, syncStatus: 'synced' as const })),
+          propRefs: props.map((pr: any) => ({ propId: pr.id, syncedVersion: 1, syncStatus: 'synced' as const })),
         };
-        epStore.put(ep);
+        epStore.put(normalizeEpisode(ep));
         count += 3;
       });
     }

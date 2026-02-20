@@ -62,6 +62,27 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     } catch { return null; }
   };
 
+  const upsertCharacterRef = (characterId: string, syncedVersion: number) => {
+    const nextRef = { characterId, syncedVersion, syncStatus: 'synced' as const };
+    const refs = project.characterRefs || [];
+    const hasRef = refs.some(r => r.characterId === characterId);
+    return hasRef ? refs.map(r => (r.characterId === characterId ? nextRef : r)) : [...refs, nextRef];
+  };
+
+  const upsertSceneRef = (sceneId: string, syncedVersion: number) => {
+    const nextRef = { sceneId, syncedVersion, syncStatus: 'synced' as const };
+    const refs = project.sceneRefs || [];
+    const hasRef = refs.some(r => r.sceneId === sceneId);
+    return hasRef ? refs.map(r => (r.sceneId === sceneId ? nextRef : r)) : [...refs, nextRef];
+  };
+
+  const upsertPropRef = (propId: string, syncedVersion: number) => {
+    const nextRef = { propId, syncedVersion, syncStatus: 'synced' as const };
+    const refs = project.propRefs || [];
+    const hasRef = refs.some(r => r.propId === propId);
+    return hasRef ? refs.map(r => (r.propId === propId ? nextRef : r)) : [...refs, nextRef];
+  };
+
   useEffect(() => {
     const handler = () => {
       loadPickerProject().then(sp => { if (sp) setShowCharLibraryPicker(true); });
@@ -478,7 +499,15 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       };
     });
 
-    updateProject({ scriptData: newData, shots: nextShots });
+    let nextRefs = project.characterRefs || [];
+    if (previous.libraryId) {
+      const hasOtherLinked = newData.characters.some(c => c.libraryId === previous.libraryId);
+      if (!hasOtherLinked) {
+        nextRefs = nextRefs.filter(ref => ref.characterId !== previous.libraryId);
+      }
+    }
+
+    updateProject({ scriptData: newData, shots: nextShots, characterRefs: nextRefs });
     showAlert(`已替换角色：${previous.name} → ${cloned.name}`, { type: 'success' });
     setShowLibraryModal(false);
     setReplaceTargetCharId(null);
@@ -592,7 +621,38 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         onConfirm: () => {
           const newData = { ...project.scriptData! };
           newData.characters = newData.characters.filter(c => !compareIds(c.id, charId));
-          updateProject({ scriptData: newData });
+          const nextShots = project.shots.map(shot => {
+            const nextCharacters = shot.characters.filter(cid => !compareIds(cid, charId));
+            if (!shot.characterVariations) {
+              if (nextCharacters.length === shot.characters.length) return shot;
+              return { ...shot, characters: nextCharacters };
+            }
+
+            const nextVariations: Record<string, string> = {};
+            Object.entries(shot.characterVariations).forEach(([key, value]) => {
+              if (!compareIds(key, charId)) nextVariations[key] = value;
+            });
+
+            const hasVariationChanged = Object.keys(nextVariations).length !== Object.keys(shot.characterVariations).length;
+            const hasCharacterChanged = nextCharacters.length !== shot.characters.length;
+            if (!hasVariationChanged && !hasCharacterChanged) return shot;
+
+            return {
+              ...shot,
+              characters: nextCharacters,
+              characterVariations: Object.keys(nextVariations).length > 0 ? nextVariations : undefined,
+            };
+          });
+
+          let nextRefs = project.characterRefs || [];
+          if (char.libraryId) {
+            const hasOtherLinkedCharacter = newData.characters.some(c => c.libraryId === char.libraryId);
+            if (!hasOtherLinkedCharacter) {
+              nextRefs = nextRefs.filter(ref => ref.characterId !== char.libraryId);
+            }
+          }
+
+          updateProject({ scriptData: newData, shots: nextShots, characterRefs: nextRefs });
           showAlert(`角色 "${char.name}" 已删除`, { type: 'success' });
         }
       }
@@ -639,7 +699,15 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         onConfirm: () => {
           const newData = { ...project.scriptData! };
           newData.scenes = newData.scenes.filter(s => !compareIds(s.id, sceneId));
-          updateProject({ scriptData: newData });
+          const nextShots = project.shots.filter(shot => !compareIds(shot.sceneId, sceneId));
+          let nextRefs = project.sceneRefs || [];
+          if (scene.libraryId) {
+            const hasOtherLinkedScene = newData.scenes.some(s => s.libraryId === scene.libraryId);
+            if (!hasOtherLinkedScene) {
+              nextRefs = nextRefs.filter(ref => ref.sceneId !== scene.libraryId);
+            }
+          }
+          updateProject({ scriptData: newData, shots: nextShots, sceneRefs: nextRefs });
           showAlert(`场景 "${scene.location}" 已删除`, { type: 'success' });
         }
       }
@@ -693,10 +761,19 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
           newData.props = (newData.props || []).filter(p => !compareIds(p.id, propId));
           // 清除所有镜头中对该道具的引用
           const nextShots = project.shots.map(shot => {
-            if (!shot.props || !shot.props.includes(propId)) return shot;
-            return { ...shot, props: shot.props.filter(id => id !== propId) };
+            if (!shot.props || !shot.props.some(id => compareIds(id, propId))) return shot;
+            return { ...shot, props: shot.props.filter(id => !compareIds(id, propId)) };
           });
-          updateProject({ scriptData: newData, shots: nextShots });
+
+          let nextRefs = project.propRefs || [];
+          if (prop.libraryId) {
+            const hasOtherLinkedProp = (newData.props || []).some(p => p.libraryId === prop.libraryId);
+            if (!hasOtherLinkedProp) {
+              nextRefs = nextRefs.filter(ref => ref.propId !== prop.libraryId);
+            }
+          }
+
+          updateProject({ scriptData: newData, shots: nextShots, propRefs: nextRefs });
           showAlert(`道具 "${prop.name}" 已删除`, { type: 'success' });
         }
       }
@@ -1644,11 +1721,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
               variations: libChar.variations?.map(v => ({ ...v })) || [],
             };
             const newChars = [...project.scriptData.characters, newChar];
-            const newRefs = [...(project.characterRefs || []), {
-              characterId: libChar.id,
-              syncedVersion: libChar.version || 1,
-              syncStatus: 'synced' as const,
-            }];
+            const newRefs = upsertCharacterRef(libChar.id, libChar.version || 1);
             updateProject(prev => ({
               ...prev,
               scriptData: { ...prev.scriptData!, characters: newChars },
@@ -1666,14 +1739,21 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
           onClose={() => setShowSceneLibraryPicker(false)}
           project={pickerProject}
           assetType="scene"
-          existingIds={(project.scriptData?.scenes || []).map(s => s.id)}
+          existingIds={(project.scriptData?.scenes || []).filter(s => !!s.libraryId).map(s => s.libraryId!)}
           onSelectScene={(libScene) => {
             if (!project.scriptData) return;
-            const newScene = { ...libScene, id: generateId('scene') };
+            const newScene = {
+              ...libScene,
+              id: generateId('scene'),
+              libraryId: libScene.id,
+              libraryVersion: libScene.version || 1,
+            };
             const newScenes = [...project.scriptData.scenes, newScene];
+            const newRefs = upsertSceneRef(libScene.id, libScene.version || 1);
             updateProject(prev => ({
               ...prev,
               scriptData: { ...prev.scriptData!, scenes: newScenes },
+              sceneRefs: newRefs,
             }));
             setShowSceneLibraryPicker(false);
           }}
@@ -1687,14 +1767,21 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
           onClose={() => setShowPropLibraryPicker(false)}
           project={pickerProject}
           assetType="prop"
-          existingIds={(project.scriptData?.props || []).map(p => p.id)}
+          existingIds={(project.scriptData?.props || []).filter(p => !!p.libraryId).map(p => p.libraryId!)}
           onSelectProp={(libProp) => {
             if (!project.scriptData) return;
-            const newProp = { ...libProp, id: generateId('prop') };
+            const newProp = {
+              ...libProp,
+              id: generateId('prop'),
+              libraryId: libProp.id,
+              libraryVersion: libProp.version || 1,
+            };
             const newProps = [...(project.scriptData.props || []), newProp];
+            const newRefs = upsertPropRef(libProp.id, libProp.version || 1);
             updateProject(prev => ({
               ...prev,
               scriptData: { ...prev.scriptData!, props: newProps },
+              propRefs: newRefs,
             }));
             setShowPropLibraryPicker(false);
           }}

@@ -85,8 +85,22 @@ export async function runV2ToV3Migration(db: IDBDatabase): Promise<void> {
 
       const libraryChars: Character[] = characters.map(c => ({ ...c, version: 1 }));
       const episodeChars: Character[] = characters.map(c => ({ ...c, libraryId: c.id, libraryVersion: 1 }));
+      const libraryScenes = scenes.map(s => ({ ...s, version: 1 }));
+      const episodeScenes = scenes.map(s => ({ ...s, libraryId: s.id, libraryVersion: 1 }));
+      const libraryProps = props.map(p => ({ ...p, version: 1 }));
+      const episodeProps = props.map(p => ({ ...p, libraryId: p.id, libraryVersion: 1 }));
       const characterRefs = characters.map(c => ({
         characterId: c.id,
+        syncedVersion: 1,
+        syncStatus: 'synced' as const,
+      }));
+      const sceneRefs = scenes.map(s => ({
+        sceneId: s.id,
+        syncedVersion: 1,
+        syncStatus: 'synced' as const,
+      }));
+      const propRefs = props.map(p => ({
+        propId: p.id,
         syncedVersion: 1,
         syncStatus: 'synced' as const,
       }));
@@ -100,8 +114,8 @@ export async function runV2ToV3Migration(db: IDBDatabase): Promise<void> {
         language: legacy.language || '中文',
         artDirection: legacy.scriptData?.artDirection,
         characterLibrary: libraryChars,
-        sceneLibrary: scenes.map(s => ({ ...s })),
-        propLibrary: props.map(p => ({ ...p })),
+        sceneLibrary: libraryScenes,
+        propLibrary: libraryProps,
       };
 
       const s: Series = {
@@ -127,11 +141,13 @@ export async function runV2ToV3Migration(db: IDBDatabase): Promise<void> {
         language: legacy.language,
         visualStyle: legacy.visualStyle,
         shotGenerationModel: legacy.shotGenerationModel,
-        scriptData: legacy.scriptData ? { ...legacy.scriptData, characters: episodeChars } : null,
+        scriptData: legacy.scriptData ? { ...legacy.scriptData, characters: episodeChars, scenes: episodeScenes, props: episodeProps } : null,
         shots: legacy.shots || [],
         isParsingScript: false,
         renderLogs: legacy.renderLogs || [],
         characterRefs,
+        sceneRefs,
+        propRefs,
       };
 
       spStore.put(sp);

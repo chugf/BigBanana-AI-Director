@@ -18,8 +18,8 @@ import { setGlobalApiKey } from './services/aiService';
 import { setLogCallback, clearLogCallback } from './services/renderLogService';
 import { useAlert } from './components/GlobalAlert';
 import { ProjectProvider, useProjectContext } from './contexts/ProjectContext';
-import { checkCharacterSync } from './services/characterSyncService';
-import CharacterSyncBanner from './components/CharacterLibrary/CharacterSyncBanner';
+import { checkCharacterSync, checkSceneSync, checkPropSync } from './services/characterSyncService';
+import AssetSyncBanner from './components/CharacterLibrary/AssetSyncBanner';
 import logoImg from './logo.png';
 
 function MobileWarning() {
@@ -41,7 +41,15 @@ function EpisodeWorkspace() {
   const { episodeId } = useParams<{ episodeId: string }>();
   const navigate = useNavigate();
   const { showAlert } = useAlert();
-  const { project, currentEpisode, setCurrentEpisode, updateEpisode, syncAllCharactersToEpisode, syncCharacterToEpisode } = useProjectContext();
+  const {
+    project,
+    currentEpisode,
+    setCurrentEpisode,
+    updateEpisode,
+    syncAllCharactersToEpisode,
+    syncAllScenesToEpisode,
+    syncAllPropsToEpisode,
+  } = useProjectContext();
   const [isGenerating, setIsGenerating] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
   const [showSaveStatus, setShowSaveStatus] = useState(false);
@@ -167,15 +175,31 @@ function EpisodeWorkspace() {
       />
       <main className="ml-72 flex-1 h-screen overflow-hidden relative">
         {project && currentEpisode && (() => {
-          const { outdatedRefs } = checkCharacterSync(currentEpisode, project);
-          if (outdatedRefs.length === 0) return null;
+          const { outdatedRefs: outdatedCharacters } = checkCharacterSync(currentEpisode, project);
+          const { outdatedRefs: outdatedScenes } = checkSceneSync(currentEpisode, project);
+          const { outdatedRefs: outdatedProps } = checkPropSync(currentEpisode, project);
+
           return (
-            <CharacterSyncBanner
-              outdatedRefs={outdatedRefs}
-              characterLibrary={project.characterLibrary}
-              onSyncAll={syncAllCharactersToEpisode}
-              onSyncOne={syncCharacterToEpisode}
-            />
+            <>
+              <AssetSyncBanner
+                title="Characters"
+                outdatedRefs={outdatedCharacters.map(ref => ({ assetId: ref.characterId, syncedVersion: ref.syncedVersion }))}
+                resolveName={(assetId) => project.characterLibrary.find(ch => ch.id === assetId)?.name || assetId}
+                onSyncAll={syncAllCharactersToEpisode}
+              />
+              <AssetSyncBanner
+                title="Scenes"
+                outdatedRefs={outdatedScenes.map(ref => ({ assetId: ref.sceneId, syncedVersion: ref.syncedVersion }))}
+                resolveName={(assetId) => project.sceneLibrary.find(sc => sc.id === assetId)?.location || assetId}
+                onSyncAll={syncAllScenesToEpisode}
+              />
+              <AssetSyncBanner
+                title="Props"
+                outdatedRefs={outdatedProps.map(ref => ({ assetId: ref.propId, syncedVersion: ref.syncedVersion }))}
+                resolveName={(assetId) => project.propLibrary.find(pr => pr.id === assetId)?.name || assetId}
+                onSyncAll={syncAllPropsToEpisode}
+              />
+            </>
           );
         })()}
         {renderStage()}
