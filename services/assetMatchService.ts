@@ -25,25 +25,50 @@ function normalize(s: string): string {
   return s.replace(/\s+/g, '').toLowerCase();
 }
 
+function getAssetImage(asset: { referenceImage?: string } & Record<string, any>): string | undefined {
+  // Backward compatibility: older data may keep preview image in imageUrl.
+  return asset.referenceImage || asset.imageUrl;
+}
+
+function pickBestByName<T extends { version?: number; referenceImage?: string } & Record<string, any>>(
+  items: T[],
+  getName: (item: T) => string,
+  targetName: string
+): T | null {
+  const normalizedTarget = normalize(targetName);
+  const candidates = items.filter(item => normalize(getName(item)) === normalizedTarget);
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => {
+    const aHasImage = getAssetImage(a) ? 1 : 0;
+    const bHasImage = getAssetImage(b) ? 1 : 0;
+    if (aHasImage !== bHasImage) return bHasImage - aHasImage;
+
+    const aVersion = a.version || 1;
+    const bVersion = b.version || 1;
+    if (aVersion !== bVersion) return bVersion - aVersion;
+
+    const aPromptLen = (a.visualPrompt || '').length;
+    const bPromptLen = (b.visualPrompt || '').length;
+    return bPromptLen - aPromptLen;
+  });
+
+  return candidates[0];
+}
+
 export function findAssetMatches(scriptData: ScriptData, project: SeriesProject): AssetMatchResult {
   const characters: AssetMatchItem<Character>[] = scriptData.characters.map(aiChar => {
-    const match = project.characterLibrary.find(
-      libChar => normalize(libChar.name) === normalize(aiChar.name)
-    );
+    const match = pickBestByName(project.characterLibrary, libChar => libChar.name, aiChar.name);
     return { aiAsset: aiChar, libraryAsset: match || null, reuse: !!match };
   });
 
   const scenes: AssetMatchItem<Scene>[] = scriptData.scenes.map(aiScene => {
-    const match = project.sceneLibrary.find(
-      libScene => normalize(libScene.location) === normalize(aiScene.location)
-    );
+    const match = pickBestByName(project.sceneLibrary, libScene => libScene.location, aiScene.location);
     return { aiAsset: aiScene, libraryAsset: match || null, reuse: !!match };
   });
 
   const props: AssetMatchItem<Prop>[] = (scriptData.props || []).map(aiProp => {
-    const match = project.propLibrary.find(
-      libProp => normalize(libProp.name) === normalize(aiProp.name)
-    );
+    const match = pickBestByName(project.propLibrary, libProp => libProp.name, aiProp.name);
     return { aiAsset: aiProp, libraryAsset: match || null, reuse: !!match };
   });
 
@@ -72,6 +97,7 @@ export function applyAssetMatches(
       const lib = m.libraryAsset;
       const aiId = m.aiAsset.id;
       const newId = 'char_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+      const libImage = getAssetImage(lib);
       charIdMap.set(aiId, newId);
 
       characterRefs.push({
@@ -82,14 +108,15 @@ export function applyAssetMatches(
 
       return {
         ...m.aiAsset,
+        ...lib,
         id: newId,
-        referenceImage: lib.referenceImage || m.aiAsset.referenceImage,
+        referenceImage: libImage || m.aiAsset.referenceImage,
         visualPrompt: lib.visualPrompt || m.aiAsset.visualPrompt,
         negativePrompt: lib.negativePrompt || m.aiAsset.negativePrompt,
         coreFeatures: lib.coreFeatures || m.aiAsset.coreFeatures,
-        variations: lib.variations?.map(v => ({ ...v })) || m.aiAsset.variations || [],
+        variations: (lib.variations || m.aiAsset.variations || []).map(v => ({ ...v })),
         turnaround: lib.turnaround ? { ...lib.turnaround } : m.aiAsset.turnaround,
-        status: lib.referenceImage ? 'completed' as const : m.aiAsset.status,
+        status: libImage ? ('completed' as const) : (lib.status || m.aiAsset.status),
         libraryId: lib.id,
         libraryVersion: lib.version || 1,
       };
@@ -102,6 +129,7 @@ export function applyAssetMatches(
       const lib = m.libraryAsset;
       const aiId = m.aiAsset.id;
       const newId = 'scene_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+      const libImage = getAssetImage(lib);
       sceneIdMap.set(aiId, newId);
       sceneRefs.push({
         sceneId: lib.id,
@@ -111,11 +139,12 @@ export function applyAssetMatches(
 
       return {
         ...m.aiAsset,
+        ...lib,
         id: newId,
-        referenceImage: lib.referenceImage || m.aiAsset.referenceImage,
+        referenceImage: libImage || m.aiAsset.referenceImage,
         visualPrompt: lib.visualPrompt || m.aiAsset.visualPrompt,
         negativePrompt: lib.negativePrompt || m.aiAsset.negativePrompt,
-        status: lib.referenceImage ? 'completed' as const : m.aiAsset.status,
+        status: libImage ? ('completed' as const) : (lib.status || m.aiAsset.status),
         libraryId: lib.id,
         libraryVersion: lib.version || 1,
       };
@@ -128,6 +157,7 @@ export function applyAssetMatches(
       const lib = m.libraryAsset;
       const aiId = m.aiAsset.id;
       const newId = 'prop_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+      const libImage = getAssetImage(lib);
       propIdMap.set(aiId, newId);
       propRefs.push({
         propId: lib.id,
@@ -137,11 +167,12 @@ export function applyAssetMatches(
 
       return {
         ...m.aiAsset,
+        ...lib,
         id: newId,
-        referenceImage: lib.referenceImage || m.aiAsset.referenceImage,
+        referenceImage: libImage || m.aiAsset.referenceImage,
         visualPrompt: lib.visualPrompt || m.aiAsset.visualPrompt,
         negativePrompt: lib.negativePrompt || m.aiAsset.negativePrompt,
-        status: lib.referenceImage ? 'completed' as const : m.aiAsset.status,
+        status: libImage ? ('completed' as const) : (lib.status || m.aiAsset.status),
         libraryId: lib.id,
         libraryVersion: lib.version || 1,
       };
@@ -183,7 +214,7 @@ export function applyAssetMatches(
 
   const dedupeBy = <T>(items: T[], getKey: (item: T) => string): T[] => {
     const map = new Map<string, T>();
-    items.forEach(item => map.set(getKey(item), item));
+    items.forEach(item => map.set(String(getKey(item)), item));
     return Array.from(map.values());
   };
 

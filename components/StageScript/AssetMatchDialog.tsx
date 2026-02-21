@@ -84,6 +84,10 @@ const AssetMatchDialog: React.FC<Props> = ({ matches, onConfirm, onCancel }) => 
     props: matches.props.map(m => ({ ...m })),
   }));
 
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) onCancel();
+  };
+
   const toggleChar = (idx: number) => {
     setLocal(prev => {
       const next = { ...prev, characters: [...prev.characters] };
@@ -126,8 +130,8 @@ const AssetMatchDialog: React.FC<Props> = ({ matches, onConfirm, onCancel }) => 
   const propNew = local.props.filter(m => !m.libraryAsset);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-base)]/70 p-6" onClick={onCancel}>
-      <div className="w-full max-w-2xl bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl overflow-hidden max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-base)]/70 p-6" onClick={handleBackdropClick}>
+      <div className="w-full max-w-2xl bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl overflow-hidden max-h-[85vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
           <div>
