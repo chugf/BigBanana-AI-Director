@@ -18,11 +18,11 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ currentStage, setStage, onExit, projectName, onShowOnboarding, onShowModelConfig, isNavigationLocked, episodeInfo, onGoToProject }) => {
   const { theme, toggleTheme } = useTheme();
   const navItems = [
-    { id: 'script', label: '剧本与故事', icon: FileText, sub: 'Phase 01' },
-    { id: 'assets', label: '角色与场景', icon: Users, sub: 'Phase 02' },
-    { id: 'director', label: '导演工作台', icon: Clapperboard, sub: 'Phase 03' },
-    { id: 'export', label: '成片与导出', icon: Film, sub: 'Phase 04' },
-    { id: 'prompts', label: '提示词管理', icon: ListTree, sub: 'Advanced' },
+    { id: 'script', label: '剧本与故事', icon: FileText, sub: '阶段 01' },
+    { id: 'assets', label: '角色与场景', icon: Users, sub: '阶段 02' },
+    { id: 'director', label: '导演工作台', icon: Clapperboard, sub: '阶段 03' },
+    { id: 'export', label: '成片与导出', icon: Film, sub: '阶段 04' },
+    { id: 'prompts', label: '提示词管理', icon: ListTree, sub: '高级' },
   ];
 
   return (
@@ -32,7 +32,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentStage, setStage, onExit, proje
           <img src={logoImg} alt="Logo" className="w-8 h-8 flex-shrink-0 transition-transform group-hover:scale-110" />
           <div className="overflow-hidden">
             <h1 className="text-sm font-bold text-[var(--text-primary)] tracking-wider group-hover:text-[var(--text-secondary)] transition-colors">BigBanana</h1>
-            <p className="text-[10px] text-[var(--text-tertiary)] tracking-widest group-hover:text-[var(--text-secondary)] transition-colors">Studio Pro</p>
+            <p className="text-[10px] text-[var(--text-tertiary)] tracking-widest group-hover:text-[var(--text-secondary)] transition-colors">专业版</p>
           </div>
         </a>
         <button

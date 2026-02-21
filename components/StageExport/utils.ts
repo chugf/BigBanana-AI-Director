@@ -52,7 +52,7 @@ export const formatTimestamp = (timestamp: number): string => {
  * 格式化持续时间(毫秒转秒)
  */
 export const formatDuration = (duration: number): string => {
-  return (duration / 1000).toFixed(1) + 's';
+  return `${(duration / 1000).toFixed(1)}秒`;
 };
 
 /**
@@ -85,10 +85,42 @@ export const getLogTypeIcon = (type: string): string => {
     'character': '👤',
     'character-variation': '👤',
     'scene': '🎬',
+    'prop': '🧰',
     'keyframe': '🖼️',
-    'video': '🎥'
+    'video': '🎥',
+    'script-parsing': '📝'
   };
   return iconMap[type] || '📝';
+};
+
+/**
+ * 获取日志状态文案
+ */
+export const getLogStatusLabel = (status: string): string => {
+  const labelMap: Record<string, string> = {
+    'success': '成功',
+    'failed': '失败',
+    'pending': '等待中'
+  };
+
+  return labelMap[status] || status;
+};
+
+/**
+ * 获取日志类型文案
+ */
+export const getLogTypeLabel = (type: string): string => {
+  const labelMap: Record<string, string> = {
+    'character': '角色',
+    'character-variation': '角色变体',
+    'scene': '场景',
+    'prop': '道具',
+    'keyframe': '关键帧',
+    'video': '视频',
+    'script-parsing': '剧本解析'
+  };
+
+  return labelMap[type] || type;
 };
 
 /**

@@ -250,12 +250,12 @@ const StageExport: React.FC<Props> = ({ project }) => {
           <h2 className={STYLES.header.title}>
             <Film className="w-5 h-5 text-[var(--accent)]" />
             成片与导出
-            <span className={STYLES.header.subtitle}>Rendering & Export</span>
+            <span className={STYLES.header.subtitle}>渲染与导出</span>
           </h2>
         </div>
         <div className="flex items-center gap-2">
           <span className={STYLES.header.status}>
-            Status: {progress === 100 ? 'READY' : 'IN PROGRESS'}
+            状态：{progress === 100 ? '已就绪' : '进行中'}
           </span>
         </div>
       </div>

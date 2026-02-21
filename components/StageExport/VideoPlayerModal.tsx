@@ -40,7 +40,7 @@ const VideoPlayerModal: React.FC<Props> = ({
             <Play className="w-5 h-5 text-[var(--accent)]" />
             <h3 className="text-lg font-bold text-[var(--text-primary)]">视频预览</h3>
             <span className="px-2 py-0.5 bg-[var(--bg-elevated)] border border-[var(--border-secondary)] text-[var(--text-tertiary)] text-[10px] rounded uppercase font-mono tracking-wider">
-              Shot {shotOriginalIndex + 1} / {project.shots.length}
+              镜头 {shotOriginalIndex + 1} / {project.shots.length}
             </span>
           </div>
           <button
@@ -128,7 +128,7 @@ const VideoPlayerModal: React.FC<Props> = ({
             onClick={onClose}
             className="px-4 py-2 bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] hover:bg-[var(--btn-primary-hover)] rounded-lg text-xs font-bold uppercase tracking-widest transition-colors"
           >
-            Close
+            关闭
           </button>
         </div>
       </div>
