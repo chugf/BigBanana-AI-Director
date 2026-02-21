@@ -35,6 +35,12 @@ interface LegacyProjectState {
   renderLogs: any[];
 }
 
+const buildDefaultEpisodeTitle = (episodeNumber: number): string => `\u7b2c ${episodeNumber} \u96c6`;
+
+const isDefaultEpisodeTitle = (title: string): boolean => {
+  return /^\u7b2c\s*\d+\s*\u96c6$/u.test(title.trim());
+};
+
 export async function runV2ToV3Migration(db: IDBDatabase): Promise<void> {
   if (!db.objectStoreNames.contains('projects')) return;
   if (!db.objectStoreNames.contains('seriesProjects')) return;
@@ -132,7 +138,7 @@ export async function runV2ToV3Migration(db: IDBDatabase): Promise<void> {
         projectId,
         seriesId,
         episodeNumber: 1,
-        title: legacy.scriptData?.title || legacy.title,
+        title: buildDefaultEpisodeTitle(1),
         createdAt: legacy.createdAt,
         lastModified: legacy.lastModified,
         stage: (legacy.stage as Episode['stage']) || 'script',
@@ -165,4 +171,58 @@ export async function runV2ToV3Migration(db: IDBDatabase): Promise<void> {
     };
     tx.onerror = () => reject(tx.error);
   });
+}
+
+export async function runEpisodeTitleFixMigration(db: IDBDatabase): Promise<void> {
+  if (!db.objectStoreNames.contains('seriesProjects')) return;
+  if (!db.objectStoreNames.contains('episodes')) return;
+
+  const projects = await new Promise<SeriesProject[]>((resolve, reject) => {
+    const tx = db.transaction('seriesProjects', 'readonly');
+    const req = tx.objectStore('seriesProjects').getAll();
+    req.onsuccess = () => resolve((req.result || []) as SeriesProject[]);
+    req.onerror = () => reject(req.error);
+  });
+
+  if (projects.length === 0) return;
+
+  const projectTitleMap = new Map<string, string>(
+    projects.map(p => [p.id, (p.title || '').trim()])
+  );
+
+  const episodes = await new Promise<Episode[]>((resolve, reject) => {
+    const tx = db.transaction('episodes', 'readonly');
+    const req = tx.objectStore('episodes').getAll();
+    req.onsuccess = () => resolve((req.result || []) as Episode[]);
+    req.onerror = () => reject(req.error);
+  });
+
+  if (episodes.length === 0) return;
+
+  const updates = episodes
+    .filter(ep => (ep.episodeNumber || 0) === 1)
+    .filter(ep => {
+      const epTitle = (ep.title || '').trim();
+      if (!epTitle) return true;
+      if (isDefaultEpisodeTitle(epTitle)) return false;
+
+      const projectTitle = projectTitleMap.get(ep.projectId) || '';
+      return !!projectTitle && epTitle === projectTitle;
+    })
+    .map(ep => ({
+      ...ep,
+      title: buildDefaultEpisodeTitle(ep.episodeNumber || 1),
+    }));
+
+  if (updates.length === 0) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('episodes', 'readwrite');
+    const store = tx.objectStore('episodes');
+    updates.forEach(ep => store.put(ep));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+
+  console.log(`Episode title fix migration applied: ${updates.length} episode(s) updated.`);
 }

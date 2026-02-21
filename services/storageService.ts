@@ -1,5 +1,5 @@
 import { ProjectState, AssetLibraryItem, SeriesProject, Series, Episode } from '../types';
-import { runV2ToV3Migration } from './migrationService';
+import { runV2ToV3Migration, runEpisodeTitleFixMigration } from './migrationService';
 
 const DB_NAME = 'BigBananaDB';
 const DB_VERSION = 3;
@@ -37,6 +37,7 @@ const openDB = (): Promise<IDBDatabase> => {
       const db = request.result;
       db.onclose = () => { dbPromise = null; };
       runV2ToV3Migration(db)
+        .then(() => runEpisodeTitleFixMigration(db))
         .then(() => resolve(db))
         .catch((e) => { console.error('Migration error (non-fatal):', e); resolve(db); });
     };
