@@ -6,6 +6,7 @@ import {
   getSeriesByProject, saveSeries, createNewSeries, deleteSeries as deleteSeriesFromDB,
   getEpisodesByProject, getEpisodesBySeries, saveEpisode, loadEpisode, createNewEpisode, deleteEpisode as deleteEpisodeFromDB,
 } from '../services/storageService';
+import { syncCharacter } from '../services/characterSyncService';
 
 interface ProjectContextValue {
   project: SeriesProject | null;
@@ -102,19 +103,60 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateCharacterInLibrary = useCallback((character: Character) => {
-    setProject(prev => {
-      if (!prev) return null;
-      const updated = {
-        ...prev,
-        characterLibrary: prev.characterLibrary.map(c =>
-          c.id === character.id ? { ...character, version: (c.version || 0) + 1 } : c
-        ),
-        lastModified: Date.now(),
-      };
-      saveSeriesProject(updated);
-      return updated;
+    if (!project) return;
+
+    const existing = project.characterLibrary.find(c => c.id === character.id);
+    if (!existing) return;
+
+    const updatedCharacter = { ...character, version: (existing.version || 0) + 1 };
+    const updatedProject = {
+      ...project,
+      characterLibrary: project.characterLibrary.map(c => (
+        c.id === character.id ? updatedCharacter : c
+      )),
+      lastModified: Date.now(),
+    };
+
+    setProject(updatedProject);
+    void saveSeriesProject(updatedProject).catch(e => {
+      console.error('Failed to save updated character library:', e);
     });
-  }, []);
+
+    const shouldSyncEpisode = (episode: Episode): boolean => {
+      if (!episode.scriptData?.characters.some(c => c.libraryId === character.id)) return false;
+      const ref = (episode.characterRefs || []).find(r => r.characterId === character.id);
+      return ref?.syncStatus !== 'local-only';
+    };
+
+    const syncedEpisodes: Episode[] = [];
+    const nextEpisodes = allEpisodes.map(episode => {
+      if (!shouldSyncEpisode(episode)) return episode;
+      const synced = syncCharacter(episode, updatedProject, character.id);
+      const withTimestamp = { ...synced, lastModified: Date.now() };
+      syncedEpisodes.push(withTimestamp);
+      return withTimestamp;
+    });
+
+    if (syncedEpisodes.length > 0) {
+      setAllEpisodes(nextEpisodes);
+    }
+
+    if (currentEpisode && shouldSyncEpisode(currentEpisode)) {
+      const syncedCurrent = syncCharacter(currentEpisode, updatedProject, character.id);
+      const currentWithTimestamp = { ...syncedCurrent, lastModified: Date.now() };
+      setCurrentEpisode(currentWithTimestamp);
+
+      if (!syncedEpisodes.some(ep => ep.id === currentWithTimestamp.id)) {
+        syncedEpisodes.push(currentWithTimestamp);
+      }
+    }
+
+    if (syncedEpisodes.length > 0) {
+      void Promise.all(syncedEpisodes.map(ep => saveEpisode(ep))).catch(e => {
+        console.error('Failed to persist synced episodes:', e);
+      });
+    }
+  }, [project, allEpisodes, currentEpisode]);
 
   const removeCharacterFromLibrary = useCallback((characterId: string) => {
     setProject(prev => {
