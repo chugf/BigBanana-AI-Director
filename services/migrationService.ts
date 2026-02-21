@@ -35,10 +35,10 @@ interface LegacyProjectState {
   renderLogs: any[];
 }
 
-const buildDefaultEpisodeTitle = (episodeNumber: number): string => `\u7b2c ${episodeNumber} \u96c6`;
+const buildDefaultEpisodeTitle = (episodeNumber: number): string => `第 ${episodeNumber} 集`;
 
 const isDefaultEpisodeTitle = (title: string): boolean => {
-  return /^\u7b2c\s*\d+\s*\u96c6$/u.test(title.trim());
+  return /^第\s*\d+\s*集$/u.test(title.trim());
 };
 
 export async function runV2ToV3Migration(db: IDBDatabase): Promise<void> {
