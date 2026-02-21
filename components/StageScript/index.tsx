@@ -146,6 +146,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       const isPlaceholderTitle =
         !trimmedLocalTitle ||
         trimmedLocalTitle === '未命名项目' ||
+        /^第\s*\d+\s*集$/u.test(trimmedLocalTitle) ||
         /^新建项目\s\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}$/.test(trimmedLocalTitle);
 
       if (!isPlaceholderTitle) {

@@ -45,6 +45,7 @@ function EpisodeWorkspace() {
     project,
     currentEpisode,
     setCurrentEpisode,
+    updateProject: updateSeriesProject,
     updateEpisode,
     syncAllCharactersToEpisode,
     syncAllScenesToEpisode,
@@ -105,6 +106,26 @@ function EpisodeWorkspace() {
     }
     return () => { if (hideStatusTimeoutRef.current) clearTimeout(hideStatusTimeoutRef.current); };
   }, [saveStatus]);
+
+  useEffect(() => {
+    if (!project || !currentEpisode) return;
+    if (currentEpisode.episodeNumber !== 1) return;
+
+    const projectTitle = (project.title || '').trim();
+    const isProjectPlaceholder =
+      !projectTitle ||
+      projectTitle === '未命名项目' ||
+      /^新建项目\s\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}$/.test(projectTitle);
+
+    if (!isProjectPlaceholder) return;
+
+    const candidateTitle = (currentEpisode.scriptData?.title || currentEpisode.title || '').trim();
+    if (!candidateTitle) return;
+    if (/^第\s*\d+\s*集$/u.test(candidateTitle)) return;
+    if (candidateTitle === projectTitle) return;
+
+    updateSeriesProject({ title: candidateTitle });
+  }, [project, currentEpisode, updateSeriesProject]);
 
   const handleUpdateProject = (updates: Partial<ProjectState> | ((prev: ProjectState) => ProjectState)) => {
     updateEpisode(updates);
