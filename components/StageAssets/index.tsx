@@ -192,7 +192,6 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   }, []);
 
   const refreshLibrary = async () => {
-    setLibraryLoading(true);
     try {
       const items = await getAllAssetLibraryItems();
       setLibraryItems(items);
@@ -203,16 +202,12 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     }
   };
 
-  useEffect(() => {
-    if (showLibraryModal) {
-      refreshLibrary();
-    }
-  }, [showLibraryModal]);
-
   const openLibrary = (filter: 'all' | 'character' | 'scene' | 'prop', targetCharId: string | null = null) => {
     setLibraryFilter(filter);
     setReplaceTargetCharId(targetCharId);
+    setLibraryLoading(true);
     setShowLibraryModal(true);
+    void refreshLibrary();
   };
 
   /**
