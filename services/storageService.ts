@@ -534,7 +534,7 @@ export const importIndexedDBData = async (
 
         const ep: Episode = {
           id: episodeId, projectId, seriesId, episodeNumber: 1,
-          title: p.scriptData?.title || p.title || '未命名',
+          title: `\u7b2c 1 \u96c6`,
           createdAt: p.createdAt || Date.now(), lastModified: p.lastModified || Date.now(),
           stage: p.stage || 'script', rawScript: p.rawScript || '', targetDuration: p.targetDuration || '60s',
           language: p.language || '中文', visualStyle: p.visualStyle || 'live-action',

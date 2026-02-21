@@ -61,6 +61,15 @@ const ProjectOverview: React.FC = () => {
 
   const formatDate = (ts: number) => new Date(ts).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
 
+  const getEpisodeDisplayTitle = (episodeNumber: number, title: string) => {
+    const episodeTitle = (title || '').trim();
+    const projectTitle = (project.title || '').trim();
+    if (episodeNumber === 1 && episodeTitle && projectTitle && episodeTitle === projectTitle) {
+      return `第 ${episodeNumber} 集`;
+    }
+    return title;
+  };
+
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-secondary)] p-8 md:p-12 font-sans">
       <div className="max-w-6xl mx-auto">
@@ -167,7 +176,7 @@ const ProjectOverview: React.FC = () => {
                               <button onClick={() => navigate(`/project/${project.id}/episode/${ep.id}`)} className="flex items-center gap-3 flex-1 text-left">
                                 <span className="w-8 h-8 flex items-center justify-center bg-[var(--bg-elevated)] text-[10px] font-mono text-[var(--text-tertiary)] rounded">{ep.episodeNumber}</span>
                                 <div>
-                                  <div className="text-sm text-[var(--text-primary)]">{ep.title}</div>
+                                  <div className="text-sm text-[var(--text-primary)]">{getEpisodeDisplayTitle(ep.episodeNumber, ep.title)}</div>
                                   <div className="text-[10px] text-[var(--text-muted)] font-mono">
                                     {ep.stage === 'script' ? '剧本阶段' : ep.stage === 'assets' ? '资产生成' : ep.stage === 'director' ? '导演工作台' : '导出阶段'}
                                     {' · '}{formatDate(ep.lastModified)}
@@ -175,7 +184,7 @@ const ProjectOverview: React.FC = () => {
                                 </div>
                               </button>
                               <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => handleDeleteEpisode(ep.id, ep.title)} className="p-1.5 text-[var(--text-muted)] hover:text-[var(--error-text)] transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                                <button onClick={() => handleDeleteEpisode(ep.id, getEpisodeDisplayTitle(ep.episodeNumber, ep.title))} className="p-1.5 text-[var(--text-muted)] hover:text-[var(--error-text)] transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
                                 <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />
                               </div>
                             </div>

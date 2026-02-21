@@ -158,7 +158,13 @@ function EpisodeWorkspace() {
     }
   };
 
-  const episodeLabel = project ? `${project.title} / ${currentEpisode.title}` : currentEpisode.title;
+  const displayEpisodeTitle =
+    project &&
+    currentEpisode.episodeNumber === 1 &&
+    currentEpisode.title?.trim() === project.title?.trim()
+      ? `第 ${currentEpisode.episodeNumber} 集`
+      : currentEpisode.title;
+  const episodeLabel = project ? `${project.title} / ${displayEpisodeTitle}` : displayEpisodeTitle;
 
   return (
     <div className="flex h-screen bg-[var(--bg-secondary)] font-sans text-[var(--text-secondary)] selection:bg-[var(--accent-bg)]">
@@ -170,7 +176,7 @@ function EpisodeWorkspace() {
         onShowOnboarding={() => { resetOnboarding(); setShowOnboarding(true); }}
         onShowModelConfig={() => setShowModelConfig(true)}
         isNavigationLocked={isGenerating}
-        episodeInfo={project ? { projectId: project.id, projectTitle: project.title, episodeTitle: currentEpisode.title } : undefined}
+        episodeInfo={project ? { projectId: project.id, projectTitle: project.title, episodeTitle: displayEpisodeTitle } : undefined}
         onGoToProject={project ? () => navigate(`/project/${project.id}`) : undefined}
       />
       <main className="ml-72 flex-1 h-screen overflow-hidden relative">
