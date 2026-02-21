@@ -279,11 +279,12 @@ export const chatCompletion = async (
     const data = await response.json();
     return data.choices?.[0]?.message?.content || '';
   } catch (error: any) {
-    clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
       throw new Error(`请求超时（${timeout}ms）`);
     }
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 };
 

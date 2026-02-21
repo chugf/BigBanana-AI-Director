@@ -2,6 +2,8 @@ import { Shot, ProjectState, Keyframe, NineGridPanel, NineGridData } from '../..
 import { VISUAL_STYLE_PROMPTS, VIDEO_PROMPT_TEMPLATES, NINE_GRID } from './constants';
 import { getCameraMovementCompositionGuide } from './cameraMovementGuides';
 
+const KEYFRAME_META_SPLITTER = '\n\n---PROMPT_META_START---';
+
 /**
  * getRefImagesForShot 的返回类型
  * hasTurnaround 标记是否包含了角色九宫格造型图，
@@ -148,7 +150,7 @@ ${list}`);
 ${sections.join('\n\n')}`;
   }
 
-  return `${basePrompt}
+  return `${basePrompt}${KEYFRAME_META_SPLITTER}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【视觉风格】Visual Style
@@ -270,11 +272,25 @@ export const buildVideoPrompt = (
  * 从现有提示词中提取基础部分（移除追加的样式信息）
  */
 export const extractBasePrompt = (fullPrompt: string, fallback: string): string => {
-  const visualStyleIndex = fullPrompt.indexOf('\n\nVisual Style:');
-  if (visualStyleIndex > 0) {
-    return fullPrompt.substring(0, visualStyleIndex);
+  const sourcePrompt = (fullPrompt || '').trim();
+  if (!sourcePrompt) {
+    return fallback;
   }
-  return fullPrompt || fallback;
+
+  const splitters = [
+    KEYFRAME_META_SPLITTER,
+    '\n\n【视觉风格】Visual Style',
+    '\n\nVisual Style:'
+  ];
+
+  for (const splitter of splitters) {
+    const splitIndex = sourcePrompt.indexOf(splitter);
+    if (splitIndex > 0) {
+      return sourcePrompt.substring(0, splitIndex);
+    }
+  }
+
+  return sourcePrompt;
 };
 
 /**
@@ -494,7 +510,7 @@ ${list}`);
 ${sections.join('\n\n')}`;
   }
 
-  return `${panel.description}
+  return `${panel.description}${KEYFRAME_META_SPLITTER}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【来源】九宫格分镜预览 - ${NINE_GRID.positionLabels[panel.index]}

@@ -391,7 +391,8 @@ export const generateImage = async (
   referenceImages: string[] = [],
   aspectRatio: AspectRatio = '16:9',
   isVariation: boolean = false,
-  hasTurnaround: boolean = false
+  hasTurnaround: boolean = false,
+  negativePrompt: string = ''
 ): Promise<string> => {
   const startTime = Date.now();
 
@@ -477,6 +478,12 @@ export const generateImage = async (
       ⚠️ Props/items must also maintain visual consistency with their reference images!
     `;
       }
+    }
+
+    if (negativePrompt.trim()) {
+      finalPrompt = `${finalPrompt}
+
+NEGATIVE PROMPT (strictly avoid all of the following): ${negativePrompt.trim()}`;
     }
 
     const parts: any[] = [{ text: finalPrompt }];

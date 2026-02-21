@@ -83,6 +83,14 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     return hasRef ? refs.map(r => (r.propId === propId ? nextRef : r)) : [...refs, nextRef];
   };
 
+  const cloneScriptData = <T extends ProjectState['scriptData']>(scriptData: T): T => {
+    if (!scriptData) return scriptData;
+    if (typeof structuredClone === 'function') {
+      return structuredClone(scriptData);
+    }
+    return JSON.parse(JSON.stringify(scriptData)) as T;
+  };
+
   useEffect(() => {
     const handler = () => {
       loadPickerProject().then(sp => { if (sp) setShowCharLibraryPicker(true); });
@@ -105,6 +113,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const language = getProjectLanguage(project.language, project.scriptData?.language);
   const visualStyle = getProjectVisualStyle(project.visualStyle, project.scriptData?.visualStyle);
   const genre = project.scriptData?.genre || DEFAULTS.genre;
+  const shotPromptModel = project.shotGenerationModel || project.scriptData?.shotGenerationModel || DEFAULTS.modelVersion;
 
   /**
    * 组件加载时，检测并重置卡住的生成状态
@@ -131,7 +140,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
     if (hasStuckCharacters || hasStuckScenes || hasStuckProps) {
       console.log('🔧 检测到卡住的生成状态，正在重置...');
-      const newData = { ...project.scriptData };
+      const newData = cloneScriptData(project.scriptData);
       
       // 重置角色状态
       newData.characters = newData.characters.map(char => ({
@@ -216,7 +225,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const handleGenerateAsset = async (type: 'character' | 'scene', id: string) => {
     // 设置生成状态
     if (project.scriptData) {
-      const newData = { ...project.scriptData };
+      const newData = cloneScriptData(project.scriptData);
       if (type === 'character') {
         const c = newData.characters.find(c => compareIds(c.id, id));
         if (c) c.status = 'generating';
@@ -228,19 +237,22 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     }
     try {
       let prompt = "";
+      let negativePrompt = "";
       
       if (type === 'character') {
         const char = project.scriptData?.characters.find(c => compareIds(c.id, id));
         if (char) {
           if (char.visualPrompt) {
             prompt = char.visualPrompt;
+            negativePrompt = char.negativePrompt || '';
           } else {
-            const prompts = await generateVisualPrompts('character', char, genre, DEFAULTS.modelVersion, visualStyle, language);
+            const prompts = await generateVisualPrompts('character', char, genre, shotPromptModel, visualStyle, language);
             prompt = prompts.visualPrompt;
+            negativePrompt = prompts.negativePrompt;
             
             // 保存生成的提示词
             if (project.scriptData) {
-              const newData = { ...project.scriptData };
+              const newData = cloneScriptData(project.scriptData);
               const c = newData.characters.find(c => compareIds(c.id, id));
               if (c) {
                 c.visualPrompt = prompts.visualPrompt;
@@ -255,13 +267,15 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         if (scene) {
           if (scene.visualPrompt) {
             prompt = scene.visualPrompt;
+            negativePrompt = scene.negativePrompt || '';
           } else {
-            const prompts = await generateVisualPrompts('scene', scene, genre, DEFAULTS.modelVersion, visualStyle, language);
+            const prompts = await generateVisualPrompts('scene', scene, genre, shotPromptModel, visualStyle, language);
             prompt = prompts.visualPrompt;
+            negativePrompt = prompts.negativePrompt;
             
             // 保存生成的提示词
             if (project.scriptData) {
-              const newData = { ...project.scriptData };
+              const newData = cloneScriptData(project.scriptData);
               const s = newData.scenes.find(s => compareIds(s.id, id));
               if (s) {
                 s.visualPrompt = prompts.visualPrompt;
@@ -283,11 +297,11 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       }
 
       // 生成图片（使用选择的横竖屏比例）
-      const imageUrl = await generateImage(enhancedPrompt, [], aspectRatio);
+      const imageUrl = await generateImage(enhancedPrompt, [], aspectRatio, false, false, negativePrompt);
 
       // 更新状态
       if (project.scriptData) {
-        const newData = { ...project.scriptData };
+        const newData = cloneScriptData(project.scriptData);
         if (type === 'character') {
           const c = newData.characters.find(c => compareIds(c.id, id));
           if (c) {
@@ -308,7 +322,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       console.error(e);
       // 设置失败状态
       if (project.scriptData) {
-        const newData = { ...project.scriptData };
+        const newData = cloneScriptData(project.scriptData);
         if (type === 'character') {
           const c = newData.characters.find(c => compareIds(c.id, id));
           if (c) c.status = 'failed';
@@ -373,7 +387,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const char = newData.characters.find(c => compareIds(c.id, charId));
         if (char) {
           char.referenceImage = base64;
@@ -395,7 +409,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const scene = newData.scenes.find(s => compareIds(s.id, sceneId));
         if (scene) {
           scene.referenceImage = base64;
@@ -473,7 +487,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     }
     if (!project.scriptData) return;
 
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const index = newData.characters.findIndex((c) => compareIds(c.id, targetId));
     if (index === -1) return;
 
@@ -522,7 +536,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleSaveCharacterPrompt = (charId: string, newPrompt: string) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const char = newData.characters.find(c => compareIds(c.id, charId));
     if (char) {
       char.visualPrompt = newPrompt;
@@ -535,7 +549,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleUpdateCharacterInfo = (charId: string, updates: { name?: string; gender?: string; age?: string; personality?: string }) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const char = newData.characters.find(c => compareIds(c.id, charId));
     if (char) {
       if (updates.name !== undefined) char.name = updates.name;
@@ -551,7 +565,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleSaveScenePrompt = (sceneId: string, newPrompt: string) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const scene = newData.scenes.find(s => compareIds(s.id, sceneId));
     if (scene) {
       scene.visualPrompt = newPrompt;
@@ -564,7 +578,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleUpdateSceneInfo = (sceneId: string, updates: { location?: string; time?: string; atmosphere?: string }) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const scene = newData.scenes.find(s => compareIds(s.id, sceneId));
     if (scene) {
       if (updates.location !== undefined) scene.location = updates.location;
@@ -591,7 +605,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       status: 'pending'
     };
 
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     newData.characters.push(newChar);
     updateProject({ scriptData: newData });
     showAlert('新角色已创建，请编辑提示词并生成图片', { type: 'success' });
@@ -614,7 +628,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         confirmText: '删除',
         cancelText: '取消',
         onConfirm: () => {
-          const newData = { ...project.scriptData! };
+          const newData = cloneScriptData(project.scriptData!);
           newData.characters = newData.characters.filter(c => !compareIds(c.id, charId));
           const nextShots = project.shots.map(shot => {
             const nextCharacters = shot.characters.filter(cid => !compareIds(cid, charId));
@@ -669,7 +683,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       status: 'pending'
     };
 
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     newData.scenes.push(newScene);
     updateProject({ scriptData: newData });
     showAlert('新场景已创建，请编辑提示词并生成图片', { type: 'success' });
@@ -692,7 +706,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         confirmText: '删除',
         cancelText: '取消',
         onConfirm: () => {
-          const newData = { ...project.scriptData! };
+          const newData = cloneScriptData(project.scriptData!);
           newData.scenes = newData.scenes.filter(s => !compareIds(s.id, sceneId));
           const nextShots = project.shots.filter(shot => !compareIds(shot.sceneId, sceneId));
           let nextRefs = project.sceneRefs || [];
@@ -728,7 +742,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       status: 'pending'
     };
 
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     if (!newData.props) newData.props = [];
     newData.props.push(newProp);
     updateProject({ scriptData: newData });
@@ -752,7 +766,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         confirmText: '删除',
         cancelText: '取消',
         onConfirm: () => {
-          const newData = { ...project.scriptData! };
+          const newData = cloneScriptData(project.scriptData!);
           newData.props = (newData.props || []).filter(p => !compareIds(p.id, propId));
           // 清除所有镜头中对该道具的引用
           const nextShots = project.shots.map(shot => {
@@ -782,7 +796,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     if (!project.scriptData) return;
     
     // 设置生成状态
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const p = (newData.props || []).find(p => compareIds(p.id, propId));
     if (p) p.status = 'generating';
     updateProject({ scriptData: newData });
@@ -802,10 +816,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       // 道具图片：追加"纯物品/无人物"指令
       prompt += '. IMPORTANT: This is a standalone prop/item shot with absolutely NO people, NO human figures, NO characters - object only on clean/simple background.';
 
-      const imageUrl = await generateImage(prompt, [], aspectRatio);
+      const imageUrl = await generateImage(prompt, [], aspectRatio, false, false, prop.negativePrompt || '');
 
       // 更新状态
-      const updatedData = { ...project.scriptData };
+      const updatedData = cloneScriptData(project.scriptData);
       const updated = (updatedData.props || []).find(p => compareIds(p.id, propId));
       if (updated) {
         updated.referenceImage = imageUrl;
@@ -817,7 +831,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       updateProject({ scriptData: updatedData });
     } catch (e: any) {
       console.error(e);
-      const errData = { ...project.scriptData };
+      const errData = cloneScriptData(project.scriptData);
       const errP = (errData.props || []).find(p => compareIds(p.id, propId));
       if (errP) errP.status = 'failed';
       updateProject({ scriptData: errData });
@@ -833,7 +847,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       const base64 = await handleImageUpload(file);
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const prop = (newData.props || []).find(p => compareIds(p.id, propId));
         if (prop) {
           prop.referenceImage = base64;
@@ -851,7 +865,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleSavePropPrompt = (propId: string, newPrompt: string) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const prop = (newData.props || []).find(p => compareIds(p.id, propId));
     if (prop) {
       prop.visualPrompt = newPrompt;
@@ -864,7 +878,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleUpdatePropInfo = (propId: string, updates: { name?: string; category?: string; description?: string }) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const prop = (newData.props || []).find(p => compareIds(p.id, propId));
     if (prop) {
       if (updates.name !== undefined) prop.name = updates.name;
@@ -942,7 +956,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleAddVariation = (charId: string, name: string, prompt: string) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const char = newData.characters.find(c => compareIds(c.id, charId));
     if (!char) return;
 
@@ -964,7 +978,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleDeleteVariation = (charId: string, varId: string) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const char = newData.characters.find(c => compareIds(c.id, charId));
     if (!char) return;
     
@@ -982,7 +996,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
     // 设置生成状态
     if (project.scriptData) {
-      const newData = { ...project.scriptData };
+      const newData = cloneScriptData(project.scriptData);
       const c = newData.characters.find(c => compareIds(c.id, charId));
       const v = c?.variations?.find(v => compareIds(v.id, varId));
       if (v) v.status = 'generating';
@@ -993,11 +1007,12 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       const regionalPrefix = getRegionalPrefix(language, 'character');
       // 构建变体专用提示词：强调服装变化
       const enhancedPrompt = `${regionalPrefix}Character "${char.name}" wearing NEW OUTFIT: ${variation.visualPrompt}. This is a costume/outfit change - the character's face and identity must remain identical to the reference, but they should be wearing the described new outfit.`;
+      const negativePrompt = variation.negativePrompt || char.negativePrompt || '';
       
       // 使用选择的横竖屏比例，启用变体模式
-      const imageUrl = await generateImage(enhancedPrompt, refImages, aspectRatio, true);
+      const imageUrl = await generateImage(enhancedPrompt, refImages, aspectRatio, true, false, negativePrompt);
 
-      const newData = { ...project.scriptData! };
+      const newData = cloneScriptData(project.scriptData!);
       const c = newData.characters.find(c => compareIds(c.id, charId));
       const v = c?.variations?.find(v => compareIds(v.id, varId));
       if (v) {
@@ -1010,7 +1025,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       console.error(e);
       // 设置失败状态
       if (project.scriptData) {
-        const newData = { ...project.scriptData };
+        const newData = cloneScriptData(project.scriptData);
         const c = newData.characters.find(c => compareIds(c.id, charId));
         const v = c?.variations?.find(v => compareIds(v.id, varId));
         if (v) v.status = 'failed';
@@ -1032,7 +1047,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const char = newData.characters.find(c => compareIds(c.id, charId));
         const variation = char?.variations?.find(v => compareIds(v.id, varId));
         if (variation) {
@@ -1060,7 +1075,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     // 设置状态为 generating_panels
     updateProject((prev) => {
       if (!prev.scriptData) return prev;
-      const newData = { ...prev.scriptData };
+      const newData = cloneScriptData(prev.scriptData);
       const c = newData.characters.find(c => compareIds(c.id, charId));
       if (c) {
         c.turnaround = {
@@ -1076,13 +1091,14 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         char,
         visualStyle,
         project.scriptData?.artDirection,
-        language
+        language,
+        shotPromptModel
       );
 
       // 更新状态为 panels_ready
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const c = newData.characters.find(c => compareIds(c.id, charId));
         if (c) {
           c.turnaround = {
@@ -1096,7 +1112,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       console.error('九宫格视角描述生成失败:', e);
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const c = newData.characters.find(c => compareIds(c.id, charId));
         if (c && c.turnaround) {
           c.turnaround.status = 'failed';
@@ -1118,7 +1134,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     // 设置状态为 generating_image
     updateProject((prev) => {
       if (!prev.scriptData) return prev;
-      const newData = { ...prev.scriptData };
+      const newData = cloneScriptData(prev.scriptData);
       const c = newData.characters.find(c => compareIds(c.id, charId));
       if (c && c.turnaround) {
         c.turnaround.status = 'generating_image';
@@ -1139,7 +1155,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       // 更新状态为 completed
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const c = newData.characters.find(c => compareIds(c.id, charId));
         if (c && c.turnaround) {
           c.turnaround.imageUrl = imageUrl;
@@ -1151,7 +1167,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       console.error('九宫格造型图片生成失败:', e);
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const c = newData.characters.find(c => compareIds(c.id, charId));
         if (c && c.turnaround) {
           c.turnaround.status = 'failed';
@@ -1169,7 +1185,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const handleUpdateTurnaroundPanel = (charId: string, index: number, updates: Partial<CharacterTurnaroundPanel>) => {
     updateProject((prev) => {
       if (!prev.scriptData) return prev;
-      const newData = { ...prev.scriptData };
+      const newData = cloneScriptData(prev.scriptData);
       const c = newData.characters.find(c => compareIds(c.id, charId));
       if (c && c.turnaround && c.turnaround.panels[index]) {
         c.turnaround.panels[index] = { ...c.turnaround.panels[index], ...updates };
