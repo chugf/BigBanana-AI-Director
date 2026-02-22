@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Film } from 'lucide-react';
 import { ProjectState } from '../../types';
 import { downloadMasterVideo, downloadSourceAssets } from '../../services/exportService';
-import { exportProjectData, importIndexedDBData } from '../../services/storageService';
+import { exportProjectData } from '../../services/storageService';
 import { STYLES } from './constants';
 import {
   calculateEstimatedDuration,
@@ -18,6 +18,7 @@ import SecondaryOptions from './SecondaryOptions';
 import VideoPlayerModal from './VideoPlayerModal';
 import RenderLogsModal from './RenderLogsModal';
 import { useAlert } from '../GlobalAlert';
+import { useBackupTransfer } from '../../hooks/useBackupTransfer';
 
 interface Props {
   project: ProjectState;
@@ -48,10 +49,6 @@ const StageExport: React.FC<Props> = ({ project }) => {
   const [currentShotIndex, setCurrentShotIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
-
-  const [isDataExporting, setIsDataExporting] = useState(false);
-  const [isDataImporting, setIsDataImporting] = useState(false);
 
   // Auto-play when shot changes
   useEffect(() => {
@@ -131,7 +128,7 @@ const StageExport: React.FC<Props> = ({ project }) => {
       }, 2000);
     } catch (error) {
       console.error('Download failed:', error);
-      showAlert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
+      showAlert(`瀵煎嚭澶辫触: ${error instanceof Error ? error.message : '鏈煡閿欒'}`, { type: 'error' });
       setIsDownloading(false);
       setDownloadPhase('');
       setDownloadProgress(0);
@@ -163,84 +160,28 @@ const StageExport: React.FC<Props> = ({ project }) => {
       }, 2000);
     } catch (error) {
       console.error('Assets download failed:', error);
-      showAlert(`下载源资源失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
+      showAlert(`涓嬭浇婧愯祫婧愬け璐? ${error instanceof Error ? error.message : '鏈煡閿欒'}`, { type: 'error' });
       setIsDownloadingAssets(false);
       setAssetsPhase('');
       setAssetsProgress(0);
     }
   };
 
-  const handleExportData = async () => {
-    if (isDataExporting) return;
-
-    setIsDataExporting(true);
-    try {
-      const payload = await exportProjectData(project);
-      const json = JSON.stringify(payload, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `bigbanana_project_${project.id}_${timestamp}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      showAlert('当前项目已导出，备份文件已下载。', { type: 'success' });
-    } catch (error) {
-      console.error('Export failed:', error);
-      showAlert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-    } finally {
-      setIsDataExporting(false);
-    }
-  };
-
-  const handleImportData = () => {
-    if (isDataImporting) return;
-    importInputRef.current?.click();
-  };
-
-  const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-
-    if (!file.name.endsWith('.json')) {
-      showAlert('请选择 .json 备份文件。', { type: 'warning' });
-      return;
-    }
-
-    try {
-      const text = await file.text();
-      const payload = JSON.parse(text);
-      const projectCount = payload?.stores?.projects?.length || 0;
-      const assetCount = payload?.stores?.assetLibrary?.length || 0;
-      const confirmMessage = `将导入 ${projectCount} 个项目和 ${assetCount} 个资产。若 ID 冲突将覆盖现有数据。是否继续？`;
-
-      showAlert(confirmMessage, {
-        type: 'warning',
-        showCancel: true,
-        onConfirm: async () => {
-          try {
-            setIsDataImporting(true);
-            const result = await importIndexedDBData(payload, { mode: 'merge' });
-            showAlert(`导入完成：项目 ${result.projects} 个，资产 ${result.assets} 个。`, { type: 'success' });
-          } catch (error) {
-            console.error('Import failed:', error);
-            showAlert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-          } finally {
-            setIsDataImporting(false);
-          }
-        }
-      });
-    } catch (error) {
-      console.error('Import failed:', error);
-      showAlert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-    }
-  };
+  const {
+    importInputRef,
+    isDataExporting,
+    isDataImporting,
+    handleExportData,
+    handleImportData,
+    handleImportFileChange,
+  } = useBackupTransfer({
+    exporter: () => exportProjectData(project),
+    exportFileName: (timestamp) => 'bigbanana_project_' + project.id + '_' + timestamp + '.json',
+    showAlert,
+    messages: {
+      exportSuccess: '当前项目已导出，备份文件已下载。',
+    },
+  });
 
   return (
     <div className={STYLES.container}>
@@ -249,8 +190,7 @@ const StageExport: React.FC<Props> = ({ project }) => {
         <div className="flex items-center gap-4">
           <h2 className={STYLES.header.title}>
             <Film className="w-5 h-5 text-[var(--accent)]" />
-            成片与导出
-            <span className={STYLES.header.subtitle}>渲染与导出</span>
+            成片与导出 <span className={STYLES.header.subtitle}>渲染与导出</span>
           </h2>
         </div>
         <div className="flex items-center gap-2">
@@ -346,3 +286,4 @@ const StageExport: React.FC<Props> = ({ project }) => {
 };
 
 export default StageExport;
+
