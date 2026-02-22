@@ -193,9 +193,9 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
    */
   useEffect(() => {
     const hasStuckGenerating = project.shots.some(shot => {
-      const stuckKeyframes = shot.keyframes?.some(kf => kf.status === 'generating' && !kf.imageUrl);
-      const stuckVideo = shot.interval?.status === 'generating' && !shot.interval?.videoUrl;
-      const stuckNineGrid = (shot.nineGrid?.status === 'generating_panels' || shot.nineGrid?.status === 'generating_image' || (shot.nineGrid?.status as string) === 'generating') && !shot.nineGrid?.imageUrl;
+      const stuckKeyframes = shot.keyframes?.some(kf => kf.status === 'generating');
+      const stuckVideo = shot.interval?.status === 'generating';
+      const stuckNineGrid = shot.nineGrid?.status === 'generating_panels' || shot.nineGrid?.status === 'generating_image' || (shot.nineGrid?.status as string) === 'generating';
       return stuckKeyframes || stuckVideo || stuckNineGrid;
     });
 
@@ -206,20 +206,20 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         shots: prevProject.shots.map(shot => ({
           ...shot,
           keyframes: shot.keyframes?.map(kf => 
-            kf.status === 'generating' && !kf.imageUrl
+            kf.status === 'generating'
               ? { ...kf, status: 'failed' as const }
               : kf
           ),
-          interval: shot.interval && shot.interval.status === 'generating' && !shot.interval.videoUrl
+          interval: shot.interval && shot.interval.status === 'generating'
             ? { ...shot.interval, status: 'failed' as const }
             : shot.interval,
-          nineGrid: shot.nineGrid && (shot.nineGrid.status === 'generating_panels' || shot.nineGrid.status === 'generating_image' || (shot.nineGrid.status as string) === 'generating') && !shot.nineGrid.imageUrl
+          nineGrid: shot.nineGrid && (shot.nineGrid.status === 'generating_panels' || shot.nineGrid.status === 'generating_image' || (shot.nineGrid.status as string) === 'generating')
             ? { ...shot.nineGrid, status: 'failed' as const }
             : shot.nineGrid
         }))
       }));
     }
-  }, [project.id]); // 仅在项目ID变化时运行，避免重复执行
+  }, []); // 进入导演页时执行一次，清理离开页面后遗留的 generating 状态
 
   /**
    * 上报生成状态给父组件，用于导航锁定

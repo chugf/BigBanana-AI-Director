@@ -22,6 +22,56 @@ import { checkCharacterSync, checkSceneSync, checkPropSync } from './services/ch
 import AssetSyncBanner from './components/CharacterLibrary/AssetSyncBanner';
 import logoImg from './logo.png';
 
+const isNineGridGenerating = (status?: string): boolean =>
+  status === 'generating_panels' ||
+  status === 'generating_image' ||
+  status === 'generating';
+
+const clearInFlightGenerationStates = (episode: ProjectState): ProjectState => {
+  const scriptData = episode.scriptData
+    ? {
+        ...episode.scriptData,
+        characters: episode.scriptData.characters.map(char => ({
+          ...char,
+          status: char.status === 'generating' ? 'failed' : char.status,
+          turnaround: char.turnaround && (char.turnaround.status === 'generating_panels' || char.turnaround.status === 'generating_image')
+            ? { ...char.turnaround, status: 'failed' as const }
+            : char.turnaround,
+          variations: char.variations.map(variation => ({
+            ...variation,
+            status: variation.status === 'generating' ? 'failed' : variation.status
+          }))
+        })),
+        scenes: episode.scriptData.scenes.map(scene => ({
+          ...scene,
+          status: scene.status === 'generating' ? 'failed' : scene.status
+        })),
+        props: episode.scriptData.props.map(prop => ({
+          ...prop,
+          status: prop.status === 'generating' ? 'failed' : prop.status
+        })),
+      }
+    : null;
+
+  return {
+    ...episode,
+    isParsingScript: false,
+    scriptData,
+    shots: episode.shots.map(shot => ({
+      ...shot,
+      keyframes: shot.keyframes?.map(kf => (
+        kf.status === 'generating' ? { ...kf, status: 'failed' as const } : kf
+      )),
+      interval: shot.interval?.status === 'generating'
+        ? { ...shot.interval, status: 'failed' as const }
+        : shot.interval,
+      nineGrid: shot.nineGrid && isNineGridGenerating(shot.nineGrid.status)
+        ? { ...shot.nineGrid, status: 'failed' as const }
+        : shot.nineGrid,
+    }))
+  };
+};
+
 function MobileWarning() {
   return (
     <div className="h-screen bg-[var(--bg-base)] flex items-center justify-center p-6">
@@ -135,7 +185,10 @@ function EpisodeWorkspace() {
     if (isGenerating) {
       showAlert('当前正在执行生成任务，切换页面会导致生成数据丢失。\n\n确定要离开当前页面吗？', {
         title: '生成任务进行中', type: 'warning', showCancel: true, confirmText: '确定离开', cancelText: '继续等待',
-        onConfirm: () => { setIsGenerating(false); handleUpdateProject({ stage }); }
+        onConfirm: () => {
+          setIsGenerating(false);
+          updateEpisode(prev => ({ ...clearInFlightGenerationStates(prev), stage }));
+        }
       });
       return;
     }
@@ -148,7 +201,10 @@ function EpisodeWorkspace() {
         title: '生成任务进行中', type: 'warning', showCancel: true, confirmText: '确定退出', cancelText: '继续等待',
         onConfirm: async () => {
           setIsGenerating(false);
-          if (currentEpisode) await saveEpisode(currentEpisode);
+          if (currentEpisode) {
+            const cleanedEpisode = clearInFlightGenerationStates(currentEpisode);
+            await saveEpisode(cleanedEpisode);
+          }
           navigate(`/project/${currentEpisode?.projectId || ''}`);
         }
       });

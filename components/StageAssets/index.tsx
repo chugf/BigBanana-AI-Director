@@ -199,30 +199,30 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       // 重置角色状态
       newData.characters = newData.characters.map(char => ({
         ...char,
-        status: char.status === 'generating' && !char.referenceImage ? 'failed' as const : char.status,
+        status: char.status === 'generating' ? 'failed' as const : char.status,
         variations: char.variations?.map(v => ({
           ...v,
-          status: v.status === 'generating' && !v.referenceImage ? 'failed' as const : v.status
+          status: v.status === 'generating' ? 'failed' as const : v.status
         }))
       }));
       
       // 重置场景状态
       newData.scenes = newData.scenes.map(scene => ({
         ...scene,
-        status: scene.status === 'generating' && !scene.referenceImage ? 'failed' as const : scene.status
+        status: scene.status === 'generating' ? 'failed' as const : scene.status
       }));
 
       // 重置道具状态
       if (newData.props) {
         newData.props = newData.props.map(prop => ({
           ...prop,
-          status: prop.status === 'generating' && !prop.referenceImage ? 'failed' as const : prop.status
+          status: prop.status === 'generating' ? 'failed' as const : prop.status
         }));
       }
       
       updateProject({ scriptData: newData });
     }
-  }, [project.id]); // 仅在项目ID变化时运行，避免重复执行
+  }, []); // 进入资产页时执行一次，清理离开页面后遗留的 generating 状态
 
   /**
    * 上报生成状态给父组件，用于导航锁定
