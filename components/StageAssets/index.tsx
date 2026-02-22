@@ -376,7 +376,9 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         false,
         type === 'character' ? characterHasTurnaroundReference : false,
         negativePrompt,
-        type === 'character' ? { referencePackType: 'character' } : undefined
+        type === 'character'
+          ? { referencePackType: 'character' }
+          : { referencePackType: 'scene' }
       );
 
       // 更新状态
@@ -896,7 +898,15 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       // 道具图片：追加"纯物品/无人物"指令
       prompt += '. IMPORTANT: This is a standalone prop/item shot with absolutely NO people, NO human figures, NO characters - object only on clean/simple background.';
 
-      const imageUrl = await generateImage(prompt, [], aspectRatio, false, false, prop.negativePrompt || '');
+      const imageUrl = await generateImage(
+        prompt,
+        [],
+        aspectRatio,
+        false,
+        false,
+        prop.negativePrompt || '',
+        { referencePackType: 'prop' }
+      );
 
       // 更新状态
       const updatedData = cloneScriptData(project.scriptData);
@@ -1090,7 +1100,15 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       const negativePrompt = variation.negativePrompt || char.negativePrompt || '';
       
       // 使用选择的横竖屏比例，启用变体模式
-      const imageUrl = await generateImage(enhancedPrompt, refImages, aspectRatio, true, false, negativePrompt);
+      const imageUrl = await generateImage(
+        enhancedPrompt,
+        refImages,
+        aspectRatio,
+        true,
+        false,
+        negativePrompt,
+        { referencePackType: 'character' }
+      );
 
       const newData = cloneScriptData(project.scriptData!);
       const c = newData.characters.find(c => compareIds(c.id, charId));

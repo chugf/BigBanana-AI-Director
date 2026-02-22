@@ -18,7 +18,9 @@ import {
   createSubShot,
   replaceShotWithSubShots,
   buildPromptFromNineGridPanel,
-  cropPanelFromNineGrid
+  cropPanelFromNineGrid,
+  resolveVideoModelRouting,
+  routeVideoFrameInputs
 } from './utils';
 import { DEFAULTS } from './constants';
 import EditModal from './EditModal';
@@ -328,7 +330,9 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         false,
         refResult.hasTurnaround,
         negativePrompt,
-        continuityReferenceImage ? { continuityReferenceImage } : undefined
+        continuityReferenceImage
+          ? { continuityReferenceImage, referencePackType: 'shot' }
+          : { referencePackType: 'shot' }
       );
 
       updateProject((prevProject: ProjectState) => ({
@@ -403,16 +407,10 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     const eKf = shot.keyframes?.find(k => k.type === 'end');
     
     // 使用传入的 modelId 或默认模型
-    let selectedModel: string = modelId || shot.videoModel || DEFAULTS.videoModel;
+    const selectedModelInput: string = modelId || shot.videoModel || DEFAULTS.videoModel;
+    const selectedModelRouting = resolveVideoModelRouting(selectedModelInput);
+    const selectedModel = selectedModelRouting.normalizedModelId;
     // 规范化模型名称：旧模型名 -> 'veo'
-    if (
-      selectedModel === 'veo_3_1' ||
-      selectedModel.startsWith('veo_3_1_') ||
-      selectedModel === 'veo-r2v' ||
-      selectedModel.startsWith('veo_3_0_r2v')
-    ) {
-      selectedModel = 'veo';
-    }
     
     // 必须有起始帧
     if (!sKf?.imageUrl) {
@@ -427,6 +425,14 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         && shot.nineGrid?.imageUrl 
         && sKf?.imageUrl === shot.nineGrid.imageUrl);
     
+    const routedFrames = routeVideoFrameInputs(selectedModel, sKf?.imageUrl, eKf?.imageUrl);
+    const routedEndKeyframeId = routedFrames.endImage ? (eKf?.id || '') : '';
+
+    if (routedFrames.ignoredEndFrame) {
+      const modelName = selectedModelRouting.family === 'sora' ? 'Sora' : selectedModel;
+      setToastMessage(`能力路由：${modelName} 当前只使用首帧，已自动忽略尾帧输入。`);
+    }
+
     const videoPrompt = buildVideoPrompt(
       shot.actionSummary,
       shot.cameraMovement,
@@ -434,7 +440,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       projectLanguage,
       visualStyle,
       isNineGridMode ? shot.nineGrid : undefined,
-      duration
+      duration,
+      {
+        hasStartFrame: !!routedFrames.startImage,
+        hasEndFrame: !!routedFrames.endImage,
+      }
     );
     
     const intervalId = shot.interval?.id || generateId(`int-${shot.id}`);
@@ -446,7 +456,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       interval: s.interval ? { ...s.interval, status: 'generating', videoPrompt } : {
         id: intervalId,
         startKeyframeId: sKf?.id || '',
-        endKeyframeId: eKf?.id || '',
+        endKeyframeId: routedEndKeyframeId,
         duration: duration,
         motionStrength: 5,
         videoPrompt,
@@ -457,8 +467,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     try {
       const videoUrl = await generateVideo(
         videoPrompt, 
-        sKf?.imageUrl,
-        eKf?.imageUrl,
+        routedFrames.startImage,
+        routedFrames.endImage,
         selectedModel,
         aspectRatio,
         duration
@@ -469,7 +479,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         interval: s.interval ? { ...s.interval, videoUrl, status: 'completed' } : {
           id: intervalId,
           startKeyframeId: sKf?.id || '',
-          endKeyframeId: eKf?.id || '',
+          endKeyframeId: routedEndKeyframeId,
           duration: duration,
           motionStrength: 5,
           videoPrompt,
@@ -1284,7 +1294,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
               // 如果videoPrompt不存在，动态生成一个
               let promptValue = activeShot.interval?.videoPrompt;
               if (!promptValue) {
-                const selectedModel = activeShot.videoModel || DEFAULTS.videoModel;
+                const selectedModelInput = activeShot.videoModel || DEFAULTS.videoModel;
+                const selectedModel = resolveVideoModelRouting(selectedModelInput).normalizedModelId;
                 const projectLanguage = project.language || project.scriptData?.language || '中文';
                 const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
                 const promptDuration =
@@ -1293,6 +1304,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
                   Number(project.scriptData?.planningShotDuration) ||
                   8;
                 const startKf = activeShot.keyframes?.find(k => k.type === 'start');
+                const endKf = activeShot.keyframes?.find(k => k.type === 'end');
+                const routedFrames = routeVideoFrameInputs(selectedModel, startKf?.imageUrl, endKf?.imageUrl);
                 // 首帧等于九宫格图时触发九宫格分镜模式
                 const isNineGridMode = (activeShot.nineGrid?.status === 'completed'
                     && activeShot.nineGrid?.imageUrl
@@ -1304,7 +1317,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
                   projectLanguage,
                   visualStyle,
                   isNineGridMode ? activeShot.nineGrid : undefined,
-                  promptDuration
+                  promptDuration,
+                  {
+                    hasStartFrame: !!routedFrames.startImage,
+                    hasEndFrame: !!routedFrames.endImage,
+                  }
                 );
               }
               setEditModal({ 

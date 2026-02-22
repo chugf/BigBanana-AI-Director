@@ -386,6 +386,65 @@ Output ONLY the visual prompt text, no explanations.`;
  * 生成图像
  * 使用图像生成API，支持参考图像确保角色和场景一致性
  */
+type ReferencePackType = 'shot' | 'character' | 'scene' | 'prop';
+type ImageModelRoutingFamily = 'nano-banana' | 'generic';
+
+const resolveImageModelRoutingFamily = (model: any): ImageModelRoutingFamily => {
+  const identity = `${model?.id || ''} ${model?.apiModel || ''} ${model?.name || ''}`.toLowerCase();
+  const isNanoBanana =
+    identity.includes('gemini-3-pro-image-preview') ||
+    identity.includes('nano banana') ||
+    identity.includes('gemini 3 pro image');
+  return isNanoBanana ? 'nano-banana' : 'generic';
+};
+
+const buildImageRoutingPrefix = (
+  family: ImageModelRoutingFamily,
+  context: {
+    hasAnyReference: boolean;
+    referencePackType: ReferencePackType;
+    isVariation: boolean;
+  }
+): string => {
+  if (family !== 'nano-banana') {
+    return '';
+  }
+
+  if (context.isVariation) {
+    return `MODEL ROUTING: Nano Banana Pro - character variation mode.
+- Lock face identity from references first.
+- Apply outfit change from text prompt while preserving identity, body proportions, and style consistency.`;
+  }
+
+  if (!context.hasAnyReference) {
+    return `MODEL ROUTING: Nano Banana Pro - text-driven generation mode.
+- Follow the textual prompt precisely for subject, camera, and composition.
+- Avoid introducing extra characters or objects not required by the prompt.`;
+  }
+
+  if (context.referencePackType === 'character') {
+    return `MODEL ROUTING: Nano Banana Pro - character reference mode.
+- Treat provided references as the primary identity anchor.
+- Keep face, hair, outfit materials, and body proportions consistent across outputs.`;
+  }
+
+  if (context.referencePackType === 'scene') {
+    return `MODEL ROUTING: Nano Banana Pro - scene reference mode.
+- Preserve environment layout, lighting logic, atmosphere, and style continuity from references.
+- Keep composition coherent with prompt instructions.`;
+  }
+
+  if (context.referencePackType === 'prop') {
+    return `MODEL ROUTING: Nano Banana Pro - prop reference mode.
+- Preserve prop shape, materials, color, and distinguishing details.
+- Do not redesign key prop identity.`;
+  }
+
+  return `MODEL ROUTING: Nano Banana Pro - shot reference mode.
+- Prioritize reference continuity for scene, character identity, and prop details.
+- Then apply the textual action and camera intent.`;
+};
+
 export const generateImage = async (
   prompt: string,
   referenceImages: string[] = [],
@@ -395,7 +454,7 @@ export const generateImage = async (
   negativePrompt: string = '',
   options?: {
     continuityReferenceImage?: string;
-    referencePackType?: 'shot' | 'character' | 'scene' | 'prop';
+    referencePackType?: ReferencePackType;
   }
 ): Promise<string> => {
   const startTime = Date.now();
@@ -404,6 +463,7 @@ export const generateImage = async (
   const hasAnyReference = referenceImages.length > 0 || !!continuityReferenceImage;
 
   const activeImageModel = getActiveModel('image');
+  const imageRoutingFamily = resolveImageModelRoutingFamily(activeImageModel);
   const imageModelId = activeImageModel?.apiModel || activeImageModel?.id || 'gemini-3-pro-image-preview';
   const imageModelEndpoint = activeImageModel?.endpoint || `/v1beta/models/${imageModelId}:generateContent`;
   const apiKey = checkApiKey('image', activeImageModel?.id);
@@ -526,6 +586,15 @@ export const generateImage = async (
       ⚠️ Props/items must also maintain visual consistency with their reference images!
     `;
       }
+    }
+
+    const modelRoutingPrefix = buildImageRoutingPrefix(imageRoutingFamily, {
+      hasAnyReference,
+      referencePackType,
+      isVariation,
+    });
+    if (modelRoutingPrefix) {
+      finalPrompt = `${modelRoutingPrefix}\n\n${finalPrompt}`;
     }
 
     if (negativePrompt.trim()) {

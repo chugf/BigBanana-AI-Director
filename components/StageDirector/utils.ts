@@ -14,6 +14,112 @@ export interface RefImagesResult {
   hasTurnaround: boolean;
 }
 
+export type VideoModelFamily = 'sora' | 'veo-sync' | 'veo-fast' | 'unknown';
+
+export interface VideoModelRouting {
+  family: VideoModelFamily;
+  normalizedModelId: string;
+  supportsStartFrame: boolean;
+  supportsEndFrame: boolean;
+  prefersNineGridStoryboard: boolean;
+}
+
+export interface VideoPromptContext {
+  hasStartFrame?: boolean;
+  hasEndFrame?: boolean;
+}
+
+const normalizeVideoModelIdForRouting = (videoModel: string): string => {
+  const raw = (videoModel || '').trim();
+  if (!raw) return 'sora-2';
+
+  const normalized = raw.toLowerCase();
+
+  if (normalized === 'veo_3_1-fast-4k') {
+    return 'veo_3_1-fast';
+  }
+
+  if (
+    normalized === 'veo_3_1' ||
+    normalized === 'veo-r2v' ||
+    normalized.startsWith('veo_3_0_r2v')
+  ) {
+    return 'veo';
+  }
+
+  return raw;
+};
+
+export const resolveVideoModelRouting = (videoModel: string): VideoModelRouting => {
+  const normalizedModelId = normalizeVideoModelIdForRouting(videoModel);
+  const id = normalizedModelId.toLowerCase();
+
+  if (id === 'sora-2' || id.startsWith('sora')) {
+    return {
+      family: 'sora',
+      normalizedModelId,
+      supportsStartFrame: true,
+      supportsEndFrame: false,
+      prefersNineGridStoryboard: true,
+    };
+  }
+
+  if (
+    id.startsWith('veo_3_1-fast') ||
+    id.startsWith('veo_3_1_t2v_fast') ||
+    id.startsWith('veo_3_1_i2v_s_fast')
+  ) {
+    return {
+      family: 'veo-fast',
+      normalizedModelId,
+      supportsStartFrame: true,
+      supportsEndFrame: true,
+      prefersNineGridStoryboard: true,
+    };
+  }
+
+  if (id === 'veo' || id.startsWith('veo_')) {
+    return {
+      family: 'veo-sync',
+      normalizedModelId,
+      supportsStartFrame: true,
+      supportsEndFrame: true,
+      prefersNineGridStoryboard: false,
+    };
+  }
+
+  return {
+    family: 'unknown',
+    normalizedModelId,
+    supportsStartFrame: true,
+    supportsEndFrame: true,
+    prefersNineGridStoryboard: false,
+  };
+};
+
+export const routeVideoFrameInputs = (
+  videoModel: string,
+  startImage?: string,
+  endImage?: string
+): {
+  startImage?: string;
+  endImage?: string;
+  routing: VideoModelRouting;
+  ignoredEndFrame: boolean;
+} => {
+  const routing = resolveVideoModelRouting(videoModel);
+  const routedStartImage = startImage;
+  const shouldIgnoreEndFrame = !!endImage && !routing.supportsEndFrame;
+  const routedEndImage = shouldIgnoreEndFrame ? undefined : endImage;
+
+  return {
+    startImage: routedStartImage,
+    endImage: routedEndImage,
+    routing,
+    ignoredEndFrame: shouldIgnoreEndFrame,
+  };
+};
+
 /**
  * 获取镜头的参考图片
  * 增强版：如果角色有九宫格造型图，将整张九宫格图作为额外参考传入，
@@ -220,17 +326,30 @@ export const buildVideoPrompt = (
   language: string,
   visualStyle: string,
   nineGrid?: NineGridData,
-  videoDuration?: number
+  videoDuration?: number,
+  context?: VideoPromptContext
 ): string => {
   const isChinese = language === '中文' || language === 'Chinese';
   const stylePrompt = VISUAL_STYLE_PROMPTS[visualStyle] || visualStyle;
   const visualStyleAnchor = `${visualStyle} (${stylePrompt})`;
   
-  const isAsyncVideoModel = videoModel === 'sora-2' || videoModel.toLowerCase().startsWith('veo_3_1-fast');
+  const routing = resolveVideoModelRouting(videoModel);
+  const hasUsableEndFrame = !!context?.hasEndFrame && routing.supportsEndFrame;
+  const hasIgnoredEndFrame = !!context?.hasEndFrame && !routing.supportsEndFrame;
+
+  const appendCapabilityNotes = (prompt: string): string => {
+    const endFrameConstraint = hasUsableEndFrame
+      ? '\n\nEND FRAME CONSTRAINT: Drive the final moment toward the provided end-frame composition, pose, and scene continuity.'
+      : '';
+    const ignoredEndFrameNote = hasIgnoredEndFrame
+      ? '\n\nCapability routing: this model is start-frame-driven, so end-frame input is ignored automatically.'
+      : '';
+    return `${prompt}${endFrameConstraint}${ignoredEndFrameNote}`;
+  };
 
   // 九宫格分镜模式：有九宫格数据时，使用异步模型专用精简提示词
   // 保留9个面板的景别/角度顺序，但 description 截断到60字符以内，避免超过 Sora-2 的 8192 字符限制
-  if (nineGrid && nineGrid.panels.length > 0 && isAsyncVideoModel) {
+  if (nineGrid && nineGrid.panels.length > 0 && routing.prefersNineGridStoryboard) {
     const DESC_MAX_LEN = 60;
     const panelDescriptions = nineGrid.panels.map((p, idx) => {
       const desc = p.description.length > DESC_MAX_LEN 
@@ -247,33 +366,54 @@ export const buildVideoPrompt = (
     
     const template = isChinese ? templateGroup.chinese : templateGroup.english;
     
-    return template
+    const routedPrompt = template
       .replace('{actionSummary}', actionSummary)
       .replace('{panelDescriptions}', panelDescriptions)
       .replace(/\{secondsPerPanel\}/g, String(secondsPerPanel))
       .replace('{cameraMovement}', cameraMovement)
       .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', language);
+    return appendCapabilityNotes(routedPrompt);
   }
   
   // 普通模式
-  if (isAsyncVideoModel) {
+  if (routing.family === 'sora') {
     const template = isChinese 
       ? VIDEO_PROMPT_TEMPLATES.sora2.chinese 
       : VIDEO_PROMPT_TEMPLATES.sora2.english;
     
-    return template
+    const routedPrompt = template
       .replace('{actionSummary}', actionSummary)
       .replace('{cameraMovement}', cameraMovement)
       .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', language);
-  } else {
-    return VIDEO_PROMPT_TEMPLATES.veo.simple
+    return appendCapabilityNotes(routedPrompt);
+  }
+  const veoTemplateGroup = routing.family === 'veo-fast'
+    ? (VIDEO_PROMPT_TEMPLATES as any).veoFast
+    : (VIDEO_PROMPT_TEMPLATES as any).veo;
+  const fallbackStartOnly = `Use the provided start frame as the exact opening composition.
+Action: {actionSummary}
+Camera Movement: {cameraMovement}
+Visual Style Anchor: {visualStyle}
+Language: {language}
+Keep identity, scene lighting, and prop details consistent throughout the shot.`;
+  const fallbackStartEnd = `Use the provided START and END frames as hard constraints.
+Action: {actionSummary}
+Camera Movement: {cameraMovement}
+Visual Style Anchor: {visualStyle}
+Language: {language}
+The video must start from the start frame composition and progress naturally to a final state that matches the end frame.`;
+  const template = hasUsableEndFrame
+    ? (veoTemplateGroup?.startEnd || fallbackStartEnd || veoTemplateGroup?.simple || fallbackStartOnly)
+    : (veoTemplateGroup?.startOnly || fallbackStartOnly || veoTemplateGroup?.simple);
+
+  const routedPrompt = template
       .replace('{actionSummary}', actionSummary)
       .replace('{cameraMovement}', cameraMovement)
       .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', isChinese ? '中文' : language);
-  }
+  return appendCapabilityNotes(routedPrompt);
 };
 
 /**

@@ -34,9 +34,13 @@ const generateVideoAsync = async (
   duration: VideoDuration = 8,
   modelName: string = 'sora-2'
 ): Promise<string> => {
-  const references = [startImageBase64, endImageBase64].filter(Boolean) as string[];
+  let references = [startImageBase64, endImageBase64].filter(Boolean) as string[];
   const resolvedModelName = modelName || 'sora-2';
   const useReferenceArray = resolvedModelName.toLowerCase().startsWith('veo_3_1-fast');
+  if (resolvedModelName === 'sora-2' && references.length >= 2) {
+    console.warn('⚠️ Capability routing: sora-2 only supports start-frame reference. End-frame reference will be ignored.');
+    references = references.slice(0, 1);
+  }
 
   if (resolvedModelName === 'sora-2' && references.length >= 2) {
     throw new Error('Sora-2 不支持首尾帧模式，请只传一张参考图。');
