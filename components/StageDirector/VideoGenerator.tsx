@@ -8,6 +8,7 @@ import {
   getDefaultVideoDuration,
   getVideoModels,
   getActiveVideoModel,
+  getProviderById,
 } from '../../services/modelRegistry';
 import { VideoModelDefinition } from '../../types/model';
 
@@ -54,6 +55,13 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
   
   // 当前选中的模型
   const selectedModel = videoModels.find(m => m.id === selectedModelId) as VideoModelDefinition | undefined;
+  const selectedProvider = selectedModel ? getProviderById(selectedModel.providerId) : undefined;
+  const requiresDedicatedApiKey = selectedModel?.providerId === 'volcengine';
+  const hasDedicatedApiKey = Boolean(
+    (selectedModel?.apiKey && selectedModel.apiKey.trim()) ||
+    (selectedProvider?.apiKey && selectedProvider.apiKey.trim())
+  );
+  const isMissingVolcengineApiKey = Boolean(requiresDedicatedApiKey && !hasDedicatedApiKey);
   const modelType: 'sora' | 'veo' = selectedModel?.params.mode === 'async' ? 'sora' : 'veo';
   const effectiveModelId = selectedModelId === 'veo_3_1-fast'
     ? (veoFastQuality === '4k' ? 'veo_3_1-fast-4K' : 'veo_3_1-fast')
@@ -105,7 +113,7 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
     }
   };
 
-  const canGenerate = hasStartFrame;
+  const canGenerate = hasStartFrame && !isMissingVolcengineApiKey;
 
   return (
     <div className="bg-[var(--bg-surface)] rounded-xl p-5 border border-[var(--border-primary)] space-y-4">
@@ -164,6 +172,16 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
               : ` 首尾帧模式，支持 ${selectedModel.params.supportedAspectRatios.join('/')}`
             }
           </p>
+        )}
+        {isMissingVolcengineApiKey && (
+          <div className="rounded-lg border border-[var(--error-border)] bg-[var(--error-bg)] px-3 py-2">
+            <p className="text-[10px] text-[var(--error-text)] font-bold">
+              当前模型需要火山引擎专用 API Key
+            </p>
+            <p className="text-[9px] text-[var(--error-text)]/90 mt-1">
+              未检测到该模型或 Volcengine 提供商的 Key。此模型不会使用 AntSK 全局 Key，请先到模型配置里设置后再生成。
+            </p>
+          </div>
         )}
         <div className="bg-[var(--bg-base)] border border-[var(--border-secondary)] rounded-lg p-3 space-y-2">
           <div className="flex items-center justify-between">
@@ -294,6 +312,11 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
           <>{hasVideo ? '重新生成视频' : '开始生成视频'}</>
         )}
       </button>
+      {isMissingVolcengineApiKey && (
+        <div className="text-[9px] text-[var(--error-text)] text-center font-mono">
+          * 请选择并配置火山引擎 API Key（模型 Key 或 Volcengine 提供商 Key）
+        </div>
+      )}
       
       {/* Status Messages */}
       {!hasEndFrame && (

@@ -13,6 +13,7 @@ import {
   AspectRatio,
   VideoDuration
 } from '../../types/model';
+import { getProviderById } from '../../services/modelRegistry';
 
 interface ModelCardProps {
   model: ModelDefinition;
@@ -35,6 +36,11 @@ const ModelCard: React.FC<ModelCardProps> = ({
 }) => {
   const [editParams, setEditParams] = useState<any>(model.params);
   const [editApiKey, setEditApiKey] = useState<string>(model.apiKey || '');
+  const provider = getProviderById(model.providerId);
+  const isVolcengineModel = model.providerId === 'volcengine';
+  const modelHasApiKey = Boolean(model.apiKey?.trim());
+  const providerHasApiKey = Boolean(provider?.apiKey?.trim());
+  const isMissingVolcengineKey = isVolcengineModel && !modelHasApiKey && !providerHasApiKey;
 
   const handleParamChange = (key: string, value: any) => {
     const newParams = { ...editParams, [key]: value };
@@ -255,6 +261,11 @@ const ModelCard: React.FC<ModelCardProps> = ({
               <label className="text-[10px] text-[var(--text-tertiary)] block mb-1">
                 API Key（留空使用全局 Key）
               </label>
+              {isVolcengineModel && (
+                <p className="text-[9px] text-[var(--warning-text)] mb-1">
+                  火山模型不会使用全局 API Key，请填写模型 Key 或 Volcengine 提供商 Key。
+                </p>
+              )}
               <input
                 type="password"
                 value={editApiKey}
@@ -262,6 +273,11 @@ const ModelCard: React.FC<ModelCardProps> = ({
                 placeholder="留空则使用全局 API Key"
                 className="w-full bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] font-mono"
               />
+              {isMissingVolcengineKey && (
+                <p className="text-[9px] text-[var(--error-text)] mt-1">
+                  未配置火山引擎 Key，当前模型无法调用且不会回退到全局 Key。
+                </p>
+              )}
               {model.apiKey && (
                 <p className="text-[9px] text-[var(--success)] mt-1">✓ 已配置专属 Key</p>
               )}
