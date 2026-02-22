@@ -372,6 +372,18 @@ export const BUILTIN_VIDEO_MODELS: VideoModelDefinition[] = [
     isEnabled: true,
     params: { ...DEFAULT_VIDEO_PARAMS_DOUBAO_SEEDANCE },
   },
+  {
+    id: 'doubao-seedance-2-0-260128',
+    apiModel: 'doubao-seedance-2-0-260128',
+    name: 'Doubao Seedance 2.0',
+    type: 'video',
+    providerId: 'volcengine',
+    endpoint: '/api/v3/contents/generations/tasks',
+    description: '火山引擎异步任务模式（create task + poll task），支持 5/10/15 秒',
+    isBuiltIn: true,
+    isEnabled: true,
+    params: { ...DEFAULT_VIDEO_PARAMS_DOUBAO_SEEDANCE },
+  },
 ];
 
 /**
