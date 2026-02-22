@@ -105,6 +105,13 @@ export const loadRegistry = (): ModelRegistryState => {
           if (existingParams) {
             for (const key of USER_PREF_KEYS) {
               if (key in existingParams && existingParams[key] !== undefined) {
+                if (key === 'defaultDuration') {
+                  const candidate = existingParams[key];
+                  const supported = (mergedParams as any).supportedDurations;
+                  if (Array.isArray(supported) && !supported.includes(candidate)) {
+                    continue;
+                  }
+                }
                 mergedParams[key] = existingParams[key];
               }
             }

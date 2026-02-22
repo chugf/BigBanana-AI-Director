@@ -20,7 +20,7 @@ export type AspectRatio = '16:9' | '9:16' | '1:1';
 /**
  * 视频时长类型（仅异步视频模式支持）
  */
-export type VideoDuration = 4 | 8 | 12;
+export type VideoDuration = 4 | 5 | 8 | 10 | 12 | 15;
 
 /**
  * 视频生成模式
@@ -252,8 +252,8 @@ export const DEFAULT_VIDEO_PARAMS_DOUBAO_SEEDANCE: VideoModelParams = {
   mode: 'async',
   defaultAspectRatio: '16:9',
   supportedAspectRatios: ['16:9', '9:16'],
-  defaultDuration: 8,
-  supportedDurations: [8],
+  defaultDuration: 5,
+  supportedDurations: [5, 10, 15],
 };
 
 // ============================================
@@ -367,7 +367,7 @@ export const BUILTIN_VIDEO_MODELS: VideoModelDefinition[] = [
     type: 'video',
     providerId: 'volcengine',
     endpoint: '/api/v3/contents/generations/tasks',
-    description: '火山引擎异步任务模式（create task + poll task）',
+    description: '火山引擎异步任务模式（create task + poll task），支持 5/10/15 秒',
     isBuiltIn: true,
     isEnabled: true,
     params: { ...DEFAULT_VIDEO_PARAMS_DOUBAO_SEEDANCE },

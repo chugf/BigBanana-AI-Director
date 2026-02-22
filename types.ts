@@ -302,7 +302,7 @@ export type AspectRatio = '16:9' | '9:16' | '1:1';
 /**
  * 视频时长类型（仅异步视频模型支持）
  */
-export type VideoDuration = 4 | 8 | 12;
+export type VideoDuration = 4 | 5 | 8 | 10 | 12 | 15;
 
 /**
  * 模型提供商配置
