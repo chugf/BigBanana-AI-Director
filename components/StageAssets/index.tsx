@@ -720,7 +720,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
             }
 
             const nextVariations: Record<string, string> = {};
-            Object.entries(shot.characterVariations).forEach(([key, value]) => {
+            Object.entries(shot.characterVariations as Record<string, string>).forEach(([key, value]) => {
               if (!compareIds(key, charId)) nextVariations[key] = value;
             });
 
@@ -1324,15 +1324,20 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const allScenesReady = project.scriptData.scenes.every(s => s.referenceImage);
   const allPropsReady = (project.scriptData.props || []).length > 0 && (project.scriptData.props || []).every(p => p.referenceImage);
   const selectedChar = project.scriptData.characters.find(c => compareIds(c.id, selectedCharId));
-  const projectNameOptions = Array.from(
-    new Set(
-      libraryItems.map((item) => (item.projectName && item.projectName.trim()) || '未知项目')
+  const getLibraryProjectName = (item: AssetLibraryItem): string => {
+    const projectName = typeof item.projectName === 'string' ? item.projectName.trim() : '';
+    return projectName || 'Unknown Project';
+  };
+
+  const projectNameOptions = Array.from<string>(
+    new Set<string>(
+      libraryItems.map((item) => getLibraryProjectName(item))
     )
   ).sort((a, b) => a.localeCompare(b, 'zh-CN'));
   const filteredLibraryItems = libraryItems.filter((item) => {
     if (libraryFilter !== 'all' && item.type !== libraryFilter) return false;
     if (libraryProjectFilter !== 'all') {
-      const projectName = (item.projectName && item.projectName.trim()) || '未知项目';
+      const projectName = getLibraryProjectName(item);
       if (projectName !== libraryProjectFilter) return false;
     }
     if (!libraryQuery.trim()) return true;

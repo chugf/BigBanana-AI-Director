@@ -1,6 +1,7 @@
 import { Shot, ProjectState, Keyframe, NineGridPanel, NineGridData } from '../../types';
 import { VISUAL_STYLE_PROMPTS, VIDEO_PROMPT_TEMPLATES, NINE_GRID } from './constants';
 import { getCameraMovementCompositionGuide } from './cameraMovementGuides';
+import { enhanceKeyframePrompt } from '../../services/aiService';
 
 const KEYFRAME_META_SPLITTER = '\n\n---PROMPT_META_START---';
 
@@ -302,9 +303,8 @@ export const buildKeyframePromptWithAI = async (
     return basicPrompt;
   }
   
-  // 动态导入aiService以避免循环依赖
+  // Use direct import from aiService; keep fallback behavior if enhancement fails.
   try {
-    const { enhanceKeyframePrompt } = await import('../../services/aiService');
     const enhanced = await enhanceKeyframePrompt(basicPrompt, visualStyle, cameraMovement, frameType);
     return enhanced;
   } catch (error) {

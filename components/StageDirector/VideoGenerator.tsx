@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Video, Loader2, Edit2 } from 'lucide-react';
 import { Shot, AspectRatio, VideoDuration } from '../../types';
 import { VideoSettingsPanel } from '../AspectRatioSelector';
+import { resolveVideoModelRouting } from './utils';
 import { 
   getDefaultAspectRatio, 
   getDefaultVideoDuration,
@@ -57,6 +58,15 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
   const effectiveModelId = selectedModelId === 'veo_3_1-fast'
     ? (veoFastQuality === '4k' ? 'veo_3_1-fast-4K' : 'veo_3_1-fast')
     : selectedModelId;
+  const modelRouting = resolveVideoModelRouting(effectiveModelId || selectedModelId || 'sora-2');
+  const routingLabel =
+    modelRouting.family === 'sora'
+      ? 'Sora'
+      : modelRouting.family === 'veo-sync'
+        ? 'Veo Sync'
+        : modelRouting.family === 'veo-fast'
+          ? 'Veo Fast'
+          : 'Unknown';
   
   const isGenerating = shot.interval?.status === 'generating';
   const hasVideo = !!shot.interval?.videoUrl;
@@ -153,6 +163,51 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
             }
           </p>
         )}
+        <div className="bg-[var(--bg-base)] border border-[var(--border-secondary)] rounded-lg p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]">
+              模型能力卡
+            </span>
+            <span className="text-[10px] font-mono text-[var(--text-secondary)]">
+              {routingLabel}
+            </span>
+          </div>
+          {[
+            {
+              key: 'start-only',
+              label: '首帧支持',
+              enabled: modelRouting.supportsStartFrame,
+            },
+            {
+              key: 'start-end',
+              label: '首尾帧支持',
+              enabled: modelRouting.supportsStartFrame && modelRouting.supportsEndFrame,
+            },
+            {
+              key: 'nine-grid-priority',
+              label: '九宫格优先',
+              enabled: modelRouting.prefersNineGridStoryboard,
+            },
+          ].map((capability) => (
+            <div key={capability.key} className="flex items-center justify-between text-[10px]">
+              <span className="text-[var(--text-secondary)]">{capability.label}</span>
+              <span
+                className={`px-2 py-0.5 rounded border font-mono ${
+                  capability.enabled
+                    ? 'text-[var(--success)] border-[var(--success)]/40 bg-[var(--success)]/10'
+                    : 'text-[var(--text-muted)] border-[var(--border-primary)] bg-[var(--bg-hover)]'
+                }`}
+              >
+                {capability.enabled ? 'ON' : 'OFF'}
+              </span>
+            </div>
+          ))}
+          {hasEndFrame && !modelRouting.supportsEndFrame && (
+            <p className="text-[9px] text-[var(--warning-text)] font-mono">
+              当前模型会自动忽略尾帧输入，仅使用首帧驱动。
+            </p>
+          )}
+        </div>
         {selectedModelId === 'veo_3_1-fast' && (
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-[var(--text-tertiary)] uppercase">清晰度</span>

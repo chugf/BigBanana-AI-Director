@@ -129,16 +129,21 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
     return new Date(ts).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
   };
 
-  const projectNameOptions = Array.from(
-    new Set(
-      libraryItems.map((item) => (item.projectName && item.projectName.trim()) || '鏈煡椤圭洰')
+  const getLibraryProjectName = (item: AssetLibraryItem): string => {
+    const projectName = typeof item.projectName === 'string' ? item.projectName.trim() : '';
+    return projectName || 'Unknown Project';
+  };
+
+  const projectNameOptions = Array.from<string>(
+    new Set<string>(
+      libraryItems.map((item) => getLibraryProjectName(item))
     )
   ).sort((a, b) => a.localeCompare(b, 'zh-CN'));
 
   const filteredLibraryItems = libraryItems.filter((item) => {
     if (libraryFilter !== 'all' && item.type !== libraryFilter) return false;
     if (libraryProjectFilter !== 'all') {
-      const projectName = (item.projectName && item.projectName.trim()) || '鏈煡椤圭洰';
+      const projectName = getLibraryProjectName(item);
       if (projectName !== libraryProjectFilter) return false;
     }
     if (!libraryQuery.trim()) return true;
@@ -594,6 +599,3 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
 };
 
 export default Dashboard;
-
-
-

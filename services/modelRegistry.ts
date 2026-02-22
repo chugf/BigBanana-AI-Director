@@ -368,7 +368,7 @@ export const setActiveModel = (type: ModelType, modelId: string): boolean => {
  * 注册新模型
  * @param model - 模型定义（可包含自定义 id，不包含 isBuiltIn）
  */
-export const registerModel = (model: Omit<ModelDefinition, 'isBuiltIn'> & { id?: string }): ModelDefinition => {
+export const registerModel = (model: Omit<ModelDefinition, 'id' | 'isBuiltIn'> & { id?: string }): ModelDefinition => {
   const state = loadRegistry();
   
   const providedId = (model as any).id?.trim();
