@@ -132,7 +132,7 @@ const StageExport: React.FC<Props> = ({ project }) => {
       }, 2000);
     } catch (error) {
       console.error('Download failed:', error);
-      showAlert(`瀵煎嚭澶辫触: ${error instanceof Error ? error.message : '鏈煡閿欒'}`, { type: 'error' });
+      showAlert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
       setIsDownloading(false);
       setDownloadPhase('');
       setDownloadProgress(0);
@@ -164,7 +164,7 @@ const StageExport: React.FC<Props> = ({ project }) => {
       }, 2000);
     } catch (error) {
       console.error('Assets download failed:', error);
-      showAlert(`涓嬭浇婧愯祫婧愬け璐? ${error instanceof Error ? error.message : '鏈煡閿欒'}`, { type: 'error' });
+      showAlert(`下载源资源失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
       setIsDownloadingAssets(false);
       setAssetsPhase('');
       setAssetsProgress(0);

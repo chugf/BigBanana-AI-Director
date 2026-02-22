@@ -47,20 +47,20 @@ const PropCard: React.FC<PropCardProps> = ({
             {isGenerating ? (
               <>
                 <Loader2 className="w-10 h-10 mb-3 animate-spin text-[var(--accent)]" />
-                <span className="text-[10px] text-[var(--text-tertiary)]">鐢熸垚涓?..</span>
+                <span className="text-[10px] text-[var(--text-tertiary)]">生成中...</span>
               </>
             ) : prop.status === 'failed' ? (
               <>
                 <AlertCircle className="w-10 h-10 mb-3 text-[var(--error)]" />
-                <span className="text-[10px] text-[var(--error)] mb-2">鐢熸垚澶辫触</span>
+                <span className="text-[10px] text-[var(--error)] mb-2">生成失败</span>
                 <ImageUploadButton
                   variant="inline"
                   size="small"
                   onUpload={onUpload}
                   onGenerate={onGenerate}
                   isGenerating={isGenerating}
-                  uploadLabel="涓婁紶"
-                  generateLabel="閲嶈瘯"
+                  uploadLabel="上传"
+                  generateLabel="重试"
                 />
               </>
             ) : (
@@ -72,8 +72,8 @@ const PropCard: React.FC<PropCardProps> = ({
                   onUpload={onUpload}
                   onGenerate={onGenerate}
                   isGenerating={isGenerating}
-                  uploadLabel="涓婁紶"
-                  generateLabel="鐢熸垚"
+                  uploadLabel="上传"
+                  generateLabel="生成"
                 />
               </>
             )}
@@ -126,7 +126,7 @@ const PropCard: React.FC<PropCardProps> = ({
               onClick={startEdit}
               className="text-[10px] text-[var(--text-tertiary)] line-clamp-2 mb-3 cursor-pointer hover:text-[var(--text-secondary)] transition-colors min-h-[28px]"
             >
-              {value || '鐐瑰嚮娣诲姞閬撳叿鎻忚堪...'}
+              {value || '点击添加道具描述...'}
             </p>
           )}
         />
@@ -135,8 +135,8 @@ const PropCard: React.FC<PropCardProps> = ({
           <PromptEditor
             prompt={prop.visualPrompt || ''}
             onSave={onPromptSave}
-            label="閬撳叿鎻愮ず璇?"
-            placeholder="杈撳叆閬撳叿鐨勮瑙夋弿杩?.."
+            label="道具提示词"
+            placeholder="输入道具的视觉描述..."
             maxHeight="max-h-[160px]"
           />
         </div>
@@ -149,7 +149,7 @@ const PropCard: React.FC<PropCardProps> = ({
               onUpload={onUpload}
               onGenerate={onGenerate}
               isGenerating={isGenerating}
-              uploadLabel="涓婁紶鍥剧墖"
+              uploadLabel="上传图片"
             />
           </div>
         )}
@@ -161,7 +161,7 @@ const PropCard: React.FC<PropCardProps> = ({
             className="w-full py-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-primary)] rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <FolderPlus className="w-3 h-3" />
-            鍔犲叆璧勪骇搴?
+            加入资产库
           </button>
         </div>
 
@@ -172,7 +172,7 @@ const PropCard: React.FC<PropCardProps> = ({
             className="w-full py-2 bg-transparent hover:bg-[var(--error-bg)] text-[var(--error-text)] hover:text-[var(--error-text)] border border-[var(--error-border)] hover:border-[var(--error-border)] rounded text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <Trash2 className="w-3 h-3" />
-            鍒犻櫎閬撳叿
+            删除道具
           </button>
         </div>
       </div>
