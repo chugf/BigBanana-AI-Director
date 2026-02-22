@@ -395,10 +395,12 @@ export const generateImage = async (
   negativePrompt: string = '',
   options?: {
     continuityReferenceImage?: string;
+    referencePackType?: 'shot' | 'character' | 'scene' | 'prop';
   }
 ): Promise<string> => {
   const startTime = Date.now();
   const continuityReferenceImage = options?.continuityReferenceImage;
+  const referencePackType = options?.referencePackType || 'shot';
   const hasAnyReference = referenceImages.length > 0 || !!continuityReferenceImage;
 
   const activeImageModel = getActiveModel('image');
@@ -441,11 +443,46 @@ export const generateImage = async (
     `;
       } else {
         // 九宫格造型图说明段落（仅在有九宫格时注入）
-        const baseReferenceGuide = referenceImages.length > 0
-          ? `- The FIRST image is the Scene/Environment reference.
+        const baseReferenceGuide = (() => {
+          if (referenceImages.length === 0) {
+            return '- No explicit reference pack is provided. Use the textual prompt as the primary source for composition.';
+          }
+
+          if (referencePackType === 'character') {
+            return `- All provided images are CHARACTER references for the SAME character identity.
+      - Treat every image as identity reference priority (face, hair, body proportions, outfit details).${hasTurnaround ? '\n      - Some images are 3x3 TURNAROUND SHEETS showing the same character from multiple angles.' : ''}`;
+          }
+
+          if (referencePackType === 'scene') {
+            return '- All provided images are SCENE/ENVIRONMENT references. Preserve location layout, atmosphere, lighting logic, and art direction.';
+          }
+
+          if (referencePackType === 'prop') {
+            return '- All provided images are PROP/ITEM references. Preserve object shape, color, materials, and distinguishing details.';
+          }
+
+          return `- The FIRST image is the Scene/Environment reference.
       - Subsequent images are Character references (Base Look or Variation).${hasTurnaround ? '\n      - Some character images are 3x3 TURNAROUND SHEETS showing the character from 9 different angles (front, side, back, close-up, etc.).' : ''}
-      - Any remaining images after characters are Prop/Item references (objects that must appear consistently).`
-          : '- No scene/character/prop reference pack is provided. Use the textual prompt as the primary source for composition.';
+      - Any remaining images after characters are Prop/Item references (objects that must appear consistently).`;
+        })();
+        const taskLabel = referencePackType === 'character'
+          ? 'character image'
+          : referencePackType === 'scene'
+            ? 'scene/environment image'
+            : referencePackType === 'prop'
+              ? 'prop/item image'
+              : 'cinematic shot';
+        const sceneConsistencyRule = referencePackType === 'shot'
+          ? '- STRICTLY maintain the visual style, lighting, and environment from the scene reference.'
+          : referencePackType === 'scene'
+            ? '- STRICTLY maintain location layout, atmosphere, and lighting logic from scene references.'
+            : '- Keep visual style and lighting coherent with the prompt and provided references.';
+        const characterConsistencyRule = referencePackType === 'character'
+          ? 'If character references are provided, the generated character MUST remain IDENTICAL to references:'
+          : 'If characters are present in the prompt, they MUST be IDENTICAL to the character reference images:';
+        const propConsistencyRule = referencePackType === 'prop'
+          ? 'If prop reference images are provided, the props/items MUST match the references exactly:'
+          : 'If prop reference images are provided, the objects/items in the shot MUST match the reference:';
         const continuityGuide = continuityReferenceImage
           ? '\n      - The LAST image is a continuity reference (previous/start keyframe). Use it to keep character identity, outfit, lighting, and spatial continuity. Do NOT treat it as a prop reference.'
           : '';
@@ -465,21 +502,21 @@ export const generateImage = async (
       ${baseReferenceGuide}${continuityGuide}
       
       Task:
-      Generate a cinematic shot matching this prompt: "${prompt}".
+      Generate a ${taskLabel} matching this prompt: "${prompt}".
       
       ⚠️ ABSOLUTE REQUIREMENTS (NON-NEGOTIABLE):
       1. Scene Consistency:
-         - STRICTLY maintain the visual style, lighting, and environment from the scene reference.
+         ${sceneConsistencyRule}
       
       2. Character Consistency - HIGHEST PRIORITY:
-         If characters are present in the prompt, they MUST be IDENTICAL to the character reference images:
+         ${characterConsistencyRule}
          • Facial Features: Eyes (color, shape, size), nose structure, mouth shape, facial contours must be EXACTLY the same
          • Hairstyle & Hair Color: Length, color, texture, and style must be PERFECTLY matched
          • Clothing & Outfit: Style, color, material, and accessories must be IDENTICAL
          • Body Type: Height, build, proportions must remain consistent
       
       3. Prop/Item Consistency:
-         If prop reference images are provided, the objects/items in the shot MUST match the reference:
+         ${propConsistencyRule}
          • Shape & Form: The prop's shape, size, and proportions must be identical to the reference
          • Color & Material: Colors, textures, and materials must be consistent
          • Details: Patterns, text, decorations, and distinguishing features must match exactly
@@ -618,6 +655,26 @@ NEGATIVE PROMPT (strictly avoid all of the following): ${negativePrompt.trim()}`
  * 角色九宫格造型设计 - 默认视角布局
  * 覆盖常用的拍摄角度，确保角色从各方向都有参考
  */
+const resolveTurnaroundAspectRatio = (): AspectRatio => {
+  const preferredOrder: AspectRatio[] = ['1:1', '16:9', '9:16'];
+  const activeImageModel = getActiveModel('image');
+  const supportedRatios =
+    activeImageModel?.type === 'image'
+      ? activeImageModel.params.supportedAspectRatios
+      : undefined;
+
+  if (supportedRatios && supportedRatios.length > 0) {
+    for (const ratio of preferredOrder) {
+      if (supportedRatios.includes(ratio)) {
+        return ratio;
+      }
+    }
+    return supportedRatios[0];
+  }
+
+  return '1:1';
+};
+
 export const CHARACTER_TURNAROUND_LAYOUT = {
   panelCount: 9,
   defaultPanels: [
@@ -816,8 +873,17 @@ CRITICAL REQUIREMENTS:
   }
 
   try {
-    // 使用 1:1 比例生成九宫格（正方形最适合3x3网格）
-    const imageUrl = await generateImage(prompt, referenceImages, '1:1');
+    // 优先使用 1:1 生成九宫格；若当前模型不支持则自动回退到支持的比例。
+    const turnaroundAspectRatio = resolveTurnaroundAspectRatio();
+    const imageUrl = await generateImage(
+      prompt,
+      referenceImages,
+      turnaroundAspectRatio,
+      false,
+      false,
+      '',
+      { referencePackType: 'character' }
+    );
     console.log(`✅ 角色 ${character.name} 九宫格造型图片生成完成`);
     logScriptProgress(`角色「${character.name}」九宫格造型图片生成完成`);
     return imageUrl;

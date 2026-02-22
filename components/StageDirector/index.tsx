@@ -73,9 +73,38 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     const duration = model?.params?.defaultDuration;
     return typeof duration === 'number' && Number.isFinite(duration) ? duration : 8;
   };
+
+  /**
+   * 场景负面提示词里常包含“禁止人物”的约束（用于纯环境图），
+   * 在角色镜头中应移除这些词条，避免与“必须出人”目标冲突。
+   */
+  const stripHumanExclusionTerms = (input?: string): string => {
+    if (!input || typeof input !== 'string') return '';
+    const humanBlockPatterns: RegExp[] = [
+      /\bperson\b/i,
+      /\bpeople\b/i,
+      /\bhuman\b/i,
+      /\bman\b/i,
+      /\bwoman\b/i,
+      /\bchild\b/i,
+      /\bfigure\b/i,
+      /\bsilhouette\b/i,
+      /\bcrowd\b/i,
+      /\bpedestrian\b/i,
+      /\bcharacter\b/i,
+    ];
+
+    return input
+      .split(/[,;，；\n]+/)
+      .map(item => item.trim())
+      .filter(Boolean)
+      .filter(item => !humanBlockPatterns.some(pattern => pattern.test(item)))
+      .join(', ');
+  };
   
   const buildShotNegativePrompt = (shot: Shot, visualStyle: string): string => {
     const parts: string[] = [];
+    const shotHasCharacters = (shot.characters?.length || 0) > 0;
     const pushPrompt = (value?: string) => {
       if (!value || typeof value !== 'string') return;
       const trimmed = value.trim();
@@ -90,7 +119,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     }
 
     const scene = scriptData.scenes.find(s => String(s.id) === String(shot.sceneId));
-    pushPrompt(scene?.negativePrompt);
+    pushPrompt(
+      shotHasCharacters
+        ? stripHumanExclusionTerms(scene?.negativePrompt)
+        : scene?.negativePrompt
+    );
 
     if (shot.characters?.length) {
       shot.characters.forEach(charId => {

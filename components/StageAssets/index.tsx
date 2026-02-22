@@ -292,10 +292,20 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     try {
       let prompt = "";
       let negativePrompt = "";
+      let characterReferenceImages: string[] = [];
+      let characterHasTurnaroundReference = false;
       
       if (type === 'character') {
         const char = project.scriptData?.characters.find(c => compareIds(c.id, id));
         if (char) {
+          if (char.referenceImage) {
+            characterReferenceImages.push(char.referenceImage);
+          }
+          if (char.turnaround?.status === 'completed' && char.turnaround.imageUrl && !characterReferenceImages.includes(char.turnaround.imageUrl)) {
+            characterReferenceImages.push(char.turnaround.imageUrl);
+            characterHasTurnaroundReference = true;
+          }
+
           if (char.visualPrompt) {
             prompt = char.visualPrompt;
             negativePrompt = char.negativePrompt || '';
@@ -351,7 +361,23 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       }
 
       // 生成图片（使用选择的横竖屏比例）
-      const imageUrl = await generateImage(enhancedPrompt, [], aspectRatio, false, false, negativePrompt);
+      if (type === 'character' && characterReferenceImages.length > 0) {
+        enhancedPrompt += '\n\nIMPORTANT IDENTITY LOCK: Use the provided references as the same character identity anchor. Keep face, hairstyle, body proportions, outfit materials, and signature accessories consistent. Do NOT redesign this character.';
+        if (characterHasTurnaroundReference) {
+          enhancedPrompt += ' If a 3x3 turnaround sheet is included, prioritize the panel that matches the camera angle and preserve angle-specific details.';
+        }
+      }
+
+      const referenceImagesForGeneration = type === 'character' ? characterReferenceImages : [];
+      const imageUrl = await generateImage(
+        enhancedPrompt,
+        referenceImagesForGeneration,
+        aspectRatio,
+        false,
+        type === 'character' ? characterHasTurnaroundReference : false,
+        negativePrompt,
+        type === 'character' ? { referencePackType: 'character' } : undefined
+      );
 
       // 更新状态
       if (project.scriptData) {
