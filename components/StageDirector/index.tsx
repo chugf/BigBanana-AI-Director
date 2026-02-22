@@ -67,6 +67,63 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
 
   const activeShotIndex = project.shots.findIndex(s => s.id === activeShotId);
   const activeShot = project.shots[activeShotIndex];
+
+  const getModelDefaultDuration = (modelId?: string): number => {
+    const model = getModelById(modelId || DEFAULTS.videoModel) as any;
+    const duration = model?.params?.defaultDuration;
+    return typeof duration === 'number' && Number.isFinite(duration) ? duration : 8;
+  };
+  
+  const buildShotNegativePrompt = (shot: Shot, visualStyle: string): string => {
+    const parts: string[] = [];
+    const pushPrompt = (value?: string) => {
+      if (!value || typeof value !== 'string') return;
+      const trimmed = value.trim();
+      if (trimmed) parts.push(trimmed);
+    };
+
+    pushPrompt(getNegativePrompt(visualStyle));
+
+    const scriptData = project.scriptData;
+    if (!scriptData) {
+      return parts.join(', ');
+    }
+
+    const scene = scriptData.scenes.find(s => String(s.id) === String(shot.sceneId));
+    pushPrompt(scene?.negativePrompt);
+
+    if (shot.characters?.length) {
+      shot.characters.forEach(charId => {
+        const char = scriptData.characters.find(c => String(c.id) === String(charId));
+        if (!char) return;
+        const variationId = shot.characterVariations?.[charId];
+        const variation = variationId ? char.variations?.find(v => v.id === variationId) : undefined;
+        pushPrompt(variation?.negativePrompt || char.negativePrompt);
+      });
+    }
+
+    if (shot.props?.length && scriptData.props) {
+      shot.props.forEach(propId => {
+        const prop = scriptData.props?.find(p => String(p.id) === String(propId));
+        pushPrompt(prop?.negativePrompt);
+      });
+    }
+
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+    parts
+      .flatMap(part => part.split(/[,;，；\n]+/))
+      .map(item => item.trim())
+      .filter(Boolean)
+      .forEach(item => {
+        const key = item.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        deduped.push(item);
+      });
+
+    return deduped.slice(0, 80).join(', ');
+  };
   
   const allStartFramesGenerated = project.shots.length > 0 && 
     project.shots.every(s => s.keyframes?.find(k => k.type === 'start')?.imageUrl);
@@ -195,7 +252,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       : rawBasePrompt;
     
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
-    const negativePrompt = getNegativePrompt(visualStyle);
+    const negativePrompt = buildShotNegativePrompt(shot, visualStyle);
     
     // 立即设置生成状态，显示loading
     updateProject((prevProject: ProjectState) => ({
@@ -225,11 +282,10 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     try {
       const refResult = getRefImagesForShot(shot, project.scriptData);
       const referenceImages = [...refResult.images];
-
-      // 结束帧额外注入起始帧图片，提升首尾帧连贯性
-      if (type === 'end' && startKf?.imageUrl && !referenceImages.includes(startKf.imageUrl)) {
-        referenceImages.push(startKf.imageUrl);
-      }
+      const continuityReferenceImage =
+        type === 'end' && startKf?.imageUrl && !referenceImages.includes(startKf.imageUrl)
+          ? startKf.imageUrl
+          : undefined;
 
       // 使用当前设置的横竖屏比例生成关键帧，传递 hasTurnaround 标记
       const url = await generateImage(
@@ -238,7 +294,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         keyframeAspectRatio,
         false,
         refResult.hasTurnaround,
-        negativePrompt
+        negativePrompt,
+        continuityReferenceImage ? { continuityReferenceImage } : undefined
       );
 
       updateProject((prevProject: ProjectState) => ({
@@ -559,11 +616,16 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       const startPrompt = startKf?.visualPrompt || activeShot.actionSummary || '未定义的起始场景';
       const endPrompt = endKf?.visualPrompt || activeShot.actionSummary || '未定义的结束场景';
       const cameraMovement = activeShot.cameraMovement || '平移';
+      const modelDuration = getModelDefaultDuration(activeShot.videoModel || DEFAULTS.videoModel);
+      const planningDuration = Number(project.scriptData?.planningShotDuration) || modelDuration;
+      const targetDurationSeconds = Math.max(1, Number(activeShot.interval?.duration) || planningDuration);
       
       const suggestion = await generateActionSuggestion(
         startPrompt,
         endPrompt,
-        cameraMovement
+        cameraMovement,
+        undefined,
+        targetDurationSeconds
       );
       
       // 更新编辑框的内容
@@ -1192,6 +1254,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
                 const selectedModel = activeShot.videoModel || DEFAULTS.videoModel;
                 const projectLanguage = project.language || project.scriptData?.language || '中文';
                 const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
+                const promptDuration =
+                  Number(activeShot.interval?.duration) ||
+                  getModelDefaultDuration(selectedModel) ||
+                  Number(project.scriptData?.planningShotDuration) ||
+                  8;
                 const startKf = activeShot.keyframes?.find(k => k.type === 'start');
                 // 首帧等于九宫格图时触发九宫格分镜模式
                 const isNineGridMode = (activeShot.nineGrid?.status === 'completed'
@@ -1203,7 +1270,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
                   selectedModel,
                   projectLanguage,
                   visualStyle,
-                  isNineGridMode ? activeShot.nineGrid : undefined
+                  isNineGridMode ? activeShot.nineGrid : undefined,
+                  promptDuration
                 );
               }
               setEditModal({ 

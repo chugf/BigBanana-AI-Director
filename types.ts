@@ -193,6 +193,7 @@ export interface ScriptData {
   language?: string;
   visualStyle?: string; // Visual style: live-action, anime, 3d-animation, etc.
   shotGenerationModel?: string; // Model used for shot generation
+  planningShotDuration?: number; // Locked shot duration baseline (seconds) used for shot count planning
   artDirection?: ArtDirection; // 全局美术指导文档，用于统一角色和场景的视觉风格
   characters: Character[];
   scenes: Scene[];

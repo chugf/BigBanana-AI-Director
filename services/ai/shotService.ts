@@ -313,28 +313,30 @@ export const generateActionSuggestion = async (
   startFramePrompt: string,
   endFramePrompt: string,
   cameraMovement: string,
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.1',
+  targetDurationSeconds: number = 8
 ): Promise<string> => {
   console.log('🎬 generateActionSuggestion 调用 - 使用模型:', model);
   const startTime = Date.now();
+  const normalizedDuration = Math.max(2, Math.min(20, Math.round(targetDurationSeconds * 10) / 10));
 
   const actionReferenceExamples = `
-## 单镜头高质量参考（8-10秒）
+## 单镜头高质量参考（结构参考，不要照抄）
 
-### 示例A：压迫推进（单镜头）
+### 示例A：压迫推进
 角色在雨夜天台静立，镜头低位缓慢推近，背景霓虹被雨幕拉出光带。角色抬手瞬间，画面出现短促电弧与风压波纹，镜头保持连续推进，最终停在半身近景，表情从平静过渡到决断，动作收于蓄力完成。
 
-### 示例B：高速位移（单镜头）
+### 示例B：高速位移
 镜头与角色平行跟拍，先中景稳定滑行，随后角色突然加速，画面边缘出现可控运动模糊与拖影。镜头不切换，只做同向快速平移并微微拉近，最终在角色前方刹停，落在近景对峙姿态。
 
-### 示例C：情绪爆发（单镜头）
+### 示例C：情绪爆发
 镜头从肩后视角开始缓慢环绕，角色呼吸急促、手部发抖，环境光由冷色逐步转暖。环绕到正面时角色完成关键动作，粒子与体积光同步增强，镜头在特写处稳定落点，形成情绪高潮与动作终点。`;
 
   const prompt = `
 你是一位专业的电影动作导演和叙事顾问。请根据提供的首帧和尾帧信息，结合镜头运动，设计一个既符合叙事逻辑又充满视觉冲击力的动作场景。
 
 ## 重要约束
-⏱️ **时长限制**：这是一个8-10秒的单镜头场景，请严格控制动作复杂度
+⏱️ **时长限制**：目标总时长约 ${normalizedDuration} 秒（允许±0.5秒），请严格控制动作复杂度
 📹 **镜头要求**：这是一个连续镜头，不要设计多个镜头切换
 
 ## 输入信息
@@ -345,7 +347,7 @@ export const generateActionSuggestion = async (
 ${actionReferenceExamples}
 
 ## 任务要求
-1. **时长适配**：动作设计必须在8-10秒内完成，避免过于复杂的多步骤动作
+1. **时长适配**：动作设计必须能在约 ${normalizedDuration} 秒内完成，避免超负荷动作链
 2. **单镜头思维**：优先设计一个连贯的镜头内动作，而非多镜头组合
 3. **自然衔接**：动作需要自然地从首帧过渡到尾帧，确保逻辑合理
 4. **风格借鉴**：参考上述示例的风格和语言，但要简化步骤：
@@ -362,8 +364,8 @@ ${actionReferenceExamples}
 - 核心的视觉特效或情感氛围
 - 确保描述具有电影感但控制篇幅
 
-❌ 避免：任何多镜头切换、冗长分步描述、超过10秒的复杂动作序列
-✅ 追求：精炼、有冲击力、符合8-10秒时长的单镜头动作
+❌ 避免：任何多镜头切换、冗长分步描述、时长明显超出 ${normalizedDuration} 秒负荷的复杂动作序列
+✅ 追求：精炼、有冲击力、符合约 ${normalizedDuration} 秒时长的单镜头动作
 
 请开始创作：
 `;

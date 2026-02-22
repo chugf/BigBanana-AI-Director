@@ -239,8 +239,9 @@ export const buildVideoPrompt = (
       return `${idx + 1}. ${p.shotSize}/${p.cameraAngle} - ${desc}`;
     }).join('\n');
     
-    const totalDuration = videoDuration || 8;
-    const secondsPerPanel = Math.max(0.5, Math.round((totalDuration / 9) * 10) / 10);
+    const totalDuration = Math.max(1, videoDuration || 8);
+    // Keep per-panel pacing compatible with very short durations (e.g. 4s) without exceeding total duration.
+    const secondsPerPanel = Math.max(0.2, Math.floor((totalDuration / 9) * 100) / 100);
     
     const templateGroup = VIDEO_PROMPT_TEMPLATES.sora2NineGrid;
     

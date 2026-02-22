@@ -392,9 +392,14 @@ export const generateImage = async (
   aspectRatio: AspectRatio = '16:9',
   isVariation: boolean = false,
   hasTurnaround: boolean = false,
-  negativePrompt: string = ''
+  negativePrompt: string = '',
+  options?: {
+    continuityReferenceImage?: string;
+  }
 ): Promise<string> => {
   const startTime = Date.now();
+  const continuityReferenceImage = options?.continuityReferenceImage;
+  const hasAnyReference = referenceImages.length > 0 || !!continuityReferenceImage;
 
   const activeImageModel = getActiveModel('image');
   const imageModelId = activeImageModel?.apiModel || activeImageModel?.id || 'gemini-3-pro-image-preview';
@@ -404,7 +409,7 @@ export const generateImage = async (
 
   try {
     let finalPrompt = prompt;
-    if (referenceImages.length > 0) {
+    if (hasAnyReference) {
       if (isVariation) {
         finalPrompt = `
       ⚠️⚠️⚠️ CRITICAL REQUIREMENTS - CHARACTER OUTFIT VARIATION ⚠️⚠️⚠️
@@ -436,6 +441,14 @@ export const generateImage = async (
     `;
       } else {
         // 九宫格造型图说明段落（仅在有九宫格时注入）
+        const baseReferenceGuide = referenceImages.length > 0
+          ? `- The FIRST image is the Scene/Environment reference.
+      - Subsequent images are Character references (Base Look or Variation).${hasTurnaround ? '\n      - Some character images are 3x3 TURNAROUND SHEETS showing the character from 9 different angles (front, side, back, close-up, etc.).' : ''}
+      - Any remaining images after characters are Prop/Item references (objects that must appear consistently).`
+          : '- No scene/character/prop reference pack is provided. Use the textual prompt as the primary source for composition.';
+        const continuityGuide = continuityReferenceImage
+          ? '\n      - The LAST image is a continuity reference (previous/start keyframe). Use it to keep character identity, outfit, lighting, and spatial continuity. Do NOT treat it as a prop reference.'
+          : '';
         const turnaroundGuide = hasTurnaround ? `
       4. CHARACTER TURNAROUND SHEET - MULTI-ANGLE REFERENCE:
          Some character reference images are provided as a 3x3 TURNAROUND SHEET (9-panel grid showing the SAME character from different angles: front, side, back, 3/4 view, close-up, etc.).
@@ -449,9 +462,7 @@ export const generateImage = async (
       ⚠️⚠️⚠️ CRITICAL REQUIREMENTS - CHARACTER CONSISTENCY ⚠️⚠️⚠️
       
       Reference Images Information:
-      - The FIRST image is the Scene/Environment reference.
-      - Subsequent images are Character references (Base Look or Variation).${hasTurnaround ? '\n      - Some character images are 3x3 TURNAROUND SHEETS showing the character from 9 different angles (front, side, back, close-up, etc.).' : ''}
-      - Any remaining images after characters are Prop/Item references (objects that must appear consistently).
+      ${baseReferenceGuide}${continuityGuide}
       
       Task:
       Generate a cinematic shot matching this prompt: "${prompt}".
@@ -499,6 +510,18 @@ NEGATIVE PROMPT (strictly avoid all of the following): ${negativePrompt.trim()}`
         });
       }
     });
+
+    if (continuityReferenceImage && !referenceImages.includes(continuityReferenceImage)) {
+      const continuityMatch = continuityReferenceImage.match(/^data:(image\/[a-zA-Z]+);base64,(.+)$/);
+      if (continuityMatch) {
+        parts.push({
+          inlineData: {
+            mimeType: continuityMatch[1],
+            data: continuityMatch[2]
+          }
+        });
+      }
+    }
 
     const requestBody: any = {
       contents: [{

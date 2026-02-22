@@ -248,13 +248,67 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
   const targetDurationStr = scriptData.targetDuration || '60s';
   const targetSeconds = parseInt(targetDurationStr.replace(/[^\d]/g, '')) || 60;
   const activeVideoModel = getActiveVideoModel();
-  const shotDurationSeconds = Math.max(1, Number(activeVideoModel?.params?.defaultDuration) || 8);
+  const requestedPlanningDuration = Number(scriptData.planningShotDuration);
+  const shotDurationSeconds = Math.max(
+    1,
+    (Number.isFinite(requestedPlanningDuration) && requestedPlanningDuration > 0
+      ? requestedPlanningDuration
+      : Number(activeVideoModel?.params?.defaultDuration) || 8)
+  );
+  // Lock a planning baseline so later per-shot model changes do not silently drift count logic.
+  scriptData.planningShotDuration = shotDurationSeconds;
   const roughShotCount = Math.max(1, Math.round(targetSeconds / shotDurationSeconds));
   const scenesCount = scriptData.scenes.length;
   const totalShotsNeeded = Math.max(roughShotCount, scenesCount);
   const baseShotsPerScene = Math.floor(totalShotsNeeded / scenesCount);
   const extraShots = totalShotsNeeded % scenesCount;
   const sceneShotPlan = scriptData.scenes.map((_, idx) => baseShotsPerScene + (idx < extraShots ? 1 : 0));
+
+  const createFallbackShotsForScene = (
+    scene: Scene,
+    count: number,
+    sceneText: string,
+    seedShot?: any
+  ): Shot[] => {
+    const safeCount = Math.max(0, count);
+    if (safeCount === 0) return [];
+
+    const sceneSummary = sceneText.replace(/\s+/g, ' ').trim().slice(0, 220);
+    const baseAction = String(seedShot?.actionSummary || sceneSummary || `${scene.location}场景推进`).trim();
+    const baseMovement = String(seedShot?.cameraMovement || 'Static Shot').trim() || 'Static Shot';
+    const baseShotSize = String(seedShot?.shotSize || 'Medium Shot').trim() || 'Medium Shot';
+    const baseCharacters = Array.isArray(seedShot?.characters)
+      ? seedShot.characters.map((c: any) => String(c)).filter(Boolean)
+      : [];
+
+    return Array.from({ length: safeCount }, (_, idx) => {
+      const sequence = idx + 1;
+      const actionSummary = `${baseAction}（补足镜头 ${sequence}）`;
+      return {
+        id: `fallback-${scene.id}-${Date.now()}-${sequence}`,
+        sceneId: String(scene.id),
+        actionSummary,
+        dialogue: '',
+        cameraMovement: baseMovement,
+        shotSize: baseShotSize,
+        characters: baseCharacters,
+        keyframes: [
+          {
+            id: `fallback-kf-${scene.id}-${sequence}-start`,
+            type: 'start',
+            visualPrompt: `${actionSummary}，起始状态，${visualStyle}风格`,
+            status: 'pending'
+          },
+          {
+            id: `fallback-kf-${scene.id}-${sequence}-end`,
+            type: 'end',
+            visualPrompt: `${actionSummary}，结束状态，${visualStyle}风格`,
+            status: 'pending'
+          }
+        ]
+      } as Shot;
+    });
+  };
 
   const artDirectionBlock = artDir ? `
       ⚠️ GLOBAL ART DIRECTION (MANDATORY for ALL visualPrompt fields):
@@ -271,13 +325,20 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
 
   const processScene = async (scene: Scene, index: number): Promise<Shot[]> => {
     const sceneStartTime = Date.now();
+    const shotsPerScene = sceneShotPlan[index] || 1;
     const paragraphs = scriptData.storyParagraphs
       .filter(p => String(p.sceneRefId) === String(scene.id))
       .map(p => p.text)
       .join('\n');
 
-    if (!paragraphs.trim()) return [];
-    const shotsPerScene = sceneShotPlan[index] || 1;
+    if (!paragraphs.trim()) {
+      console.warn(`⚠️ 场景 ${index + 1} 缺少可用段落，使用兜底分镜填充 ${shotsPerScene} 条`);
+      return createFallbackShotsForScene(
+        scene,
+        shotsPerScene,
+        `${scene.location} ${scene.time} ${scene.atmosphere}`.trim()
+      );
+    }
 
     const prompt = `
       Act as a professional cinematographer. Generate a detailed shot list (Camera blocking) for Scene ${index + 1}.
@@ -412,9 +473,17 @@ Requirements:
         }
       }
 
-      const normalizedShots = validShots.length > shotsPerScene
+      let normalizedShots = validShots.length > shotsPerScene
         ? validShots.slice(0, shotsPerScene)
         : validShots;
+
+      if (normalizedShots.length < shotsPerScene) {
+        const missingCount = shotsPerScene - normalizedShots.length;
+        const seedShot = normalizedShots[normalizedShots.length - 1];
+        const fallbackShots = createFallbackShotsForScene(scene, missingCount, paragraphs, seedShot);
+        normalizedShots = [...normalizedShots, ...fallbackShots];
+        console.warn(`⚠️ 场景 ${index + 1} 分镜不足，已补足 ${missingCount} 条兜底分镜以满足精确数量约束`);
+      }
 
       const result = normalizedShots.map((s: any) => ({
         ...s,
@@ -451,7 +520,7 @@ Requirements:
         duration: Date.now() - sceneStartTime
       });
 
-      return [];
+      return createFallbackShotsForScene(scene, shotsPerScene, paragraphs);
     }
   };
 
