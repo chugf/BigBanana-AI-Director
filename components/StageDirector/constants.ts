@@ -107,7 +107,7 @@ Maintain character consistency, cinematic quality. Language: {language}.`
 
 // 默认配置
 export const DEFAULTS = {
-  videoModel: 'doubao-seedance-1-5-pro-251215' as const,
+  videoModel: 'sora-2' as const,
   batchGenerateDelay: 3000, // 批量生成延迟（毫秒）
 };
 

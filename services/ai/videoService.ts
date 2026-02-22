@@ -479,7 +479,7 @@ export const generateVideo = async (
   prompt: string,
   startImageBase64?: string,
   endImageBase64?: string,
-  model: string = VOLCENGINE_DEFAULT_MODEL,
+  model: string = 'sora-2',
   aspectRatio: AspectRatio = '16:9',
   duration: VideoDuration = 8
 ): Promise<string> => {

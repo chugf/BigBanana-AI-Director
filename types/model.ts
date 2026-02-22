@@ -409,5 +409,5 @@ export const ALL_BUILTIN_MODELS: ModelDefinition[] = [
 export const DEFAULT_ACTIVE_MODELS: ActiveModels = {
   chat: 'gpt-5.1',
   image: 'gemini-3-pro-image-preview',
-  video: 'doubao-seedance-1-5-pro-251215',
+  video: 'sora-2',
 };

@@ -32,7 +32,7 @@ export interface VideoPromptContext {
 
 const normalizeVideoModelIdForRouting = (videoModel: string): string => {
   const raw = (videoModel || '').trim();
-  if (!raw) return 'doubao-seedance-1-5-pro-251215';
+  if (!raw) return 'sora-2';
 
   const normalized = raw.toLowerCase();
 
