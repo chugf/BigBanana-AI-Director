@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { User, Check, Shirt, Trash2, Edit2, AlertCircle, FolderPlus, Grid3x3, Link2 } from 'lucide-react';
 import { Character } from '../../types';
 import PromptEditor from './PromptEditor';
 import ImageUploadButton from './ImageUploadButton';
+import InlineEditableText from './InlineEditableText';
 
 interface CharacterCardProps {
   character: Character;
@@ -33,34 +34,6 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
   onAddToLibrary,
   onReplaceFromLibrary,
 }) => {
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [isEditingGender, setIsEditingGender] = useState(false);
-  const [isEditingAge, setIsEditingAge] = useState(false);
-  const [editName, setEditName] = useState(character.name);
-  const [editGender, setEditGender] = useState(character.gender);
-  const [editAge, setEditAge] = useState(character.age);
-
-  const handleSaveName = () => {
-    if (editName.trim()) {
-      onUpdateInfo({ name: editName.trim() });
-      setIsEditingName(false);
-    }
-  };
-
-  const handleSaveGender = () => {
-    if (editGender.trim()) {
-      onUpdateInfo({ gender: editGender.trim() });
-      setIsEditingGender(false);
-    }
-  };
-
-  const handleSaveAge = () => {
-    if (editAge.trim()) {
-      onUpdateInfo({ age: editAge.trim() });
-      setIsEditingAge(false);
-    }
-  };
-
   const isLinked = !!character.libraryId;
 
   return (
@@ -124,73 +97,49 @@ const CharacterCard: React.FC<CharacterCardProps> = ({
         <div className="flex-1 flex flex-col min-w-0 justify-between">
           {/* Header */}
           <div>
-            {isEditingName ? (
-              <input
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onBlur={handleSaveName}
-                onKeyPress={(e) => e.key === 'Enter' && handleSaveName()}
-                autoFocus
-                className="font-bold text-[var(--text-primary)] text-base mb-1 bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded px-2 py-1 w-full focus:outline-none focus:border-[var(--accent)]"
-              />
-            ) : (
-              <div className="flex items-center gap-2 mb-1 group/name">
-                <h3 className="font-bold text-[var(--text-primary)] text-base">{character.name}</h3>
-                <button
-                  onClick={() => {
-                    setEditName(character.name);
-                    setIsEditingName(true);
-                  }}
-                  className="opacity-0 group-hover/name:opacity-100 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-opacity"
-                >
-                  <Edit2 className="w-3 h-3" />
-                </button>
-              </div>
-            )}
+            <InlineEditableText
+              value={character.name}
+              onSave={(next) => onUpdateInfo({ name: next })}
+              inputClassName="font-bold text-[var(--text-primary)] text-base mb-1 bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded px-2 py-1 w-full focus:outline-none focus:border-[var(--accent)]"
+              renderDisplay={(value, startEdit) => (
+                <div className="flex items-center gap-2 mb-1 group/name">
+                  <h3 className="font-bold text-[var(--text-primary)] text-base">{value}</h3>
+                  <button
+                    onClick={startEdit}
+                    className="opacity-0 group-hover/name:opacity-100 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-opacity"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            />
             <div className="flex items-center gap-2">
-              {isEditingGender ? (
-                <input
-                  type="text"
-                  value={editGender}
-                  onChange={(e) => setEditGender(e.target.value)}
-                  onBlur={handleSaveGender}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSaveGender()}
-                  autoFocus
-                  className="text-[10px] text-[var(--text-primary)] font-mono uppercase bg-[var(--bg-hover)] border border-[var(--border-secondary)] px-2 py-0.5 rounded focus:outline-none focus:border-[var(--accent)] w-20"
-                />
-              ) : (
-                <span
-                  onClick={() => {
-                    setEditGender(character.gender);
-                    setIsEditingGender(true);
-                  }}
-                  className="text-[10px] text-[var(--text-tertiary)] font-mono uppercase bg-[var(--bg-elevated)] px-2 py-0.5 rounded cursor-pointer hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] transition-colors"
-                >
-                  {character.gender}
-                </span>
-              )}
-              {isEditingAge ? (
-                <input
-                  type="text"
-                  value={editAge}
-                  onChange={(e) => setEditAge(e.target.value)}
-                  onBlur={handleSaveAge}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSaveAge()}
-                  autoFocus
-                  className="text-[10px] text-[var(--text-primary)] bg-[var(--bg-hover)] border border-[var(--border-secondary)] px-2 py-0.5 rounded focus:outline-none focus:border-[var(--accent)] w-20"
-                />
-              ) : (
-                <span
-                  onClick={() => {
-                    setEditAge(character.age);
-                    setIsEditingAge(true);
-                  }}
-                  className="text-[10px] text-[var(--text-tertiary)] cursor-pointer hover:text-[var(--text-secondary)] transition-colors"
-                >
-                  {character.age}
-                </span>
-              )}
+              <InlineEditableText
+                value={character.gender}
+                onSave={(next) => onUpdateInfo({ gender: next })}
+                inputClassName="text-[10px] text-[var(--text-primary)] font-mono uppercase bg-[var(--bg-hover)] border border-[var(--border-secondary)] px-2 py-0.5 rounded focus:outline-none focus:border-[var(--accent)] w-20"
+                renderDisplay={(value, startEdit) => (
+                  <span
+                    onClick={startEdit}
+                    className="text-[10px] text-[var(--text-tertiary)] font-mono uppercase bg-[var(--bg-elevated)] px-2 py-0.5 rounded cursor-pointer hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] transition-colors"
+                  >
+                    {value}
+                  </span>
+                )}
+              />
+              <InlineEditableText
+                value={character.age}
+                onSave={(next) => onUpdateInfo({ age: next })}
+                inputClassName="text-[10px] text-[var(--text-primary)] bg-[var(--bg-hover)] border border-[var(--border-secondary)] px-2 py-0.5 rounded focus:outline-none focus:border-[var(--accent)] w-20"
+                renderDisplay={(value, startEdit) => (
+                  <span
+                    onClick={startEdit}
+                    className="text-[10px] text-[var(--text-tertiary)] cursor-pointer hover:text-[var(--text-secondary)] transition-colors"
+                  >
+                    {value}
+                  </span>
+                )}
+              />
               {character.variations && character.variations.length > 0 && (
                 <span className="text-[9px] text-[var(--text-tertiary)] font-mono flex items-center gap-1 bg-[var(--bg-elevated)] px-1.5 py-0.5 rounded">
                   <Shirt className="w-2.5 h-2.5" /> +{character.variations.length}
