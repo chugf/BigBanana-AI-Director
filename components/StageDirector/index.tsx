@@ -103,6 +103,30 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       .filter(item => !humanBlockPatterns.some(pattern => pattern.test(item)))
       .join(', ');
   };
+
+  const formatUserFriendlyError = (error: any, fallback: string): string => {
+    if (!error) return fallback;
+
+    const status = error?.status;
+    const rawMessage = typeof error?.message === 'string' ? error.message : '';
+
+    let normalizedMessage = rawMessage;
+    if (!normalizedMessage) {
+      if (status === 400) {
+        normalizedMessage = '提示词可能被风控拦截，请修改提示词后重试。';
+      } else if (status === 500 || status === 503) {
+        normalizedMessage = '服务器繁忙，请稍后重试。';
+      } else {
+        normalizedMessage = fallback;
+      }
+    }
+
+    if (!import.meta.env.DEV) {
+      normalizedMessage = normalizedMessage.replace(/（接口信息：.*?）/g, '');
+    }
+
+    return normalizedMessage || fallback;
+  };
   
   const buildShotNegativePrompt = (shot: Shot, visualStyle: string): string => {
     const parts: string[] = [];
@@ -353,7 +377,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       }));
       
       if (onApiKeyError && onApiKeyError(e)) return;
-      showAlert(`生成失败: ${e.message}`, { type: 'error' });
+      showAlert(`生成失败: ${formatUserFriendlyError(e, '图片生成失败，请稍后重试。')}`, { type: 'error' });
     }
   };
 
@@ -1038,7 +1062,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       }));
 
       if (onApiKeyError && onApiKeyError(e)) return;
-      showAlert(`九宫格图片生成失败: ${e.message}`, { type: 'error' });
+      showAlert(`九宫格图片生成失败: ${formatUserFriendlyError(e, '图片生成失败，请稍后重试。')}`, { type: 'error' });
     }
   };
 
