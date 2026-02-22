@@ -12,9 +12,9 @@ type ShowAlert = (
   }
 ) => void;
 
-type ImportResult = { projects: number; assets: number };
+export type ImportResult = { projects: number; assets: number };
 
-interface BackupTransferMessages {
+export interface BackupTransferMessages {
   invalidFileType?: string;
   exportSuccess?: string;
   exportError?: (error: unknown) => string;
@@ -31,7 +31,33 @@ interface UseBackupTransferOptions<TPayload = unknown> {
   messages?: BackupTransferMessages;
 }
 
+type ResolvedBackupTransferMessages = Required<BackupTransferMessages>;
+
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : '未知错误');
+
+export const DEFAULT_BACKUP_TRANSFER_MESSAGES: ResolvedBackupTransferMessages = {
+  invalidFileType: '请选择 .json 备份文件。',
+  exportSuccess: '导出完成，备份文件已下载。',
+  exportError: (error) => `导出失败: ${getErrorMessage(error)}`,
+  importConfirm: (projectCount, assetCount) =>
+    `将导入 ${projectCount} 个项目和 ${assetCount} 个资产。若 ID 冲突将覆盖现有数据。是否继续？`,
+  importSuccess: (result) => `导入完成：项目 ${result.projects} 个，资产 ${result.assets} 个。`,
+  importError: (error) => `导入失败: ${getErrorMessage(error)}`,
+};
+
+export const PROJECT_BACKUP_TRANSFER_MESSAGES: BackupTransferMessages = {
+  exportSuccess: '当前项目已导出，备份文件已下载。',
+};
+
+export const globalBackupFileName = (timestamp: string) => `bigbanana_backup_${timestamp}.json`;
+
+export const projectBackupFileName = (projectId: string, timestamp: string) =>
+  `bigbanana_project_${projectId}_${timestamp}.json`;
+
+const resolveMessages = (messages?: BackupTransferMessages): ResolvedBackupTransferMessages => ({
+  ...DEFAULT_BACKUP_TRANSFER_MESSAGES,
+  ...messages,
+});
 
 export function useBackupTransfer<TPayload = unknown>({
   exporter,
@@ -43,6 +69,7 @@ export function useBackupTransfer<TPayload = unknown>({
   const importInputRef = useRef<HTMLInputElement>(null);
   const [isDataExporting, setIsDataExporting] = useState(false);
   const [isDataImporting, setIsDataImporting] = useState(false);
+  const resolvedMessages = resolveMessages(messages);
 
   const handleExportData = async () => {
     if (isDataExporting) return;
@@ -63,13 +90,10 @@ export function useBackupTransfer<TPayload = unknown>({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      showAlert(messages?.exportSuccess || '导出完成，备份文件已下载。', { type: 'success' });
+      showAlert(resolvedMessages.exportSuccess, { type: 'success' });
     } catch (error) {
       console.error('Export failed:', error);
-      showAlert(
-        messages?.exportError?.(error) || `导出失败: ${getErrorMessage(error)}`,
-        { type: 'error' }
-      );
+      showAlert(resolvedMessages.exportError(error), { type: 'error' });
     } finally {
       setIsDataExporting(false);
     }
@@ -86,7 +110,7 @@ export function useBackupTransfer<TPayload = unknown>({
     if (!file) return;
 
     if (!file.name.endsWith('.json')) {
-      showAlert(messages?.invalidFileType || '请选择 .json 备份文件。', { type: 'warning' });
+      showAlert(resolvedMessages.invalidFileType, { type: 'warning' });
       return;
     }
 
@@ -95,9 +119,7 @@ export function useBackupTransfer<TPayload = unknown>({
       const payload = JSON.parse(text);
       const projectCount = payload?.stores?.projects?.length || 0;
       const assetCount = payload?.stores?.assetLibrary?.length || 0;
-      const confirmMessage =
-        messages?.importConfirm?.(projectCount, assetCount) ||
-        `将导入 ${projectCount} 个项目和 ${assetCount} 个资产。若 ID 冲突将覆盖现有数据。是否继续？`;
+      const confirmMessage = resolvedMessages.importConfirm(projectCount, assetCount);
 
       showAlert(confirmMessage, {
         type: 'warning',
@@ -107,17 +129,10 @@ export function useBackupTransfer<TPayload = unknown>({
             setIsDataImporting(true);
             const result = await importIndexedDBData(payload, { mode: 'merge' });
             await onImportSuccess?.(result);
-            showAlert(
-              messages?.importSuccess?.(result) ||
-                `导入完成：项目 ${result.projects} 个，资产 ${result.assets} 个。`,
-              { type: 'success' }
-            );
+            showAlert(resolvedMessages.importSuccess(result), { type: 'success' });
           } catch (error) {
             console.error('Import failed:', error);
-            showAlert(
-              messages?.importError?.(error) || `导入失败: ${getErrorMessage(error)}`,
-              { type: 'error' }
-            );
+            showAlert(resolvedMessages.importError(error), { type: 'error' });
           } finally {
             setIsDataImporting(false);
           }
@@ -125,10 +140,7 @@ export function useBackupTransfer<TPayload = unknown>({
       });
     } catch (error) {
       console.error('Import failed:', error);
-      showAlert(
-        messages?.importError?.(error) || `导入失败: ${getErrorMessage(error)}`,
-        { type: 'error' }
-      );
+      showAlert(resolvedMessages.importError(error), { type: 'error' });
     }
   };
 
@@ -141,4 +153,3 @@ export function useBackupTransfer<TPayload = unknown>({
     handleImportFileChange,
   };
 }
-

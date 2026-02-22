@@ -6,7 +6,11 @@ import { useAlert } from './GlobalAlert';
 import { useTheme } from '../contexts/ThemeContext';
 import { useNavigate } from 'react-router-dom';
 import qrCodeImg from '../images/qrcode.jpg';
-import { useBackupTransfer } from '../hooks/useBackupTransfer';
+import {
+  useBackupTransfer,
+  DEFAULT_BACKUP_TRANSFER_MESSAGES,
+  globalBackupFileName,
+} from '../hooks/useBackupTransfer';
 
 interface Props {
   onOpenProject: (project: ProjectState) => void;
@@ -151,8 +155,9 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
     handleImportFileChange,
   } = useBackupTransfer({
     exporter: exportIndexedDBData,
-    exportFileName: (timestamp) => `bigbanana_backup_${timestamp}.json`,
+    exportFileName: globalBackupFileName,
     showAlert,
+    messages: DEFAULT_BACKUP_TRANSFER_MESSAGES,
     onImportSuccess: async () => {
       await loadProjects();
       if (showLibraryModal) {

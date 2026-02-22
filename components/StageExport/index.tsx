@@ -18,7 +18,11 @@ import SecondaryOptions from './SecondaryOptions';
 import VideoPlayerModal from './VideoPlayerModal';
 import RenderLogsModal from './RenderLogsModal';
 import { useAlert } from '../GlobalAlert';
-import { useBackupTransfer } from '../../hooks/useBackupTransfer';
+import {
+  useBackupTransfer,
+  PROJECT_BACKUP_TRANSFER_MESSAGES,
+  projectBackupFileName,
+} from '../../hooks/useBackupTransfer';
 
 interface Props {
   project: ProjectState;
@@ -176,11 +180,9 @@ const StageExport: React.FC<Props> = ({ project }) => {
     handleImportFileChange,
   } = useBackupTransfer({
     exporter: () => exportProjectData(project),
-    exportFileName: (timestamp) => 'bigbanana_project_' + project.id + '_' + timestamp + '.json',
+    exportFileName: (timestamp) => projectBackupFileName(project.id, timestamp),
     showAlert,
-    messages: {
-      exportSuccess: '当前项目已导出，备份文件已下载。',
-    },
+    messages: PROJECT_BACKUP_TRANSFER_MESSAGES,
   });
 
   return (
