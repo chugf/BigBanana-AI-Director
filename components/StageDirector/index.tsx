@@ -980,50 +980,63 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
    * 九宫格分镜预览 - 第二步：确认并生成图片
    * 用户确认/编辑完面板描述后，调用图片生成 API 生成九宫格图片
    */
-  const handleConfirmNineGridPanels = async (confirmedPanels: NineGridPanel[]) => {
-    if (!activeShot) return;
-    
+  const getShotById = (shotId: string): Shot | undefined =>
+    project.shots.find(s => s.id === shotId);
+
+  const handleConfirmNineGridPanels = async (shotId: string, confirmedPanels: NineGridPanel[]) => {
+    const shot = getShotById(shotId);
+    if (!shot) return;
+
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
-    
+
     // 1. 更新面板数据并设置生成图片状态
-    updateShot(activeShot.id, (s) => ({
+    updateShot(shotId, (s) => ({
       ...s,
       nineGrid: {
         panels: confirmedPanels,
         status: 'generating_image' as const
       }
     }));
-    
+
     try {
-      // 2. 收集参考图片
-      const refResult = getRefImagesForShot(activeShot, project.scriptData);
-      
+      // 2. 基于最新 shot 快照收集参考图片，避免重试时引用过期闭包数据
+      const refResult = getRefImagesForShot(shot, project.scriptData);
+      if (refResult.images.length === 0) {
+        console.warn(`[NineGrid] shot=${shotId} 没有可用参考图，将仅按文案生成。`);
+      }
+
       // 3. 生成九宫格图片
-      const imageUrl = await generateNineGridImage(confirmedPanels, refResult.images, visualStyle, keyframeAspectRatio);
-      
+      const imageUrl = await generateNineGridImage(
+        confirmedPanels,
+        refResult.images,
+        visualStyle,
+        keyframeAspectRatio,
+        { hasTurnaround: refResult.hasTurnaround }
+      );
+
       // 4. 更新状态为完成
-      updateShot(activeShot.id, (s) => ({
+      updateShot(shotId, (s) => ({
         ...s,
         nineGrid: {
           panels: confirmedPanels,
           imageUrl,
-          prompt: `Nine Grid Storyboard - ${activeShot.actionSummary}`,
+          prompt: `Nine Grid Storyboard - ${shot.actionSummary}`,
           status: 'completed' as const
         }
       }));
-      
+
       showAlert('九宫格分镜图片生成完成！', { type: 'success' });
-      
+
     } catch (e: any) {
       console.error('九宫格图片生成失败:', e);
-      updateShot(activeShot.id, (s) => ({
+      updateShot(shotId, (s) => ({
         ...s,
         nineGrid: {
           panels: confirmedPanels,
           status: 'failed' as const
         }
       }));
-      
+
       if (onApiKeyError && onApiKeyError(e)) return;
       showAlert(`九宫格图片生成失败: ${e.message}`, { type: 'error' });
     }
@@ -1037,7 +1050,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     if (!activeShot || !activeShot.nineGrid?.panels || activeShot.nineGrid.panels.length !== 9) return;
     
     // 直接使用已有的面板描述重新生成图片
-    handleConfirmNineGridPanels(activeShot.nineGrid.panels);
+    await handleConfirmNineGridPanels(activeShot.id, activeShot.nineGrid.panels);
   };
 
   /**
@@ -1348,7 +1361,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
           onUseWholeImage={handleUseWholeNineGridAsFrame}
           onRegenerate={() => handleGenerateNineGrid(activeShot)}
           onRegenerateImage={handleRegenerateNineGridImage}
-          onConfirmPanels={handleConfirmNineGridPanels}
+          onConfirmPanels={(panels) => handleConfirmNineGridPanels(activeShot.id, panels)}
           onUpdatePanel={handleUpdateNineGridPanel}
           aspectRatio={keyframeAspectRatio}
         />
