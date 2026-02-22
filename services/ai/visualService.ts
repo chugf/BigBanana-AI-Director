@@ -14,6 +14,7 @@ import {
   getActiveModel,
   resolveModel,
   logScriptProgress,
+  parseHttpError,
 } from './apiCore';
 import {
   getStylePrompt,
@@ -445,6 +446,26 @@ const buildImageRoutingPrefix = (
 - Then apply the textual action and camera intent.`;
 };
 
+const buildImageApiError = (status: number, backendMessage?: string): Error => {
+  const detail = backendMessage?.trim();
+  const withDetail = (message: string): string => (detail ? `${message}（接口信息：${detail}）` : message);
+
+  let message: string;
+  if (status === 400) {
+    message = withDetail('图片生成失败：提示词可能被风控拦截，请修改提示词后重试。');
+  } else if (status === 500 || status === 503) {
+    message = withDetail('图片生成失败：服务器繁忙，请稍后重试。');
+  } else if (status === 429) {
+    message = withDetail('图片生成失败：请求过于频繁，请稍后再试。');
+  } else {
+    message = withDetail(`图片生成失败：接口请求异常（HTTP ${status}）。`);
+  }
+
+  const err: any = new Error(message);
+  err.status = status;
+  return err;
+};
+
 export const generateImage = async (
   prompt: string,
   referenceImages: string[] = [],
@@ -657,22 +678,10 @@ NEGATIVE PROMPT (strictly avoid all of the following): ${negativePrompt.trim()}`
       });
 
       if (!res.ok) {
-        if (res.status === 400) {
-          throw new Error('提示词可能包含不安全或违规内容，未能处理。请修改后重试。');
-        }
-        else if (res.status === 500) {
-          throw new Error('当前请求较多，暂时未能处理成功，请稍后重试。');
-        }
-
-        let errorMessage = `HTTP错误: ${res.status}`;
-        try {
-          const errorData = await res.json();
-          errorMessage = errorData.error?.message || errorMessage;
-        } catch (e) {
-          const errorText = await res.text();
-          if (errorText) errorMessage = errorText;
-        }
-        throw new Error(errorMessage);
+        const parsedError = await parseHttpError(res);
+        const parsedAny: any = parsedError;
+        const status = parsedAny.status || res.status;
+        throw buildImageApiError(status, parsedError.message);
       }
 
       return await res.json();
@@ -699,7 +708,18 @@ NEGATIVE PROMPT (strictly avoid all of the following): ${negativePrompt.trim()}`
       }
     }
 
-    throw new Error("图片生成失败 (No image data returned)");
+    const hasSafetyBlock =
+      !!response?.promptFeedback?.blockReason ||
+      candidates.some((candidate: any) => {
+        const finishReason = String(candidate?.finishReason || '').toUpperCase();
+        return finishReason.includes('SAFETY') || finishReason.includes('BLOCK');
+      });
+
+    if (hasSafetyBlock) {
+      throw new Error('图片生成失败：提示词可能被风控拦截，请修改提示词后重试。');
+    }
+
+    throw new Error('图片生成失败：未返回有效图片数据，请重试或调整提示词。');
   } catch (error: any) {
     addRenderLogWithTokens({
       type: 'keyframe',
