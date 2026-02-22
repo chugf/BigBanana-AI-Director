@@ -77,6 +77,23 @@ const ProjectOverview: React.FC = () => {
     return title;
   };
 
+  const firstSeries = allSeries[0];
+  const firstEpisode = firstSeries ? getEpisodesForSeries(firstSeries.id)[0] : null;
+  const firstEpisodeTitle = firstEpisode ? getEpisodeDisplayTitle(firstEpisode.episodeNumber, firstEpisode.title) : '第一集';
+  const showNewProjectGuide = allSeries.length === 0 || allEpisodes.length <= 1;
+
+  const handleCreateFirstSeries = () => {
+    setShowNewSeries(true);
+    if (!newSeriesName.trim()) {
+      setNewSeriesName('第一季');
+    }
+  };
+
+  const handleOpenFirstEpisode = () => {
+    if (!firstEpisode) return;
+    navigate(`/project/${project.id}/episode/${firstEpisode.id}`);
+  };
+
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-secondary)] p-8 md:p-12 font-sans">
       <div className="max-w-7xl mx-auto">
@@ -164,6 +181,74 @@ const ProjectOverview: React.FC = () => {
             </div>
           ))}
         </div>
+
+        {showNewProjectGuide && (
+          <section className="mb-8 border border-[var(--border-primary)] bg-[var(--bg-primary)] p-5 md:p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-[var(--text-muted)] mb-2">新项目引导</p>
+                <h2 className="text-base font-bold text-[var(--text-primary)]">多剧集模式建议按这 3 步开始</h2>
+                <p className="text-xs text-[var(--text-tertiary)] mt-2">先创建剧集，再创建集，最后点击第一集进入创作。</p>
+              </div>
+
+              {firstEpisode ? (
+                <button
+                  onClick={handleOpenFirstEpisode}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] hover:bg-[var(--btn-primary-hover)] transition-colors text-xs font-bold uppercase tracking-widest"
+                >
+                  点第一集开始创作
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              ) : firstSeries ? (
+                <button
+                  onClick={() => { void handleCreateEpisode(firstSeries.id); }}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] hover:bg-[var(--btn-primary-hover)] transition-colors text-xs font-bold uppercase tracking-widest"
+                >
+                  创建第一集
+                  <Plus className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleCreateFirstSeries}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] hover:bg-[var(--btn-primary-hover)] transition-colors text-xs font-bold uppercase tracking-widest"
+                >
+                  创建第一剧集
+                  <Plus className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <div className="border border-[var(--border-primary)] bg-[var(--bg-sunken)] p-4">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-[var(--text-muted)] mb-2">Step 1</div>
+                <div className="text-sm font-bold text-[var(--text-primary)] mb-1">创建剧集</div>
+                <div className="text-xs text-[var(--text-tertiary)]">
+                  {allSeries.length === 0
+                    ? '点击“新建剧集”，例如“第一季”。'
+                    : `已创建「${firstSeries.title}」，可继续添加更多剧集。`}
+                </div>
+              </div>
+              <div className="border border-[var(--border-primary)] bg-[var(--bg-sunken)] p-4">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-[var(--text-muted)] mb-2">Step 2</div>
+                <div className="text-sm font-bold text-[var(--text-primary)] mb-1">为剧集创建集</div>
+                <div className="text-xs text-[var(--text-tertiary)]">
+                  {firstSeries
+                    ? `展开「${firstSeries.title}」，点击 + 添加新集。`
+                    : '创建剧集后，展开剧集并点击 + 添加集数。'}
+                </div>
+              </div>
+              <div className="border border-[var(--border-primary)] bg-[var(--bg-sunken)] p-4">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-[var(--text-muted)] mb-2">Step 3</div>
+                <div className="text-sm font-bold text-[var(--text-primary)] mb-1">点击第一集开始创作</div>
+                <div className="text-xs text-[var(--text-tertiary)]">
+                  {firstEpisode
+                    ? `点击「${firstEpisodeTitle}」进入剧本阶段开始创作。`
+                    : '创建第一集后，点击该集进入创作流程。'}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
 
         <div className="mb-8 flex items-center justify-between">
           <h2 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-widest">剧集管理</h2>
