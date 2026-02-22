@@ -116,7 +116,7 @@ export async function runV2ToV3Migration(db: IDBDatabase): Promise<void> {
         title: legacy.title,
         createdAt: legacy.createdAt,
         lastModified: legacy.lastModified,
-        visualStyle: legacy.visualStyle || 'live-action',
+        visualStyle: legacy.visualStyle || '3d-animation',
         language: legacy.language || '中文',
         artDirection: legacy.scriptData?.artDirection,
         characterLibrary: libraryChars,

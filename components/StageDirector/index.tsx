@@ -310,7 +310,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       ? `${rawBasePrompt}\n\n${continuityHint}`
       : rawBasePrompt;
     
-    const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
+    const visualStyle = project.visualStyle || project.scriptData?.visualStyle || '3d-animation';
     const negativePrompt = buildShotNegativePrompt(shot, visualStyle);
     
     // 立即设置生成状态，显示loading

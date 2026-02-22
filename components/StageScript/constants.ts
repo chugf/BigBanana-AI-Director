@@ -57,5 +57,5 @@ export const DEFAULTS = {
   duration: '60s',
   language: '中文',
   model: 'gpt-5.1',
-  visualStyle: 'live-action'
+  visualStyle: '3d-animation'
 };

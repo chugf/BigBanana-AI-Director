@@ -190,7 +190,7 @@ export const createNewSeriesProject = (title?: string): SeriesProject => {
     title: finalTitle,
     createdAt: Date.now(),
     lastModified: Date.now(),
-    visualStyle: 'live-action',
+    visualStyle: '3d-animation',
     language: '中文',
     characterLibrary: [],
     sceneLibrary: [],
@@ -332,7 +332,7 @@ export const createNewEpisode = (projectId: string, seriesId: string, episodeNum
     rawScript: '',
     targetDuration: '60s',
     language: '中文',
-    visualStyle: 'live-action',
+    visualStyle: '3d-animation',
     shotGenerationModel: 'gpt-5.1',
     scriptData: null,
     shots: [],
@@ -556,7 +556,7 @@ export const importIndexedDBData = async (
 
         const sp: SeriesProject = {
           id: projectId, title: p.title, createdAt: p.createdAt || Date.now(), lastModified: p.lastModified || Date.now(),
-          visualStyle: p.visualStyle || 'live-action', language: p.language || '中文',
+          visualStyle: p.visualStyle || '3d-animation', language: p.language || '中文',
           artDirection: p.scriptData?.artDirection,
           characterLibrary: chars.map((c: any) => ({ ...c, version: 1 })),
           sceneLibrary: scenes.map((s: any) => ({ ...s, version: 1 })),
@@ -572,7 +572,7 @@ export const importIndexedDBData = async (
           title: `第 1 集`,
           createdAt: p.createdAt || Date.now(), lastModified: p.lastModified || Date.now(),
           stage: p.stage || 'script', rawScript: p.rawScript || '', targetDuration: p.targetDuration || '60s',
-          language: p.language || '中文', visualStyle: p.visualStyle || 'live-action',
+          language: p.language || '中文', visualStyle: p.visualStyle || '3d-animation',
           shotGenerationModel: p.shotGenerationModel || 'gpt-5.1',
           scriptData: p.scriptData
             ? {

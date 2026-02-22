@@ -31,7 +31,7 @@ export const parseScriptToData = async (
   rawText: string,
   language: string = '中文',
   model: string = 'gpt-5.1',
-  visualStyle: string = 'live-action'
+  visualStyle: string = '3d-animation'
 ): Promise<ScriptData> => {
   console.log('📝 parseScriptToData 调用 - 使用模型:', model, '视觉风格:', visualStyle);
   logScriptProgress('正在解析剧本结构...');
@@ -241,7 +241,7 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
   }
 
   const lang = scriptData.language || '中文';
-  const visualStyle = scriptData.visualStyle || 'live-action';
+  const visualStyle = scriptData.visualStyle || '3d-animation';
   const stylePrompt = getStylePrompt(visualStyle);
   const artDir = scriptData.artDirection;
 
