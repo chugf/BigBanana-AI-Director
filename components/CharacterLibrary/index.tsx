@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, Plus, Users, MapPin, Package, Loader2, Search } from 'lucide-react';
 import { useProjectContext } from '../../contexts/ProjectContext';
@@ -65,32 +65,44 @@ const CharacterLibraryPage: React.FC = () => {
   const props = project.propLibrary || [];
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
-  const filteredCharacters = normalizedQuery
-    ? characters.filter((char) =>
-        [char.name, char.gender, char.age, char.personality, char.visualPrompt || '', char.coreFeatures || '']
-          .join(' ')
-          .toLowerCase()
-          .includes(normalizedQuery)
-      )
-    : characters;
+  const filteredCharacters = useMemo(
+    () =>
+      normalizedQuery
+        ? characters.filter((char) =>
+            [char.name, char.gender, char.age, char.personality, char.visualPrompt || '', char.coreFeatures || '']
+              .join(' ')
+              .toLowerCase()
+              .includes(normalizedQuery)
+          )
+        : characters,
+    [characters, normalizedQuery]
+  );
 
-  const filteredScenes = normalizedQuery
-    ? scenes.filter((scene) =>
-        [scene.location, scene.time, scene.atmosphere, scene.visualPrompt || '']
-          .join(' ')
-          .toLowerCase()
-          .includes(normalizedQuery)
-      )
-    : scenes;
+  const filteredScenes = useMemo(
+    () =>
+      normalizedQuery
+        ? scenes.filter((scene) =>
+            [scene.location, scene.time, scene.atmosphere, scene.visualPrompt || '']
+              .join(' ')
+              .toLowerCase()
+              .includes(normalizedQuery)
+          )
+        : scenes,
+    [scenes, normalizedQuery]
+  );
 
-  const filteredProps = normalizedQuery
-    ? props.filter((prop) =>
-        [prop.name, prop.category, prop.description, prop.visualPrompt || '']
-          .join(' ')
-          .toLowerCase()
-          .includes(normalizedQuery)
-      )
-    : props;
+  const filteredProps = useMemo(
+    () =>
+      normalizedQuery
+        ? props.filter((prop) =>
+            [prop.name, prop.category, prop.description, prop.visualPrompt || '']
+              .join(' ')
+              .toLowerCase()
+              .includes(normalizedQuery)
+          )
+        : props,
+    [props, normalizedQuery]
+  );
 
   const getCharacterRefCount = (characterId: string): number =>
     allEpisodes.filter((ep) => ep.scriptData?.characters.some((char) => char.libraryId === characterId)).length;
@@ -109,59 +121,49 @@ const CharacterLibraryPage: React.FC = () => {
     setShowAddModal(false);
   };
 
-  const handleDeleteCharacter = (character: Character) => {
-    const refCount = getCharacterRefCount(character.id);
+  const confirmDeleteAsset = (
+    assetTypeLabel: string,
+    assetName: string,
+    refCount: number,
+    onConfirm: () => void
+  ) => {
     const msg =
       refCount > 0
-        ? `角色“${character.name}”已被 ${refCount} 集引用，删除后各集中的引用副本将变为独立角色。确定删除？`
-        : `确定从角色库删除“${character.name}”吗？`;
-    showAlert(msg, { type: 'warning', showCancel: true, onConfirm: () => removeCharacterFromLibrary(character.id) });
+        ? `${assetTypeLabel}“${assetName}”已被 ${refCount} 集引用，删除后各集中的引用副本将变为独立${assetTypeLabel}。确定删除？`
+        : `确定从${assetTypeLabel}库删除“${assetName}”吗？`;
+    showAlert(msg, { type: 'warning', showCancel: true, onConfirm });
   };
 
-  const handleDeleteScene = (scene: Scene) => {
-    const refCount = getSceneRefCount(scene.id);
-    const msg =
-      refCount > 0
-        ? `场景“${scene.location}”已被 ${refCount} 集引用，删除后各集中的引用副本将变为独立场景。确定删除？`
-        : `确定从场景库删除“${scene.location}”吗？`;
-    showAlert(msg, { type: 'warning', showCancel: true, onConfirm: () => removeSceneFromLibrary(scene.id) });
-  };
-
-  const handleDeleteProp = (prop: Prop) => {
-    const refCount = getPropRefCount(prop.id);
-    const msg =
-      refCount > 0
-        ? `道具“${prop.name}”已被 ${refCount} 集引用，删除后各集中的引用副本将变为独立道具。确定删除？`
-        : `确定从道具库删除“${prop.name}”吗？`;
-    showAlert(msg, { type: 'warning', showCancel: true, onConfirm: () => removePropFromLibrary(prop.id) });
-  };
-
-  const handleUploadCharacterImage = async (character: Character, file: File) => {
+  const uploadAssetImage = async <T extends Character | Scene | Prop>(
+    asset: T,
+    updater: (nextAsset: T) => void,
+    file: File
+  ) => {
     try {
       const base64 = await convertImageToBase64(file);
-      updateCharacterInLibrary({ ...character, referenceImage: base64, status: 'completed' });
+      updater({ ...asset, referenceImage: base64, status: 'completed' as const });
     } catch (error) {
       showAlert(`上传失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
     }
   };
 
-  const handleUploadSceneImage = async (scene: Scene, file: File) => {
-    try {
-      const base64 = await convertImageToBase64(file);
-      updateSceneInLibrary({ ...scene, referenceImage: base64, status: 'completed' });
-    } catch (error) {
-      showAlert(`上传失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-    }
-  };
+  const handleDeleteCharacter = (character: Character) =>
+    confirmDeleteAsset('角色', character.name, getCharacterRefCount(character.id), () => removeCharacterFromLibrary(character.id));
 
-  const handleUploadPropImage = async (prop: Prop, file: File) => {
-    try {
-      const base64 = await convertImageToBase64(file);
-      updatePropInLibrary({ ...prop, referenceImage: base64, status: 'completed' });
-    } catch (error) {
-      showAlert(`上传失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-    }
-  };
+  const handleDeleteScene = (scene: Scene) =>
+    confirmDeleteAsset('场景', scene.location, getSceneRefCount(scene.id), () => removeSceneFromLibrary(scene.id));
+
+  const handleDeleteProp = (prop: Prop) =>
+    confirmDeleteAsset('道具', prop.name, getPropRefCount(prop.id), () => removePropFromLibrary(prop.id));
+
+  const handleUploadCharacterImage = (character: Character, file: File) =>
+    uploadAssetImage(character, updateCharacterInLibrary, file);
+
+  const handleUploadSceneImage = (scene: Scene, file: File) =>
+    uploadAssetImage(scene, updateSceneInLibrary, file);
+
+  const handleUploadPropImage = (prop: Prop, file: File) =>
+    uploadAssetImage(prop, updatePropInLibrary, file);
 
   const handleSaveAsset = (asset: LibraryAsset) => {
     if (activeTab === 'character') {
@@ -231,6 +233,93 @@ const CharacterLibraryPage: React.FC = () => {
     return filteredProps.length;
   };
 
+  const renderCharacterList = () => {
+    if (filteredCharacters.length === 0) {
+      return (
+        <div className="border border-dashed border-[var(--border-primary)] p-12 text-center text-[var(--text-muted)]">
+          <Users className="w-10 h-10 mx-auto mb-4 opacity-30" />
+          <p className="text-sm mb-2">{searchQuery ? '未找到匹配角色' : '角色库为空'}</p>
+          <p className="text-[10px] font-mono">点击“添加角色”创建新角色，修改将自动同步到已引用的集。</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        {filteredCharacters.map((character) => (
+          <AssetLibraryEditorCard
+            key={character.id}
+            type="character"
+            asset={character}
+            refCount={getCharacterRefCount(character.id)}
+            onSave={handleSaveAsset}
+            onDelete={() => handleDeleteCharacter(character)}
+            onUploadImage={(file) => handleUploadCharacterImage(character, file)}
+            onPreviewImage={setPreviewImage}
+          />
+        ))}
+      </div>
+    );
+  };
+
+  const renderSceneList = () => {
+    if (filteredScenes.length === 0) {
+      return (
+        <div className="border border-dashed border-[var(--border-primary)] p-12 text-center text-[var(--text-muted)]">
+          <MapPin className="w-10 h-10 mx-auto mb-4 opacity-30" />
+          <p className="text-sm mb-2">{searchQuery ? '未找到匹配场景' : '场景库为空'}</p>
+          <p className="text-[10px] font-mono">点击“添加场景”创建新场景，修改将自动同步到已引用的集。</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        {filteredScenes.map((scene) => (
+          <AssetLibraryEditorCard
+            key={scene.id}
+            type="scene"
+            asset={scene}
+            refCount={getSceneRefCount(scene.id)}
+            onSave={handleSaveAsset}
+            onDelete={() => handleDeleteScene(scene)}
+            onUploadImage={(file) => handleUploadSceneImage(scene, file)}
+            onPreviewImage={setPreviewImage}
+          />
+        ))}
+      </div>
+    );
+  };
+
+  const renderPropList = () => {
+    if (filteredProps.length === 0) {
+      return (
+        <div className="border border-dashed border-[var(--border-primary)] p-12 text-center text-[var(--text-muted)]">
+          <Package className="w-10 h-10 mx-auto mb-4 opacity-30" />
+          <p className="text-sm mb-2">{searchQuery ? '未找到匹配道具' : '道具库为空'}</p>
+          <p className="text-[10px] font-mono">点击“添加道具”创建新道具，修改将自动同步到已引用的集。</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+        {filteredProps.map((prop) => (
+          <AssetLibraryEditorCard
+            key={prop.id}
+            type="prop"
+            asset={prop}
+            refCount={getPropRefCount(prop.id)}
+            onSave={handleSaveAsset}
+            onDelete={() => handleDeleteProp(prop)}
+            onUploadImage={(file) => handleUploadPropImage(prop, file)}
+            onPreviewImage={setPreviewImage}
+          />
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-secondary)] p-8 md:p-12 font-sans">
       <div className="max-w-7xl mx-auto">
@@ -291,91 +380,12 @@ const CharacterLibraryPage: React.FC = () => {
               className="w-full pl-9 pr-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-primary)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--border-secondary)] rounded"
             />
           </div>
-          <div className="text-[10px] font-mono uppercase tracking-widest text-[var(--text-muted)]">
-            {getCurrentCount()} items
-          </div>
+          <div className="text-[10px] font-mono uppercase tracking-widest text-[var(--text-muted)]">{getCurrentCount()} items</div>
         </div>
 
-        {activeTab === 'character' && (
-          <>
-            {filteredCharacters.length === 0 ? (
-              <div className="border border-dashed border-[var(--border-primary)] p-12 text-center text-[var(--text-muted)]">
-                <Users className="w-10 h-10 mx-auto mb-4 opacity-30" />
-                <p className="text-sm mb-2">{searchQuery ? '未找到匹配角色' : '角色库为空'}</p>
-                <p className="text-[10px] font-mono">点击“添加角色”创建新角色，修改将自动同步到已引用的集。</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-                {filteredCharacters.map((character) => (
-                  <AssetLibraryEditorCard
-                    key={character.id}
-                    type="character"
-                    asset={character}
-                    refCount={getCharacterRefCount(character.id)}
-                    onSave={(asset) => handleSaveAsset(asset)}
-                    onDelete={() => handleDeleteCharacter(character)}
-                    onUploadImage={(file) => handleUploadCharacterImage(character, file)}
-                    onPreviewImage={(url) => setPreviewImage(url)}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {activeTab === 'scene' && (
-          <>
-            {filteredScenes.length === 0 ? (
-              <div className="border border-dashed border-[var(--border-primary)] p-12 text-center text-[var(--text-muted)]">
-                <MapPin className="w-10 h-10 mx-auto mb-4 opacity-30" />
-                <p className="text-sm mb-2">{searchQuery ? '未找到匹配场景' : '场景库为空'}</p>
-                <p className="text-[10px] font-mono">点击“添加场景”创建新场景，修改将自动同步到已引用的集。</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-                {filteredScenes.map((scene) => (
-                  <AssetLibraryEditorCard
-                    key={scene.id}
-                    type="scene"
-                    asset={scene}
-                    refCount={getSceneRefCount(scene.id)}
-                    onSave={(asset) => handleSaveAsset(asset)}
-                    onDelete={() => handleDeleteScene(scene)}
-                    onUploadImage={(file) => handleUploadSceneImage(scene, file)}
-                    onPreviewImage={(url) => setPreviewImage(url)}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {activeTab === 'prop' && (
-          <>
-            {filteredProps.length === 0 ? (
-              <div className="border border-dashed border-[var(--border-primary)] p-12 text-center text-[var(--text-muted)]">
-                <Package className="w-10 h-10 mx-auto mb-4 opacity-30" />
-                <p className="text-sm mb-2">{searchQuery ? '未找到匹配道具' : '道具库为空'}</p>
-                <p className="text-[10px] font-mono">点击“添加道具”创建新道具，修改将自动同步到已引用的集。</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-                {filteredProps.map((prop) => (
-                  <AssetLibraryEditorCard
-                    key={prop.id}
-                    type="prop"
-                    asset={prop}
-                    refCount={getPropRefCount(prop.id)}
-                    onSave={(asset) => handleSaveAsset(asset)}
-                    onDelete={() => handleDeleteProp(prop)}
-                    onUploadImage={(file) => handleUploadPropImage(prop, file)}
-                    onPreviewImage={(url) => setPreviewImage(url)}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
+        {activeTab === 'character' && renderCharacterList()}
+        {activeTab === 'scene' && renderSceneList()}
+        {activeTab === 'prop' && renderPropList()}
       </div>
 
       {showAddModal && (

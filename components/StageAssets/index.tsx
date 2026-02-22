@@ -62,25 +62,79 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     } catch { return null; }
   };
 
-  const upsertCharacterRef = (characterId: string, syncedVersion: number) => {
-    const nextRef = { characterId, syncedVersion, syncStatus: 'synced' as const };
-    const refs = project.characterRefs || [];
-    const hasRef = refs.some(r => r.characterId === characterId);
-    return hasRef ? refs.map(r => (r.characterId === characterId ? nextRef : r)) : [...refs, nextRef];
+  const upsertEpisodeRef = <TRef,>(
+    refs: TRef[] | undefined,
+    key: string,
+    getKey: (ref: TRef) => string,
+    nextRef: TRef
+  ): TRef[] => {
+    const currentRefs = refs || [];
+    const hasRef = currentRefs.some(ref => getKey(ref) === key);
+    if (!hasRef) return [...currentRefs, nextRef];
+    return currentRefs.map(ref => (getKey(ref) === key ? nextRef : ref));
   };
 
-  const upsertSceneRef = (sceneId: string, syncedVersion: number) => {
-    const nextRef = { sceneId, syncedVersion, syncStatus: 'synced' as const };
-    const refs = project.sceneRefs || [];
-    const hasRef = refs.some(r => r.sceneId === sceneId);
-    return hasRef ? refs.map(r => (r.sceneId === sceneId ? nextRef : r)) : [...refs, nextRef];
-  };
+  const upsertCharacterRef = (characterId: string, syncedVersion: number) =>
+    upsertEpisodeRef(
+      project.characterRefs,
+      characterId,
+      ref => ref.characterId,
+      { characterId, syncedVersion, syncStatus: 'synced' as const }
+    );
 
-  const upsertPropRef = (propId: string, syncedVersion: number) => {
-    const nextRef = { propId, syncedVersion, syncStatus: 'synced' as const };
-    const refs = project.propRefs || [];
-    const hasRef = refs.some(r => r.propId === propId);
-    return hasRef ? refs.map(r => (r.propId === propId ? nextRef : r)) : [...refs, nextRef];
+  const upsertSceneRef = (sceneId: string, syncedVersion: number) =>
+    upsertEpisodeRef(
+      project.sceneRefs,
+      sceneId,
+      ref => ref.sceneId,
+      { sceneId, syncedVersion, syncStatus: 'synced' as const }
+    );
+
+  const upsertPropRef = (propId: string, syncedVersion: number) =>
+    upsertEpisodeRef(
+      project.propRefs,
+      propId,
+      ref => ref.propId,
+      { propId, syncedVersion, syncStatus: 'synced' as const }
+    );
+
+  const appendLinkedLibraryAsset = <
+    TAsset extends { id: string; version?: number },
+    TField extends 'characters' | 'scenes' | 'props',
+    TRefField extends 'characterRefs' | 'sceneRefs' | 'propRefs'
+  >(params: {
+    asset: TAsset;
+    idPrefix: 'char' | 'scene' | 'prop';
+    field: TField;
+    refField: TRefField;
+    upsertRef: (assetId: string, syncedVersion: number) => ProjectState[TRefField];
+    onDone: () => void;
+  }) => {
+    if (!project.scriptData) return;
+
+    const { asset, idPrefix, field, refField, upsertRef, onDone } = params;
+    const linkedAsset = {
+      ...asset,
+      id: generateId(idPrefix),
+      libraryId: asset.id,
+      libraryVersion: asset.version || 1,
+    };
+    const nextRefs = upsertRef(asset.id, asset.version || 1);
+
+    updateProject(prev => {
+      const currentScriptData = prev.scriptData!;
+      const currentItems = ((currentScriptData as any)[field] || []) as any[];
+      return {
+        ...prev,
+        scriptData: {
+          ...currentScriptData,
+          [field]: [...currentItems, linkedAsset],
+        },
+        [refField]: nextRefs,
+      };
+    });
+
+    onDone();
   };
 
   const cloneScriptData = <T extends ProjectState['scriptData']>(scriptData: T): T => {
@@ -1723,22 +1777,17 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
           project={pickerProject}
           existingCharacterIds={(project.scriptData?.characters || []).filter(c => c.libraryId).map(c => c.libraryId!)}
           onSelect={(libChar) => {
-            if (!project.scriptData) return;
-            const newChar: Character = {
-              ...libChar,
-              id: generateId('char'),
-              libraryId: libChar.id,
-              libraryVersion: libChar.version || 1,
-              variations: libChar.variations?.map(v => ({ ...v })) || [],
-            };
-            const newChars = [...project.scriptData.characters, newChar];
-            const newRefs = upsertCharacterRef(libChar.id, libChar.version || 1);
-            updateProject(prev => ({
-              ...prev,
-              scriptData: { ...prev.scriptData!, characters: newChars },
-              characterRefs: newRefs,
-            }));
-            setShowCharLibraryPicker(false);
+            appendLinkedLibraryAsset({
+              asset: {
+                ...libChar,
+                variations: libChar.variations?.map(v => ({ ...v })) || [],
+              },
+              idPrefix: 'char',
+              field: 'characters',
+              refField: 'characterRefs',
+              upsertRef: upsertCharacterRef,
+              onDone: () => setShowCharLibraryPicker(false),
+            });
           }}
         />
       )}
@@ -1752,21 +1801,14 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
           assetType="scene"
           existingIds={(project.scriptData?.scenes || []).filter(s => !!s.libraryId).map(s => s.libraryId!)}
           onSelectScene={(libScene) => {
-            if (!project.scriptData) return;
-            const newScene = {
-              ...libScene,
-              id: generateId('scene'),
-              libraryId: libScene.id,
-              libraryVersion: libScene.version || 1,
-            };
-            const newScenes = [...project.scriptData.scenes, newScene];
-            const newRefs = upsertSceneRef(libScene.id, libScene.version || 1);
-            updateProject(prev => ({
-              ...prev,
-              scriptData: { ...prev.scriptData!, scenes: newScenes },
-              sceneRefs: newRefs,
-            }));
-            setShowSceneLibraryPicker(false);
+            appendLinkedLibraryAsset({
+              asset: libScene,
+              idPrefix: 'scene',
+              field: 'scenes',
+              refField: 'sceneRefs',
+              upsertRef: upsertSceneRef,
+              onDone: () => setShowSceneLibraryPicker(false),
+            });
           }}
         />
       )}
@@ -1780,21 +1822,14 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
           assetType="prop"
           existingIds={(project.scriptData?.props || []).filter(p => !!p.libraryId).map(p => p.libraryId!)}
           onSelectProp={(libProp) => {
-            if (!project.scriptData) return;
-            const newProp = {
-              ...libProp,
-              id: generateId('prop'),
-              libraryId: libProp.id,
-              libraryVersion: libProp.version || 1,
-            };
-            const newProps = [...(project.scriptData.props || []), newProp];
-            const newRefs = upsertPropRef(libProp.id, libProp.version || 1);
-            updateProject(prev => ({
-              ...prev,
-              scriptData: { ...prev.scriptData!, props: newProps },
-              propRefs: newRefs,
-            }));
-            setShowPropLibraryPicker(false);
+            appendLinkedLibraryAsset({
+              asset: libProp,
+              idPrefix: 'prop',
+              field: 'props',
+              refField: 'propRefs',
+              upsertRef: upsertPropRef,
+              onDone: () => setShowPropLibraryPicker(false),
+            });
           }}
         />
       )}
