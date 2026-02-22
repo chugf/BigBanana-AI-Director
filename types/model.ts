@@ -244,6 +244,18 @@ export const DEFAULT_VIDEO_PARAMS_VEO_FAST: VideoModelParams = {
   supportedDurations: [8],
 };
 
+/**
+ * 默认视频模型参数 (豆包 Seedance 1.5 Pro)
+ * 火山引擎任务接口，当前按固定时长使用
+ */
+export const DEFAULT_VIDEO_PARAMS_DOUBAO_SEEDANCE: VideoModelParams = {
+  mode: 'async',
+  defaultAspectRatio: '16:9',
+  supportedAspectRatios: ['16:9', '9:16'],
+  defaultDuration: 8,
+  supportedDurations: [8],
+};
+
 // ============================================
 // 内置模型定义
 // ============================================
@@ -348,6 +360,18 @@ export const BUILTIN_VIDEO_MODELS: VideoModelDefinition[] = [
     isEnabled: true,
     params: { ...DEFAULT_VIDEO_PARAMS_SORA },
   },
+  {
+    id: 'doubao-seedance-1-5-pro-251215',
+    apiModel: 'doubao-seedance-1-5-pro-251215',
+    name: 'Doubao Seedance 1.5 Pro',
+    type: 'video',
+    providerId: 'volcengine',
+    endpoint: '/api/v3/contents/generations/tasks',
+    description: '火山引擎异步任务模式（create task + poll task）',
+    isBuiltIn: true,
+    isEnabled: true,
+    params: { ...DEFAULT_VIDEO_PARAMS_DOUBAO_SEEDANCE },
+  },
 ];
 
 /**
@@ -360,6 +384,13 @@ export const BUILTIN_PROVIDERS: ModelProvider[] = [
     baseUrl: 'https://api.antsk.cn',
     isBuiltIn: true,
     isDefault: true,
+  },
+  {
+    id: 'volcengine',
+    name: 'Volcengine Ark',
+    baseUrl: 'https://ark.cn-beijing.volces.com',
+    isBuiltIn: true,
+    isDefault: false,
   },
 ];
 
@@ -378,5 +409,5 @@ export const ALL_BUILTIN_MODELS: ModelDefinition[] = [
 export const DEFAULT_ACTIVE_MODELS: ActiveModels = {
   chat: 'gpt-5.1',
   image: 'gemini-3-pro-image-preview',
-  video: 'sora-2',
+  video: 'doubao-seedance-1-5-pro-251215',
 };

@@ -70,7 +70,6 @@ const ModelList: React.FC<ModelListProps> = ({ type, onRefresh }) => {
   const handleUpdateModel = (modelId: string, updates: Partial<ModelDefinition>) => {
     if (updateModel(modelId, updates)) {
       loadModels();
-      onRefresh();
     }
   };
 

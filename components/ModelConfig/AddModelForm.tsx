@@ -3,7 +3,7 @@
  * 支持自定义提供商和 endpoint
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { 
   ModelType, 
@@ -15,6 +15,7 @@ import {
   DEFAULT_IMAGE_PARAMS,
   DEFAULT_VIDEO_PARAMS_SORA,
   DEFAULT_VIDEO_PARAMS_VEO,
+  DEFAULT_VIDEO_PARAMS_DOUBAO_SEEDANCE,
 } from '../../types/model';
 import { getProviders, addProvider } from '../../services/modelRegistry';
 import { useAlert } from '../GlobalAlert';
@@ -34,7 +35,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
   const [description, setDescription] = useState('');
   const [endpoint, setEndpoint] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [videoMode, setVideoMode] = useState<'sync' | 'async'>('sync');
+  const [videoMode, setVideoMode] = useState<'sync' | 'async' | 'task'>('sync');
   
   // 提供商配置
   const [providerMode, setProviderMode] = useState<'existing' | 'custom'>('existing');
@@ -45,6 +46,16 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
   
   // 展开高级选项
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  useEffect(() => {
+    if (type !== 'video' || providerMode !== 'existing' || videoMode !== 'task') return;
+    const volcengineProvider = existingProviders.find(
+      p => p.id === 'volcengine' || p.baseUrl.toLowerCase().includes('volces.com')
+    );
+    if (volcengineProvider) {
+      setSelectedProviderId(volcengineProvider.id);
+    }
+  }, [type, videoMode, providerMode]);
 
   const handleSave = () => {
     if (!name.trim() || !apiModel.trim()) {
@@ -73,15 +84,30 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
 
     // 根据模型类型设置默认参数
     let params: ChatModelParams | ImageModelParams | VideoModelParams;
+    let resolvedEndpoint = endpoint.trim() || undefined;
     
     if (type === 'chat') {
       params = { ...DEFAULT_CHAT_PARAMS };
+      if (!resolvedEndpoint) resolvedEndpoint = '/v1/chat/completions';
     } else if (type === 'image') {
       params = { ...DEFAULT_IMAGE_PARAMS };
+      if (!resolvedEndpoint) resolvedEndpoint = '/v1beta/models/{model}:generateContent';
     } else {
-      params = videoMode === 'async' 
-        ? { ...DEFAULT_VIDEO_PARAMS_SORA }
-        : { ...DEFAULT_VIDEO_PARAMS_VEO };
+      params =
+        videoMode === 'sync'
+          ? { ...DEFAULT_VIDEO_PARAMS_VEO }
+          : videoMode === 'task'
+            ? { ...DEFAULT_VIDEO_PARAMS_DOUBAO_SEEDANCE }
+            : { ...DEFAULT_VIDEO_PARAMS_SORA };
+
+      if (!resolvedEndpoint) {
+        resolvedEndpoint =
+          videoMode === 'sync'
+            ? '/v1/chat/completions'
+            : videoMode === 'task'
+              ? '/api/v3/contents/generations/tasks'
+              : '/v1/videos';
+      }
     }
 
     const model: Omit<ModelDefinition, 'id' | 'isBuiltIn'> = {
@@ -89,7 +115,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
       apiModel: apiModel.trim(),
       type,
       providerId,
-      endpoint: endpoint.trim() || undefined,
+      endpoint: resolvedEndpoint,
       description: description.trim() || undefined,
       apiKey: providerMode === 'existing' ? (apiKey.trim() || undefined) : undefined,
       isEnabled: true,
@@ -148,7 +174,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
           type="text"
           value={endpoint}
           onChange={(e) => setEndpoint(e.target.value)}
-          placeholder={type === 'chat' ? '/v1/chat/completions' : type === 'image' ? '/v1beta/models/{model}:generateContent' : '/v1/videos'}
+          placeholder={type === 'chat' ? '/v1/chat/completions' : type === 'image' ? '/v1beta/models/{model}:generateContent' : '/v1/videos 或 /api/v3/contents/generations/tasks'}
           className="w-full bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] font-mono"
         />
         <p className="text-[9px] text-[var(--text-muted)] mt-1">
@@ -252,7 +278,7 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
       {type === 'video' && (
         <div>
           <label className="text-[10px] text-[var(--text-tertiary)] block mb-1">API 模式</label>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-1 gap-2">
             <button
               onClick={() => setVideoMode('sync')}
               className={`flex-1 py-2 text-xs rounded transition-colors ${
@@ -273,9 +299,19 @@ const AddModelForm: React.FC<AddModelFormProps> = ({ type, onSave, onCancel }) =
             >
               异步模式（Sora 类）
             </button>
+            <button
+              onClick={() => setVideoMode('task')}
+              className={`flex-1 py-2 text-xs rounded transition-colors ${
+                videoMode === 'task'
+                  ? 'bg-[var(--accent)] text-[var(--text-primary)]'
+                  : 'bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:bg-[var(--border-secondary)]'
+              }`}
+            >
+              异步模式（火山任务类）
+            </button>
           </div>
           <p className="text-[9px] text-[var(--text-muted)] mt-1">
-            同步模式：直接返回结果；异步模式：先创建任务，再轮询获取结果
+            同步模式：直接返回结果；Sora 类异步：`/v1/videos`；火山任务类：`/api/v3/contents/generations/tasks`
           </p>
         </div>
       )}

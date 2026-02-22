@@ -9,6 +9,7 @@ import {
   setGlobalApiKey as setRegistryApiKey,
   getApiBaseUrlForModel,
   getApiKeyForModel,
+  getProviderById,
   getModelById,
   getModels,
   getActiveModel,
@@ -102,6 +103,18 @@ export const checkApiKey = (type: 'chat' | 'image' | 'video' = 'chat', modelId?:
   console.log(`[checkApiKey] type=${type}, modelId=${modelId}, resolvedModel=`, resolvedModel?.id, resolvedModel?.providerId);
 
   if (resolvedModel) {
+    const provider = getProviderById(resolvedModel.providerId);
+    const isVolcengineProvider =
+      resolvedModel.providerId === 'volcengine' ||
+      !!provider?.baseUrl?.toLowerCase().includes('volces.com');
+
+    if (isVolcengineProvider) {
+      const dedicatedKey = resolvedModel.apiKey || provider?.apiKey;
+      console.log(`[checkApiKey] volcengine dedicated key found:`, !!dedicatedKey);
+      if (dedicatedKey) return dedicatedKey;
+      throw new ApiKeyError('火山引擎模型需要单独配置 API Key（模型或提供商），不会使用全局 API Key。');
+    }
+
     const modelApiKey = getApiKeyForModel(resolvedModel.id);
     console.log(`[checkApiKey] modelApiKey found:`, !!modelApiKey, modelApiKey ? '(has key)' : '(no key)');
     if (modelApiKey) return modelApiKey;

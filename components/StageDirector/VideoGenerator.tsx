@@ -62,6 +62,8 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
   const routingLabel =
     modelRouting.family === 'sora'
       ? 'Sora'
+      : modelRouting.family === 'doubao-task'
+        ? 'Doubao Task'
       : modelRouting.family === 'veo-sync'
         ? 'Veo Sync'
         : modelRouting.family === 'veo-fast'

@@ -453,7 +453,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     const routedEndKeyframeId = routedFrames.endImage ? (eKf?.id || '') : '';
 
     if (routedFrames.ignoredEndFrame) {
-      const modelName = selectedModelRouting.family === 'sora' ? 'Sora' : selectedModel;
+      const modelName = selectedModelRouting.family === 'sora'
+        ? 'Sora'
+        : selectedModelRouting.family === 'doubao-task'
+          ? 'Doubao Task'
+          : selectedModel;
       setToastMessage(`能力路由：${modelName} 当前只使用首帧，已自动忽略尾帧输入。`);
     }
 

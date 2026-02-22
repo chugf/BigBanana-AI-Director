@@ -15,7 +15,7 @@ export interface RefImagesResult {
   hasTurnaround: boolean;
 }
 
-export type VideoModelFamily = 'sora' | 'veo-sync' | 'veo-fast' | 'unknown';
+export type VideoModelFamily = 'sora' | 'doubao-task' | 'veo-sync' | 'veo-fast' | 'unknown';
 
 export interface VideoModelRouting {
   family: VideoModelFamily;
@@ -32,7 +32,7 @@ export interface VideoPromptContext {
 
 const normalizeVideoModelIdForRouting = (videoModel: string): string => {
   const raw = (videoModel || '').trim();
-  if (!raw) return 'sora-2';
+  if (!raw) return 'doubao-seedance-1-5-pro-251215';
 
   const normalized = raw.toLowerCase();
 
@@ -54,6 +54,16 @@ const normalizeVideoModelIdForRouting = (videoModel: string): string => {
 export const resolveVideoModelRouting = (videoModel: string): VideoModelRouting => {
   const normalizedModelId = normalizeVideoModelIdForRouting(videoModel);
   const id = normalizedModelId.toLowerCase();
+
+  if (id.startsWith('doubao-seedance')) {
+    return {
+      family: 'doubao-task',
+      normalizedModelId,
+      supportsStartFrame: true,
+      supportsEndFrame: false,
+      prefersNineGridStoryboard: true,
+    };
+  }
 
   if (id === 'sora-2' || id.startsWith('sora')) {
     return {
@@ -377,7 +387,7 @@ export const buildVideoPrompt = (
   }
   
   // 普通模式
-  if (routing.family === 'sora') {
+  if (routing.family === 'sora' || routing.family === 'doubao-task') {
     const template = isChinese 
       ? VIDEO_PROMPT_TEMPLATES.sora2.chinese 
       : VIDEO_PROMPT_TEMPLATES.sora2.english;
