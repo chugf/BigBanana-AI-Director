@@ -31,6 +31,7 @@ import NineGridPreview from './NineGridPreview';
 import { useAlert } from '../GlobalAlert';
 import { AspectRatioSelector } from '../AspectRatioSelector';
 import { getUserAspectRatio, setUserAspectRatio, getModelById } from '../../services/modelRegistry';
+import { persistVideoReference } from '../../services/videoStorageService';
 
 interface Props {
   project: ProjectState;
@@ -501,17 +502,22 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         aspectRatio,
         duration
       );
+      const persistedVideoUrl = await persistVideoReference(videoUrl, {
+        projectId: project.projectId || project.id,
+        episodeId: project.id,
+        shotId: shot.id,
+      });
 
       updateShot(shot.id, (s) => ({
         ...s,
-        interval: s.interval ? { ...s.interval, videoUrl, status: 'completed' } : {
+        interval: s.interval ? { ...s.interval, videoUrl: persistedVideoUrl, status: 'completed' } : {
           id: intervalId,
           startKeyframeId: sKf?.id || '',
           endKeyframeId: routedEndKeyframeId,
           duration: duration,
           motionStrength: 5,
           videoPrompt,
-          videoUrl,
+          videoUrl: persistedVideoUrl,
           status: 'completed'
         }
       }));
