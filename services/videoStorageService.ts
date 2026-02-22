@@ -248,6 +248,7 @@ export const materializeProjectVideosForExport = async (project: ProjectState): 
 
   let changed = false;
   const updatedShots: Shot[] = [];
+  const failedOpfsShots: string[] = [];
 
   for (const shot of project.shots) {
     const value = shot.interval?.videoUrl;
@@ -270,9 +271,16 @@ export const materializeProjectVideosForExport = async (project: ProjectState): 
           : shot.interval,
       });
     } catch (error) {
-      console.warn('Materialize OPFS video for export failed. Keep original reference.', error);
+      console.warn('Materialize OPFS video for export failed.', error);
+      failedOpfsShots.push(shot.id);
       updatedShots.push(shot);
     }
+  }
+
+  if (failedOpfsShots.length > 0) {
+    throw new Error(
+      `Failed to export ${failedOpfsShots.length} OPFS video(s): ${failedOpfsShots.join(', ')}`
+    );
   }
 
   if (!changed) return project;
