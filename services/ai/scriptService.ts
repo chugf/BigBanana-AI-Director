@@ -10,6 +10,7 @@ import {
   cleanJsonString,
   chatCompletion,
   chatCompletionStream,
+  getActiveVideoModel,
   logScriptProgress,
 } from './apiCore';
 import { getStylePrompt } from './promptConstants';
@@ -244,6 +245,17 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
   const stylePrompt = getStylePrompt(visualStyle);
   const artDir = scriptData.artDirection;
 
+  const targetDurationStr = scriptData.targetDuration || '60s';
+  const targetSeconds = parseInt(targetDurationStr.replace(/[^\d]/g, '')) || 60;
+  const activeVideoModel = getActiveVideoModel();
+  const shotDurationSeconds = Math.max(1, Number(activeVideoModel?.params?.defaultDuration) || 8);
+  const roughShotCount = Math.max(1, Math.round(targetSeconds / shotDurationSeconds));
+  const scenesCount = scriptData.scenes.length;
+  const totalShotsNeeded = Math.max(roughShotCount, scenesCount);
+  const baseShotsPerScene = Math.floor(totalShotsNeeded / scenesCount);
+  const extraShots = totalShotsNeeded % scenesCount;
+  const sceneShotPlan = scriptData.scenes.map((_, idx) => baseShotsPerScene + (idx < extraShots ? 1 : 0));
+
   const artDirectionBlock = artDir ? `
       ⚠️ GLOBAL ART DIRECTION (MANDATORY for ALL visualPrompt fields):
       ${artDir.consistencyAnchors}
@@ -265,12 +277,7 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
       .join('\n');
 
     if (!paragraphs.trim()) return [];
-
-    const targetDurationStr = scriptData.targetDuration || '60s';
-    const targetSeconds = parseInt(targetDurationStr.replace(/[^\d]/g, '')) || 60;
-    const totalShotsNeeded = Math.round(targetSeconds / 10);
-    const scenesCount = scriptData.scenes.length;
-    const shotsPerScene = Math.max(1, Math.round(totalShotsNeeded / scenesCount));
+    const shotsPerScene = sceneShotPlan[index] || 1;
 
     const prompt = `
       Act as a professional cinematographer. Generate a detailed shot list (Camera blocking) for Scene ${index + 1}.
@@ -291,8 +298,10 @@ ${artDirectionBlock}
       Genre: ${scriptData.genre}
       Visual Style: ${visualStyle} (${stylePrompt})
       Target Duration (Whole Script): ${scriptData.targetDuration || 'Standard'}
-      Total Shots Budget: ${totalShotsNeeded} shots (Each shot = 10 seconds of video)
-      Shots for This Scene: Approximately ${shotsPerScene} shots
+      Active Video Model: ${activeVideoModel?.name || 'Default Video Model'}
+      Shot Duration Baseline: ${shotDurationSeconds}s per shot
+      Total Shots Budget: ${totalShotsNeeded} shots
+      Shots for This Scene: ${shotsPerScene} shots (EXACT)
       
       Characters:
       ${JSON.stringify(scriptData.characters.map(c => ({ id: c.id, name: c.name, desc: c.visualPrompt || c.personality })))}
@@ -329,9 +338,9 @@ ${artDirectionBlock}
       - Cinematic Dolly Zoom (电影式变焦推轨) - Vertigo effect
 
       Instructions:
-      1. Create EXACTLY ${shotsPerScene} shots (or ${shotsPerScene - 1} to ${shotsPerScene + 1} shots if needed for story flow) for this scene.
-      2. CRITICAL: Each shot will be 10 seconds. Total shots must match the target duration formula: ${targetSeconds} seconds ÷ 10 = ${totalShotsNeeded} total shots across all scenes.
-      3. DO NOT exceed ${shotsPerScene + 1} shots for this scene. Select the most important moments only.
+      1. Create EXACTLY ${shotsPerScene} shots for this scene.
+      2. CRITICAL: Each shot should represent about ${shotDurationSeconds} seconds. Total planning formula: ${targetSeconds} seconds ÷ ${shotDurationSeconds} ≈ ${totalShotsNeeded} shots across all scenes.
+      3. DO NOT output more or fewer than ${shotsPerScene} shots for this scene.
       4. 'cameraMovement': Can reference the Professional Camera Movement Reference list above for inspiration, or use your own creative camera movements. You may use the exact English terms (e.g., "Dolly Shot", "Pan Right Shot", "Zoom In Shot", "Tracking Shot") or describe custom movements.
       5. 'shotSize': Specify the field of view (e.g., Extreme Close-up, Medium Shot, Wide Shot).
       6. 'actionSummary': Detailed description of what happens in the shot (in ${lang}).
@@ -367,8 +376,47 @@ ${artDirectionBlock}
         ? parsed
         : (parsed && Array.isArray((parsed as any).shots) ? (parsed as any).shots : []);
 
-      const validShots = Array.isArray(shots) ? shots : [];
-      const result = validShots.map((s: any) => ({
+      let validShots = Array.isArray(shots) ? shots : [];
+
+      if (validShots.length !== shotsPerScene) {
+        console.warn(`⚠️ 场景 ${index + 1} 返回分镜数量不符：期望 ${shotsPerScene}，实际 ${validShots.length}，尝试自动纠偏...`);
+        const repairPrompt = `
+You previously returned ${validShots.length} shots for Scene ${index + 1}, but EXACTLY ${shotsPerScene} shots are required.
+
+Scene Details:
+Location: ${scene.location}
+Time: ${scene.time}
+Atmosphere: ${scene.atmosphere}
+
+Scene Action:
+"${paragraphs.slice(0, 5000)}"
+
+Requirements:
+1. Return EXACTLY ${shotsPerScene} shots in JSON object format: {"shots":[...]}.
+2. Keep story continuity and preserve the original cinematic intent.
+3. Each shot represents about ${shotDurationSeconds} seconds.
+4. Include fields: id, sceneId, actionSummary, dialogue, cameraMovement, shotSize, characters, keyframes.
+5. keyframes must include type=start/end and visualPrompt.
+6. Output ONLY valid JSON object (no markdown).
+`;
+
+        try {
+          const repairedText = await retryOperation(() => chatCompletion(repairPrompt, model, 0.4, 8192, 'json_object'));
+          const repairedParsed = JSON.parse(cleanJsonString(repairedText));
+          const repairedShots = Array.isArray(repairedParsed?.shots) ? repairedParsed.shots : [];
+          if (repairedShots.length > 0) {
+            validShots = repairedShots;
+          }
+        } catch (repairErr) {
+          console.warn(`⚠️ 场景 ${index + 1} 分镜数量纠偏失败，将使用原始结果`, repairErr);
+        }
+      }
+
+      const normalizedShots = validShots.length > shotsPerScene
+        ? validShots.slice(0, shotsPerScene)
+        : validShots;
+
+      const result = normalizedShots.map((s: any) => ({
         ...s,
         sceneId: String(scene.id)
       }));

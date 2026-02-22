@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LayoutGrid, Sparkles, Loader2, AlertCircle, Edit2, Film, Video as VideoIcon } from 'lucide-react';
 import { ProjectState, Shot, Keyframe, AspectRatio, VideoDuration, NineGridPanel, NineGridData } from '../../types';
-import { generateImage, generateVideo, generateActionSuggestion, optimizeKeyframePrompt, optimizeBothKeyframes, enhanceKeyframePrompt, splitShotIntoSubShots, generateNineGridPanels, generateNineGridImage } from '../../services/aiService';
+import { generateImage, generateVideo, generateActionSuggestion, optimizeKeyframePrompt, optimizeBothKeyframes, enhanceKeyframePrompt, splitShotIntoSubShots, generateNineGridPanels, generateNineGridImage, getNegativePrompt } from '../../services/aiService';
 import { 
   getRefImagesForShot, 
   getPropsInfoForShot,
@@ -180,12 +180,22 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
   const handleGenerateKeyframe = async (shot: Shot, type: 'start' | 'end') => {
     const existingKf = shot.keyframes?.find(k => k.type === type);
     const kfId = existingKf?.id || generateId(`kf-${shot.id}-${type}`);
+    const startKf = shot.keyframes?.find(k => k.type === 'start');
     
-    const basePrompt = existingKf?.visualPrompt 
+    const rawBasePrompt = existingKf?.visualPrompt 
       ? extractBasePrompt(existingKf.visualPrompt, shot.actionSummary)
       : shot.actionSummary;
+
+    const continuityHint = type === 'end' && startKf?.visualPrompt
+      ? `【连贯性约束】结束帧必须与起始帧保持同一角色身份、服装主体、场景锚点与光照逻辑，并在构图和动作结果上体现明确变化。起始帧参考：${extractBasePrompt(startKf.visualPrompt, shot.actionSummary).slice(0, 200)}`
+      : '';
+
+    const basePrompt = continuityHint && !rawBasePrompt.includes('【连贯性约束】')
+      ? `${rawBasePrompt}\n\n${continuityHint}`
+      : rawBasePrompt;
     
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
+    const negativePrompt = getNegativePrompt(visualStyle);
     
     // 立即设置生成状态，显示loading
     updateProject((prevProject: ProjectState) => ({
@@ -214,8 +224,22 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     
     try {
       const refResult = getRefImagesForShot(shot, project.scriptData);
+      const referenceImages = [...refResult.images];
+
+      // 结束帧额外注入起始帧图片，提升首尾帧连贯性
+      if (type === 'end' && startKf?.imageUrl && !referenceImages.includes(startKf.imageUrl)) {
+        referenceImages.push(startKf.imageUrl);
+      }
+
       // 使用当前设置的横竖屏比例生成关键帧，传递 hasTurnaround 标记
-      const url = await generateImage(prompt, refResult.images, keyframeAspectRatio, false, refResult.hasTurnaround);
+      const url = await generateImage(
+        prompt,
+        referenceImages,
+        keyframeAspectRatio,
+        false,
+        refResult.hasTurnaround,
+        negativePrompt
+      );
 
       updateProject((prevProject: ProjectState) => ({
         ...prevProject,
@@ -306,6 +330,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     }
     
     const projectLanguage = project.language || project.scriptData?.language || '中文';
+    const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
     
     // 检测是否为九宫格分镜模式：首帧图片就是九宫格整图时触发
     const isNineGridMode = (shot.nineGrid?.status === 'completed' 
@@ -317,6 +342,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       shot.cameraMovement,
       selectedModel,
       projectLanguage,
+      visualStyle,
       isNineGridMode ? shot.nineGrid : undefined,
       duration
     );
@@ -354,7 +380,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
           id: intervalId,
           startKeyframeId: sKf?.id || '',
           endKeyframeId: eKf?.id || '',
-          duration: 10,
+          duration: duration,
           motionStrength: 5,
           videoPrompt,
           videoUrl,
@@ -1165,6 +1191,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
               if (!promptValue) {
                 const selectedModel = activeShot.videoModel || DEFAULTS.videoModel;
                 const projectLanguage = project.language || project.scriptData?.language || '中文';
+                const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
                 const startKf = activeShot.keyframes?.find(k => k.type === 'start');
                 // 首帧等于九宫格图时触发九宫格分镜模式
                 const isNineGridMode = (activeShot.nineGrid?.status === 'completed'
@@ -1175,6 +1202,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
                   activeShot.cameraMovement,
                   selectedModel,
                   projectLanguage,
+                  visualStyle,
                   isNineGridMode ? activeShot.nineGrid : undefined
                 );
               }

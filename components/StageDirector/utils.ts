@@ -209,6 +209,7 @@ export const buildKeyframePromptWithAI = async (
 
 /**
  * 构建视频生成提示词
+ * @param visualStyle - 项目视觉风格，用于给视频生成添加风格锚点
  * @param nineGrid - 可选，如果首帧来自九宫格整图，则使用九宫格分镜模式的视频提示词
  * @param videoDuration - 视频总时长（秒），用于计算九宫格模式下每个面板的停留时间
  */
@@ -217,10 +218,13 @@ export const buildVideoPrompt = (
   cameraMovement: string,
   videoModel: 'sora-2' | 'veo' | 'veo_3_1-fast' | 'veo_3_1-fast-4K' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait' | string,
   language: string,
+  visualStyle: string,
   nineGrid?: NineGridData,
   videoDuration?: number
 ): string => {
   const isChinese = language === '中文' || language === 'Chinese';
+  const stylePrompt = VISUAL_STYLE_PROMPTS[visualStyle] || visualStyle;
+  const visualStyleAnchor = `${visualStyle} (${stylePrompt})`;
   
   const isAsyncVideoModel = videoModel === 'sora-2' || videoModel.toLowerCase().startsWith('veo_3_1-fast');
 
@@ -247,6 +251,7 @@ export const buildVideoPrompt = (
       .replace('{panelDescriptions}', panelDescriptions)
       .replace(/\{secondsPerPanel\}/g, String(secondsPerPanel))
       .replace('{cameraMovement}', cameraMovement)
+      .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', language);
   }
   
@@ -259,11 +264,13 @@ export const buildVideoPrompt = (
     return template
       .replace('{actionSummary}', actionSummary)
       .replace('{cameraMovement}', cameraMovement)
+      .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', language);
   } else {
     return VIDEO_PROMPT_TEMPLATES.veo.simple
       .replace('{actionSummary}', actionSummary)
       .replace('{cameraMovement}', cameraMovement)
+      .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', isChinese ? '中文' : language);
   }
 };
