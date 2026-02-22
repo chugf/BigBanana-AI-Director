@@ -1,12 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { SeriesProject, Series, Episode, Character, EpisodeCharacterRef, EpisodeSceneRef, EpisodePropRef, ProjectState } from '../types';
+import { SeriesProject, Series, Episode, Character, Scene, Prop, EpisodeCharacterRef, EpisodeSceneRef, EpisodePropRef, ProjectState } from '../types';
 import {
   loadSeriesProject, saveSeriesProject,
   getSeriesByProject, saveSeries, createNewSeries, deleteSeries as deleteSeriesFromDB,
   getEpisodesByProject, getEpisodesBySeries, saveEpisode, loadEpisode, createNewEpisode, deleteEpisode as deleteEpisodeFromDB,
 } from '../services/storageService';
-import { syncCharacter } from '../services/characterSyncService';
+import { syncCharacter, syncScene, syncProp } from '../services/characterSyncService';
 
 interface ProjectContextValue {
   project: SeriesProject | null;
@@ -21,6 +21,12 @@ interface ProjectContextValue {
   addCharacterToLibrary: (character: Character) => void;
   updateCharacterInLibrary: (character: Character) => void;
   removeCharacterFromLibrary: (characterId: string) => void;
+  addSceneToLibrary: (scene: Scene) => void;
+  updateSceneInLibrary: (scene: Scene) => void;
+  removeSceneFromLibrary: (sceneId: string) => void;
+  addPropToLibrary: (prop: Prop) => void;
+  updatePropInLibrary: (prop: Prop) => void;
+  removePropFromLibrary: (propId: string) => void;
 
   createSeries: (title: string) => Promise<Series>;
   updateSeries: (id: string, updates: Partial<Series>) => Promise<void>;
@@ -162,6 +168,156 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     setProject(prev => {
       if (!prev) return null;
       const updated = { ...prev, characterLibrary: prev.characterLibrary.filter(c => c.id !== characterId), lastModified: Date.now() };
+      saveSeriesProject(updated);
+      return updated;
+    });
+  }, []);
+
+  const addSceneToLibrary = useCallback((scene: Scene) => {
+    setProject(prev => {
+      if (!prev) return null;
+      const sceneWithVersion = { ...scene, version: 1 };
+      const updated = { ...prev, sceneLibrary: [...prev.sceneLibrary, sceneWithVersion], lastModified: Date.now() };
+      saveSeriesProject(updated);
+      return updated;
+    });
+  }, []);
+
+  const updateSceneInLibrary = useCallback((scene: Scene) => {
+    if (!project) return;
+
+    const existing = project.sceneLibrary.find(s => s.id === scene.id);
+    if (!existing) return;
+
+    const updatedScene = { ...scene, version: (existing.version || 0) + 1 };
+    const updatedProject = {
+      ...project,
+      sceneLibrary: project.sceneLibrary.map(s => (
+        s.id === scene.id ? updatedScene : s
+      )),
+      lastModified: Date.now(),
+    };
+
+    setProject(updatedProject);
+    void saveSeriesProject(updatedProject).catch(e => {
+      console.error('Failed to save updated scene library:', e);
+    });
+
+    const shouldSyncEpisode = (episode: Episode): boolean => {
+      if (!episode.scriptData?.scenes.some(s => s.libraryId === scene.id)) return false;
+      const ref = (episode.sceneRefs || []).find(r => r.sceneId === scene.id);
+      return ref?.syncStatus !== 'local-only';
+    };
+
+    const syncedEpisodes: Episode[] = [];
+    const nextEpisodes = allEpisodes.map(episode => {
+      if (!shouldSyncEpisode(episode)) return episode;
+      const synced = syncScene(episode, updatedProject, scene.id);
+      const withTimestamp = { ...synced, lastModified: Date.now() };
+      syncedEpisodes.push(withTimestamp);
+      return withTimestamp;
+    });
+
+    if (syncedEpisodes.length > 0) {
+      setAllEpisodes(nextEpisodes);
+    }
+
+    if (currentEpisode && shouldSyncEpisode(currentEpisode)) {
+      const syncedCurrent = syncScene(currentEpisode, updatedProject, scene.id);
+      const currentWithTimestamp = { ...syncedCurrent, lastModified: Date.now() };
+      setCurrentEpisode(currentWithTimestamp);
+
+      if (!syncedEpisodes.some(ep => ep.id === currentWithTimestamp.id)) {
+        syncedEpisodes.push(currentWithTimestamp);
+      }
+    }
+
+    if (syncedEpisodes.length > 0) {
+      void Promise.all(syncedEpisodes.map(ep => saveEpisode(ep))).catch(e => {
+        console.error('Failed to persist synced scene episodes:', e);
+      });
+    }
+  }, [project, allEpisodes, currentEpisode]);
+
+  const removeSceneFromLibrary = useCallback((sceneId: string) => {
+    setProject(prev => {
+      if (!prev) return null;
+      const updated = { ...prev, sceneLibrary: prev.sceneLibrary.filter(s => s.id !== sceneId), lastModified: Date.now() };
+      saveSeriesProject(updated);
+      return updated;
+    });
+  }, []);
+
+  const addPropToLibrary = useCallback((prop: Prop) => {
+    setProject(prev => {
+      if (!prev) return null;
+      const propWithVersion = { ...prop, version: 1 };
+      const updated = { ...prev, propLibrary: [...prev.propLibrary, propWithVersion], lastModified: Date.now() };
+      saveSeriesProject(updated);
+      return updated;
+    });
+  }, []);
+
+  const updatePropInLibrary = useCallback((prop: Prop) => {
+    if (!project) return;
+
+    const existing = project.propLibrary.find(p => p.id === prop.id);
+    if (!existing) return;
+
+    const updatedProp = { ...prop, version: (existing.version || 0) + 1 };
+    const updatedProject = {
+      ...project,
+      propLibrary: project.propLibrary.map(p => (
+        p.id === prop.id ? updatedProp : p
+      )),
+      lastModified: Date.now(),
+    };
+
+    setProject(updatedProject);
+    void saveSeriesProject(updatedProject).catch(e => {
+      console.error('Failed to save updated prop library:', e);
+    });
+
+    const shouldSyncEpisode = (episode: Episode): boolean => {
+      if (!(episode.scriptData?.props || []).some(p => p.libraryId === prop.id)) return false;
+      const ref = (episode.propRefs || []).find(r => r.propId === prop.id);
+      return ref?.syncStatus !== 'local-only';
+    };
+
+    const syncedEpisodes: Episode[] = [];
+    const nextEpisodes = allEpisodes.map(episode => {
+      if (!shouldSyncEpisode(episode)) return episode;
+      const synced = syncProp(episode, updatedProject, prop.id);
+      const withTimestamp = { ...synced, lastModified: Date.now() };
+      syncedEpisodes.push(withTimestamp);
+      return withTimestamp;
+    });
+
+    if (syncedEpisodes.length > 0) {
+      setAllEpisodes(nextEpisodes);
+    }
+
+    if (currentEpisode && shouldSyncEpisode(currentEpisode)) {
+      const syncedCurrent = syncProp(currentEpisode, updatedProject, prop.id);
+      const currentWithTimestamp = { ...syncedCurrent, lastModified: Date.now() };
+      setCurrentEpisode(currentWithTimestamp);
+
+      if (!syncedEpisodes.some(ep => ep.id === currentWithTimestamp.id)) {
+        syncedEpisodes.push(currentWithTimestamp);
+      }
+    }
+
+    if (syncedEpisodes.length > 0) {
+      void Promise.all(syncedEpisodes.map(ep => saveEpisode(ep))).catch(e => {
+        console.error('Failed to persist synced prop episodes:', e);
+      });
+    }
+  }, [project, allEpisodes, currentEpisode]);
+
+  const removePropFromLibrary = useCallback((propId: string) => {
+    setProject(prev => {
+      if (!prev) return null;
+      const updated = { ...prev, propLibrary: prev.propLibrary.filter(p => p.id !== propId), lastModified: Date.now() };
       saveSeriesProject(updated);
       return updated;
     });
@@ -325,6 +481,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     project, loading, allSeries, allEpisodes, currentEpisode,
     reloadProject, updateProject,
     addCharacterToLibrary, updateCharacterInLibrary, removeCharacterFromLibrary,
+    addSceneToLibrary, updateSceneInLibrary, removeSceneFromLibrary,
+    addPropToLibrary, updatePropInLibrary, removePropFromLibrary,
     createSeries: handleCreateSeries, updateSeries: handleUpdateSeries, removeSeries: handleRemoveSeries,
     setCurrentEpisode, updateEpisode,
     createEpisode: handleCreateEpisode, removeEpisode: handleRemoveEpisode,

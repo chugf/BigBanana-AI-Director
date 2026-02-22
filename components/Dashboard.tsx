@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Loader2, Folder, ChevronRight, Calendar, AlertTriangle, X, HelpCircle, Cpu, Archive, Search, Users, MapPin, Database, Settings, Sun, Moon, Film } from 'lucide-react';
-import { SeriesProject, AssetLibraryItem, Character, Scene, ProjectState } from '../types';
+import { Plus, Trash2, Loader2, Folder, ChevronRight, Calendar, AlertTriangle, X, HelpCircle, Cpu, Archive, Search, Users, MapPin, Package, Database, Settings, Sun, Moon, Film } from 'lucide-react';
+import { SeriesProject, AssetLibraryItem, Character, Scene, Prop, ProjectState } from '../types';
 import { getAllSeriesProjects, createNewSeriesProject, saveSeriesProject, deleteSeriesProject, createNewSeries, saveSeries, createNewEpisode, saveEpisode, getAllAssetLibraryItems, deleteAssetFromLibrary, exportIndexedDBData, importIndexedDBData } from '../services/storageService';
 import { useAlert } from './GlobalAlert';
 import { useTheme } from '../contexts/ThemeContext';
@@ -24,7 +24,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
   const [libraryItems, setLibraryItems] = useState<AssetLibraryItem[]>([]);
   const [isLibraryLoading, setIsLibraryLoading] = useState(true);
   const [libraryQuery, setLibraryQuery] = useState('');
-  const [libraryFilter, setLibraryFilter] = useState<'all' | 'character' | 'scene'>('all');
+  const [libraryFilter, setLibraryFilter] = useState<'all' | 'character' | 'scene' | 'prop'>('all');
   const [libraryProjectFilter, setLibraryProjectFilter] = useState('all');
   const [assetToUse, setAssetToUse] = useState<AssetLibraryItem | null>(null);
   const [showLibraryModal, setShowLibraryModal] = useState(false);
@@ -514,7 +514,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                 </select>
               </div>
               <div className="flex gap-2">
-                {(['all', 'character', 'scene'] as const).map((type) => (
+                {(['all', 'character', 'scene', 'prop'] as const).map((type) => (
                   <button
                     key={type}
                     onClick={() => setLibraryFilter(type)}
@@ -524,7 +524,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                         : 'bg-transparent text-[var(--text-tertiary)] border-[var(--border-primary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'
                     }`}
                   >
-                    {type === 'all' ? '全部' : type === 'character' ? '角色' : '场景'}
+                    {type === 'all' ? '全部' : type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具'}
                   </button>
                 ))}
               </div>
@@ -544,7 +544,9 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                   const preview =
                     item.type === 'character'
                       ? (item.data as Character).referenceImage
-                      : (item.data as Scene).referenceImage;
+                      : item.type === 'scene'
+                      ? (item.data as Scene).referenceImage
+                      : (item.data as Prop).referenceImage;
                   return (
                     <div
                       key={item.id}
@@ -557,8 +559,10 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                           <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                             {item.type === 'character' ? (
                               <Users className="w-8 h-8 opacity-30" />
-                            ) : (
+                            ) : item.type === 'scene' ? (
                               <MapPin className="w-8 h-8 opacity-30" />
+                            ) : (
+                              <Package className="w-8 h-8 opacity-30" />
                             )}
                           </div>
                         )}
@@ -567,7 +571,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                         <div>
                           <div className="text-sm text-[var(--text-primary)] font-bold line-clamp-1">{item.name}</div>
                           <div className="text-[10px] text-[var(--text-tertiary)] font-mono uppercase tracking-widest mt-1">
-                            {item.type === 'character' ? '角色' : '场景'}
+                            {item.type === 'character' ? '角色' : item.type === 'scene' ? '场景' : '道具'}
                           </div>
                           <div className="text-[10px] text-[var(--text-muted)] font-mono mt-1 line-clamp-1">
                             {(item.projectName && item.projectName.trim()) || '未知项目'}
