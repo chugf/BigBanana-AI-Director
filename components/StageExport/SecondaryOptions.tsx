@@ -53,7 +53,7 @@ const SecondaryOptions: React.FC<Props> = ({
         <Database className="w-5 h-5 text-[var(--text-muted)] group-hover:text-[var(--accent-text)] mb-4 transition-colors" />
         <div>
           <h4 className="text-sm font-bold text-[var(--text-primary)] mb-1">数据备份</h4>
-          <p className="text-[10px] text-[var(--text-tertiary)]">备份本地数据，或导入其他设备备份。</p>
+          <p className="text-[10px] text-[var(--text-tertiary)]">导出当前剧集数据，或导入其他设备备份。</p>
           <div className="mt-3 flex gap-2">
             <button
               type="button"
@@ -68,7 +68,7 @@ const SecondaryOptions: React.FC<Props> = ({
                   : 'px-3 py-2 text-[10px] rounded-md bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:bg-[var(--border-secondary)]'
               }
             >
-              {isDataExporting ? '导出中...' : '导出'}
+              {isDataExporting ? '导出中...' : '导出当前集'}
             </button>
             <button
               type="button"

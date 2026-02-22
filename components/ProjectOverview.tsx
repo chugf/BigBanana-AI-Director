@@ -1,8 +1,14 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, Plus, Users, Film, Trash2, Edit2, Check, X, Loader2, FolderOpen, ChevronRight, MapPin, Package } from 'lucide-react';
+import { ChevronLeft, Plus, Users, Film, Trash2, Edit2, Check, X, Loader2, FolderOpen, ChevronRight, MapPin, Package, Database } from 'lucide-react';
 import { useProjectContext } from '../contexts/ProjectContext';
 import { useAlert } from './GlobalAlert';
+import { exportSeriesProjectData } from '../services/storageService';
+import {
+  useBackupTransfer,
+  PROJECT_BACKUP_TRANSFER_MESSAGES,
+  projectBackupFileName,
+} from '../hooks/useBackupTransfer';
 
 const ProjectOverview: React.FC = () => {
   const navigate = useNavigate();
@@ -14,6 +20,15 @@ const ProjectOverview: React.FC = () => {
   const [newSeriesName, setNewSeriesName] = useState('');
   const [showNewSeries, setShowNewSeries] = useState(false);
   const [expandedSeries, setExpandedSeries] = useState<Set<string>>(new Set());
+  const { isDataExporting, handleExportData } = useBackupTransfer({
+    exporter: async () => {
+      if (!project?.id) throw new Error('当前项目不存在');
+      return exportSeriesProjectData(project.id);
+    },
+    exportFileName: (timestamp) => projectBackupFileName(project?.id || 'unknown', timestamp),
+    showAlert,
+    messages: PROJECT_BACKUP_TRANSFER_MESSAGES,
+  });
 
   if (loading || !project) {
     return (
@@ -159,6 +174,16 @@ const ProjectOverview: React.FC = () => {
               >
                 <Package className="w-4 h-4" />
                 <span className="text-xs font-bold uppercase tracking-widest">道具库 ({project.propLibrary.length})</span>
+              </button>
+              <button
+                onClick={handleExportData}
+                disabled={isDataExporting}
+                className="flex items-center gap-2 px-5 py-3 border border-[var(--border-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Database className="w-4 h-4" />
+                <span className="text-xs font-bold uppercase tracking-widest">
+                  {isDataExporting ? '导出中...' : '导出整项目'}
+                </span>
               </button>
             </div>
           </div>

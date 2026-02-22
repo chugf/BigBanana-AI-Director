@@ -20,8 +20,8 @@ import RenderLogsModal from './RenderLogsModal';
 import { useAlert } from '../GlobalAlert';
 import {
   useBackupTransfer,
-  PROJECT_BACKUP_TRANSFER_MESSAGES,
-  projectBackupFileName,
+  EPISODE_BACKUP_TRANSFER_MESSAGES,
+  episodeBackupFileName,
 } from '../../hooks/useBackupTransfer';
 
 interface Props {
@@ -180,9 +180,9 @@ const StageExport: React.FC<Props> = ({ project }) => {
     handleImportFileChange,
   } = useBackupTransfer({
     exporter: () => exportProjectData(project),
-    exportFileName: (timestamp) => projectBackupFileName(project.id, timestamp),
+    exportFileName: (timestamp) => episodeBackupFileName(project.id, timestamp),
     showAlert,
-    messages: PROJECT_BACKUP_TRANSFER_MESSAGES,
+    messages: EPISODE_BACKUP_TRANSFER_MESSAGES,
   });
 
   return (

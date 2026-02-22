@@ -49,10 +49,17 @@ export const PROJECT_BACKUP_TRANSFER_MESSAGES: BackupTransferMessages = {
   exportSuccess: '当前项目已导出，备份文件已下载。',
 };
 
+export const EPISODE_BACKUP_TRANSFER_MESSAGES: BackupTransferMessages = {
+  exportSuccess: '当前剧集已导出，备份文件已下载。',
+};
+
 export const globalBackupFileName = (timestamp: string) => `bigbanana_backup_${timestamp}.json`;
 
 export const projectBackupFileName = (projectId: string, timestamp: string) =>
   `bigbanana_project_${projectId}_${timestamp}.json`;
+
+export const episodeBackupFileName = (episodeId: string, timestamp: string) =>
+  `bigbanana_episode_${episodeId}_${timestamp}.json`;
 
 const resolveMessages = (messages?: BackupTransferMessages): ResolvedBackupTransferMessages => ({
   ...DEFAULT_BACKUP_TRANSFER_MESSAGES,
@@ -117,7 +124,7 @@ export function useBackupTransfer<TPayload = unknown>({
     try {
       const text = await file.text();
       const payload = JSON.parse(text);
-      const projectCount = payload?.stores?.projects?.length || 0;
+      const projectCount = payload?.stores?.seriesProjects?.length || payload?.stores?.projects?.length || 0;
       const assetCount = payload?.stores?.assetLibrary?.length || 0;
       const confirmMessage = resolvedMessages.importConfirm(projectCount, assetCount);
 

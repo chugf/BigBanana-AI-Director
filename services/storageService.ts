@@ -13,7 +13,7 @@ const EXPORT_SCHEMA_VERSION = 3;
 export interface IndexedDBExportPayload {
   schemaVersion: number;
   exportedAt: number;
-  scope?: 'all' | 'project';
+  scope?: 'all' | 'project' | 'episode';
   dbName: string;
   dbVersion: number;
   stores: {
@@ -454,7 +454,7 @@ export const exportProjectData = async (project: ProjectState): Promise<IndexedD
   return {
     schemaVersion: EXPORT_SCHEMA_VERSION,
     exportedAt: Date.now(),
-    scope: 'project',
+    scope: 'episode',
     dbName: DB_NAME,
     dbVersion: DB_VERSION,
     stores: {
@@ -462,6 +462,41 @@ export const exportProjectData = async (project: ProjectState): Promise<IndexedD
       assetLibrary: [],
     },
   };
+};
+
+export const exportSeriesProjectData = async (projectId: string): Promise<IndexedDBExportPayload> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const storeNames = [SP_STORE, SERIES_STORE, EP_STORE];
+    const tx = db.transaction(storeNames, 'readonly');
+    const spReq = tx.objectStore(SP_STORE).get(projectId);
+    const seriesReq = tx.objectStore(SERIES_STORE).index('projectId').getAll(projectId);
+    const epReq = tx.objectStore(EP_STORE).index('projectId').getAll(projectId);
+
+    tx.oncomplete = () => {
+      const seriesProject = spReq.result as SeriesProject | undefined;
+      if (!seriesProject) {
+        reject(new Error('Project not found'));
+        return;
+      }
+
+      resolve({
+        schemaVersion: EXPORT_SCHEMA_VERSION,
+        exportedAt: Date.now(),
+        scope: 'project',
+        dbName: DB_NAME,
+        dbVersion: DB_VERSION,
+        stores: {
+          projects: [],
+          assetLibrary: [],
+          seriesProjects: [seriesProject],
+          series: (seriesReq.result as Series[]) || [],
+          episodes: ((epReq.result as Episode[]) || []).map(normalizeEpisode),
+        },
+      });
+    };
+    tx.onerror = () => reject(tx.error);
+  });
 };
 
 const isValidExportPayload = (data: unknown): data is IndexedDBExportPayload => {
