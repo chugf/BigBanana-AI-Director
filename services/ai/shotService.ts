@@ -18,6 +18,11 @@ import {
   NINE_GRID_IMAGE_PROMPT_TEMPLATE,
 } from './storyboardPromptTemplates';
 
+const countEnglishWords = (text: string): number => {
+  const matches = String(text || '').trim().match(/[A-Za-z0-9'-]+/g);
+  return matches ? matches.length : 0;
+};
+
 // ============================================
 // 关键帧优化
 // ============================================
@@ -677,6 +682,15 @@ export const generateNineGridPanels = async (
       throw new Error('AI返回的panel字段不完整（shotSize/cameraAngle/description 不能为空）');
     }
 
+    const invalidLengthPanel = normalizedPanels.find((p) => {
+      const words = countEnglishWords(p.description);
+      return words < 10 || words > 30;
+    });
+    if (invalidLengthPanel) {
+      const words = countEnglishWords(invalidLengthPanel.description);
+      throw new Error(`panel description 词数超出范围（当前 ${words}，要求 10-30）`);
+    }
+
     return normalizedPanels;
   };
 
@@ -695,7 +709,8 @@ export const generateNineGridPanels = async (
 请严格重新输出 JSON 对象，且必须满足：
 1) "panels" 恰好 9 个（index 0-8，按从左到右、从上到下）
 2) 每个 panel 必须包含非空的 shotSize、cameraAngle、description
-3) 只输出 JSON，不要任何解释文字`;
+3) description 使用英文单句，严格控制在 10-30 词
+4) 只输出 JSON，不要任何解释文字`;
 
       const repairedText = await retryOperation(() => chatCompletion(repairPrompt, resolvedModel, 0.4, 4096, 'json_object'));
       panels = parsePanels(repairedText);

@@ -484,6 +484,11 @@ const truncatePromptToMaxChars = (
   };
 };
 
+const countEnglishWords = (text: string): number => {
+  const matches = String(text || '').trim().match(/[A-Za-z0-9'-]+/g);
+  return matches ? matches.length : 0;
+};
+
 export const generateImage = async (
   prompt: string,
   referenceImages: string[] = [],
@@ -838,80 +843,99 @@ Character Design: Proportions=${artDirection.characterDesignRules.proportions}, 
 Lighting: ${artDirection.lightingStyle}, Texture: ${artDirection.textureStyle}
 ` : '';
 
-  const prompt = `You are an expert character designer and Art Director for ${visualStyle} productions.
-Your task is to create a CHARACTER TURNAROUND SHEET - a 3x3 grid (9 panels) showing the SAME character from 9 different angles and distances.
-
-This is for maintaining character consistency across multiple shots in video production.
+  const prompt = `You are a character design director for ${visualStyle}.
+Create a 3x3 CHARACTER TURNAROUND plan (9 panels) for the SAME character.
 
 ${artDirectionBlock}
-## Character Information
+Character:
 - Name: ${character.name}
 - Gender: ${character.gender}
 - Age: ${character.age}
 - Personality: ${character.personality}
 - Visual Description: ${character.visualPrompt || 'Not specified'}
 
-## Visual Style: ${visualStyle} (${stylePrompt})
+Visual Style: ${visualStyle} (${stylePrompt})
 
-## REQUIRED 9 PANELS LAYOUT:
-Panel 0 (Top-Left): 正面/全身 - Front view, full body
-Panel 1 (Top-Center): 正面/半身特写 - Front view, upper body close-up
-Panel 2 (Top-Right): 正面/面部特写 - Front view, face close-up
-Panel 3 (Middle-Left): 左侧面/全身 - Left profile, full body
-Panel 4 (Middle-Center): 右侧面/全身 - Right profile, full body
-Panel 5 (Middle-Right): 3/4侧面/半身 - Three-quarter view, upper body
-Panel 6 (Bottom-Left): 背面/全身 - Back view, full body
-Panel 7 (Bottom-Center): 仰视/半身 - Low angle looking up, upper body
-Panel 8 (Bottom-Right): 俯视/半身 - High angle looking down, upper body
+Required panel layout (index 0-8):
+0 Top-Left: 正面 / 全身
+1 Top-Center: 正面 / 半身特写
+2 Top-Right: 正面 / 面部特写
+3 Middle-Left: 左侧面 / 全身
+4 Center: 右侧面 / 全身
+5 Middle-Right: 3/4侧面 / 半身
+6 Bottom-Left: 背面 / 全身
+7 Bottom-Center: 仰视 / 半身
+8 Bottom-Right: 俯视 / 半身
 
-## YOUR TASK:
-For each of the 9 panels, write a detailed visual description of the character from that specific angle.
-
-CRITICAL RULES:
-- The character's appearance (face, hair, clothing, accessories, body proportions) MUST be EXACTLY the same across ALL 9 panels
-- Each description MUST specify the exact viewing angle and distance
-- Include specific details about what is visible from that angle (e.g., back of hairstyle, side profile of face, clothing details visible from that angle)
-- Descriptions should be written in a way that helps image generation AI render the character consistently
-- Each description should be 30-50 words, written in English, as direct image generation prompts
-- Include character pose and expression appropriate for a neutral/characteristic reference sheet pose
-- Include the ${visualStyle} style keywords in each description
-
-Output ONLY valid JSON:
+Output JSON only:
 {
   "panels": [
-    {
-      "index": 0,
-      "viewAngle": "正面",
-      "shotSize": "全身",
-      "description": "Front full-body view of [character], standing in a neutral pose..."
-    }
+    { "index": 0, "viewAngle": "正面", "shotSize": "全身", "description": "..." }
   ]
 }
 
-The "panels" array MUST have exactly 9 items (index 0-8).`;
+Rules:
+- Exactly 9 panels, index 0-8 in order
+- Keep face/hair/body/clothing/accessories consistent across all panels
+- description must be one concise English sentence (10-30 words) with key visible details for that angle`;
 
   try {
+    const buildPanels = (parsed: any): CharacterTurnaroundPanel[] => {
+      const built: CharacterTurnaroundPanel[] = [];
+      const rawPanels = Array.isArray(parsed.panels) ? parsed.panels : [];
+      for (let i = 0; i < 9; i++) {
+        const raw = rawPanels[i];
+        if (raw) {
+          built.push({
+            index: i,
+            viewAngle: String(raw.viewAngle || CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].viewAngle).trim(),
+            shotSize: String(raw.shotSize || CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].shotSize).trim(),
+            description: String(raw.description || '').trim(),
+          });
+        } else {
+          built.push({
+            ...CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i],
+            description: `${character.visualPrompt || character.name}, ${CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].viewAngle} view, ${CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].shotSize}`,
+          });
+        }
+      }
+      return built;
+    };
+
+    const validatePanels = (items: CharacterTurnaroundPanel[]): string | null => {
+      if (items.length !== 9) return `panels 数量错误（${items.length}）`;
+      for (const p of items) {
+        if (!p.viewAngle || !p.shotSize || !p.description) {
+          return `panel ${p.index} 字段缺失`;
+        }
+        const words = countEnglishWords(p.description);
+        if (words < 10 || words > 30) {
+          return `panel ${p.index} description 词数为 ${words}，要求 10-30`;
+        }
+      }
+      return null;
+    };
+
     const responseText = await retryOperation(() => chatCompletion(prompt, model, 0.4, 4096, 'json_object'));
-    const text = cleanJsonString(responseText);
-    const parsed = JSON.parse(text);
+    let parsed = JSON.parse(cleanJsonString(responseText));
+    let panels = buildPanels(parsed);
+    let validationError = validatePanels(panels);
 
-    const panels: CharacterTurnaroundPanel[] = [];
-    const rawPanels = Array.isArray(parsed.panels) ? parsed.panels : [];
+    if (validationError) {
+      const repairPrompt = `${prompt}
 
-    for (let i = 0; i < 9; i++) {
-      const raw = rawPanels[i];
-      if (raw) {
-        panels.push({
-          index: i,
-          viewAngle: raw.viewAngle || CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].viewAngle,
-          shotSize: raw.shotSize || CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].shotSize,
-          description: raw.description || '',
-        });
-      } else {
-        panels.push({
-          ...CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i],
-          description: `${character.visualPrompt || character.name}, ${CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].viewAngle} view, ${CHARACTER_TURNAROUND_LAYOUT.defaultPanels[i].shotSize}`,
-        });
+Your previous output failed validation (${validationError}).
+Rewrite and output JSON again with these strict rules:
+1) panels must be exactly 9 items (index 0-8 in order)
+2) each panel must include non-empty viewAngle, shotSize, description
+3) each description must be ONE English sentence, 10-30 words
+4) output JSON only, no explanation`;
+      const repairedText = await retryOperation(() => chatCompletion(repairPrompt, model, 0.3, 4096, 'json_object'));
+      parsed = JSON.parse(cleanJsonString(repairedText));
+      panels = buildPanels(parsed);
+      validationError = validatePanels(panels);
+      if (validationError) {
+        throw new Error(`角色九宫格视角描述校验失败：${validationError}`);
       }
     }
 
@@ -940,6 +964,7 @@ export const generateCharacterTurnaroundImage = async (
   logScriptProgress(`正在为角色「${character.name}」生成九宫格造型图片...`);
 
   const stylePrompt = getStylePrompt(visualStyle);
+  const characterSummary = character.visualPrompt || `${character.gender}, ${character.age}, ${character.personality}`;
 
   // 构建九宫格图片生成提示词
   const panelDescriptions = panels.map((p, idx) => {
@@ -948,37 +973,25 @@ export const generateCharacterTurnaroundImage = async (
   }).join('\n');
 
   const artDirectionSuffix = artDirection
-    ? `\nArt Direction Style Anchors: ${artDirection.consistencyAnchors}\nLighting: ${artDirection.lightingStyle}\nTexture: ${artDirection.textureStyle}`
+    ? `\nArt Direction: ${artDirection.consistencyAnchors}\nLighting: ${artDirection.lightingStyle}\nTexture: ${artDirection.textureStyle}`
     : '';
 
-  const prompt = `Generate a SINGLE image composed as a CHARACTER TURNAROUND/REFERENCE SHEET with a 3x3 grid layout (9 equal panels).
-The image shows the SAME CHARACTER from 9 DIFFERENT viewing angles and distances.
-Each panel is separated by thin white borders.
-This is a professional character design reference sheet for animation/film production.
+  const prompt = `Create ONE character turnaround/reference sheet in a 3x3 grid (9 equal panels with thin white separators).
+All panels must show the SAME character; only view angle and camera distance change.
 
 Visual Style: ${visualStyle} (${stylePrompt})
+Character: ${character.name} - ${characterSummary}
 
-Character: ${character.name} - ${character.visualPrompt || `${character.gender}, ${character.age}, ${character.personality}`}
-
-Grid Layout (left to right, top to bottom):
+Panels (left to right, top to bottom):
 ${panelDescriptions}
 
-CRITICAL REQUIREMENTS:
-- The output MUST be a SINGLE image divided into exactly 9 equal rectangular panels in a 3x3 grid layout
-- Each panel MUST have a thin white border/separator (2-3px) between panels
-- ALL 9 panels show the EXACT SAME CHARACTER with IDENTICAL appearance:
-  * Same face features (eyes, nose, mouth, face shape) - ABSOLUTELY IDENTICAL across all panels
-  * Same hairstyle and hair color - NO variation allowed
-  * Same clothing and accessories - EXACTLY the same outfit in every panel
-  * Same body proportions and build
-  * Same skin tone and complexion
-- The ONLY difference between panels is the VIEWING ANGLE and DISTANCE
-- Use a clean, neutral background (solid color or subtle gradient) to emphasize the character
-- Each panel should be a well-composed, professional-quality character reference
-- Maintain consistent lighting across all panels for accurate color reference
-- Character should have a neutral/characteristic pose appropriate for a reference sheet${artDirectionSuffix}
+Constraints:
+- Output one single 3x3 grid image only
+- Keep face, hair, body, clothing, and accessories consistent across all panels
+- Keep lighting/color style consistent and use a clean neutral background
+- Each panel should be clear, reference-quality, and well composed${artDirectionSuffix}
 
-⚠️ CHARACTER CONSISTENCY IS THE #1 PRIORITY - The character must look like the EXACT SAME PERSON in all 9 panels!`;
+Top priority: the character must look like the same person in all 9 panels.`;
 
   // 收集参考图片
   const referenceImages: string[] = [];
