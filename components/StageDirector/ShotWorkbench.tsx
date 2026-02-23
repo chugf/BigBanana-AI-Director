@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, X, Film, Edit2, MessageSquare, Sparkles, Loader2, Scissors, Grid3x3 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Film, Edit2, MessageSquare, Sparkles, Loader2, Scissors, Grid3x3, CircleHelp } from 'lucide-react';
 import { Shot, Character, Scene, Prop, ProjectState, AspectRatio, VideoDuration, NineGridData, NineGridPanel } from '../../types';
 import SceneContext from './SceneContext';
 import KeyframeEditor from './KeyframeEditor';
@@ -94,6 +94,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   const startKf = shot.keyframes?.find(k => k.type === 'start');
   const endKf = shot.keyframes?.find(k => k.type === 'end');
   const [localVideoModelId, setLocalVideoModelId] = useState(currentVideoModelId);
+  const [expandedCheckKey, setExpandedCheckKey] = useState<string | null>(null);
   const quality = shot.qualityAssessment;
   const qualityGradeLabel = quality?.grade === 'pass'
     ? '通过'
@@ -131,6 +132,10 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   useEffect(() => {
     setLocalVideoModelId(currentVideoModelId);
   }, [currentVideoModelId]);
+
+  useEffect(() => {
+    setExpandedCheckKey(null);
+  }, [shot.id]);
 
   const normalizedModelId = localVideoModelId.trim().toLowerCase();
   const showEndFrame = normalizedModelId.startsWith('veo');
@@ -203,16 +208,31 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
             </div>
             <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] p-3 space-y-2">
               <p className="text-xs text-[var(--text-secondary)]">{qualitySummary}</p>
-              <p className="text-[10px] text-[var(--text-muted)]">注：这里显示的是总分与等级，不是“警告条数”。</p>
+              <p className="text-[10px] text-[var(--text-muted)]">注：这里显示的是总分与等级，不是“警告条数”。点击每项右侧 ? 可查看评分依据。</p>
               <div className="space-y-1.5">
                 {quality.checks.map((check) => (
-                  <div key={check.key} className="flex items-center gap-2">
-                    <span className={`w-16 text-[10px] font-mono ${check.passed ? 'text-[var(--success-text)]' : 'text-[var(--warning-text)]'}`}>
-                      {check.score}/100
-                    </span>
-                    <span className="text-[11px] text-[var(--text-tertiary)] truncate" title={check.details || check.label}>
-                      {getCheckLabel(check.key, check.label)}
-                    </span>
+                  <div key={check.key} className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-16 text-[10px] font-mono ${check.passed ? 'text-[var(--success-text)]' : 'text-[var(--warning-text)]'}`}>
+                        {check.score}/100
+                      </span>
+                      <span className="flex-1 text-[11px] text-[var(--text-tertiary)] truncate" title={check.details || check.label}>
+                        {getCheckLabel(check.key, check.label)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedCheckKey((prev) => (prev === check.key ? null : check.key))}
+                        className="p-1 rounded border border-[var(--border-primary)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent-border)]"
+                        title="查看评分依据"
+                      >
+                        <CircleHelp className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {expandedCheckKey === check.key && (
+                      <div className="ml-16 rounded border border-[var(--border-primary)] bg-[var(--bg-base)]/60 px-2 py-1.5 text-[10px] leading-relaxed text-[var(--text-secondary)] whitespace-pre-line">
+                        {check.details || '暂无评分依据。'}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
