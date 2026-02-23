@@ -368,6 +368,7 @@ export const createNewEpisode = (projectId: string, seriesId: string, episodeNum
     characterRefs: [],
     sceneRefs: [],
     propRefs: [],
+    scriptGenerationCheckpoint: null,
   };
 };
 
@@ -646,6 +647,7 @@ export const importIndexedDBData = async (
           characterRefs: chars.map((c: any) => ({ characterId: c.id, syncedVersion: 1, syncStatus: 'synced' as const })),
           sceneRefs: scenes.map((s: any) => ({ sceneId: s.id, syncedVersion: 1, syncStatus: 'synced' as const })),
           propRefs: props.map((pr: any) => ({ propId: pr.id, syncedVersion: 1, syncStatus: 'synced' as const })),
+          scriptGenerationCheckpoint: null,
         };
         epStore.put(normalizeEpisode(ep));
         count += 3;

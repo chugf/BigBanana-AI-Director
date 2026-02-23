@@ -1,6 +1,9 @@
 /**
- * API 基础设施层
- * 统一的 API 调用、重试、错误处理、JSON 清理等工具函数
+ * AI API core utilities:
+ * - API key lookup and routing
+ * - retry and timeout helpers
+ * - chat completion (sync / stream)
+ * - media conversion helpers
  */
 
 import { AspectRatio } from "../../types";
@@ -19,7 +22,7 @@ import {
 } from '../modelRegistry';
 
 // ============================================
-// 脚本日志回调（供各服务模块使用）
+// Script progress callback
 // ============================================
 
 type ScriptLogCallback = (message: string) => void;
@@ -41,12 +44,10 @@ export const logScriptProgress = (message: string) => {
 };
 
 // ============================================
-// API Key 管理
+// API key management
 // ============================================
 
-/**
- * API Key 错误类
- */
+/** API key error */
 export class ApiKeyError extends Error {
   constructor(message: string) {
     super(message);
@@ -54,53 +55,55 @@ export class ApiKeyError extends Error {
   }
 }
 
-/** 运行时 API Key（向后兼容） */
-let runtimeApiKey: string = process.env.API_KEY || "";
+/** Runtime fallback API key (backward compatibility). */
+let runtimeApiKey: string = process.env.API_KEY || '';
 
-/**
- * 设置全局API密钥
- */
+/** Set global API key for runtime + model registry */
 export const setGlobalApiKey = (key: string) => {
   runtimeApiKey = key;
   setRegistryApiKey(key);
 };
 
-/** 默认 API base URL（向后兼容） */
+/** Default API base URL fallback */
 const DEFAULT_API_BASE = 'https://api.antsk.cn';
 
-/**
- * 解析模型：根据 type 和可选 modelId 找到对应的模型配置
- */
+/** Resolve model by type and optional modelId */
 export const resolveModel = (type: 'chat' | 'image' | 'video', modelId?: string) => {
   if (modelId) {
     const normalizedModelId = modelId.toLowerCase();
+    // Keep alias compatibility for model registry lookup.
     const lookupId = normalizedModelId === 'veo_3_1-fast-4k' ? 'veo_3_1-fast' : modelId;
     const model = getModelById(lookupId);
     if (model && model.type === type) return model;
+
     const candidates = getModels(type).filter(m => m.apiModel === lookupId);
     if (candidates.length === 1) return candidates[0];
   }
+
   return getActiveModel(type);
 };
 
-/**
- * 解析请求用的模型名称（apiModel 字段）
- */
+/** Resolve model name used in request body */
 export const resolveRequestModel = (type: 'chat' | 'image' | 'video', modelId?: string): string => {
+  // Preserve explicit 4k request model naming.
   if (modelId && modelId.toLowerCase() === 'veo_3_1-fast-4k') {
     return modelId;
   }
+
   const resolved = resolveModel(type, modelId);
   return resolved?.apiModel || resolved?.id || modelId || '';
 };
 
 /**
- * 检查并返回 API Key
- * @throws {ApiKeyError} 如果 API Key 缺失
+ * Resolve API key for a specific model/type.
+ * Order:
+ * 1) model-level key
+ * 2) registry global key
+ * 3) runtime fallback key
  */
 export const checkApiKey = (type: 'chat' | 'image' | 'video' = 'chat', modelId?: string): string => {
   const resolvedModel = resolveModel(type, modelId);
-  console.log(`[checkApiKey] type=${type}, modelId=${modelId}, resolvedModel=`, resolvedModel?.id, resolvedModel?.providerId);
+  console.log('[checkApiKey] type/model/resolved:', type, modelId, resolvedModel?.id, resolvedModel?.providerId);
 
   if (resolvedModel) {
     const provider = getProviderById(resolvedModel.providerId);
@@ -110,28 +113,25 @@ export const checkApiKey = (type: 'chat' | 'image' | 'video' = 'chat', modelId?:
 
     if (isVolcengineProvider) {
       const dedicatedKey = resolvedModel.apiKey || provider?.apiKey;
-      console.log(`[checkApiKey] volcengine dedicated key found:`, !!dedicatedKey);
       if (dedicatedKey) return dedicatedKey;
-      throw new ApiKeyError('火山引擎模型需要单独配置 API Key（模型或提供商），不会使用全局 API Key。');
+      throw new ApiKeyError('Volcengine models require a dedicated API key at model/provider level.');
     }
 
     const modelApiKey = getApiKeyForModel(resolvedModel.id);
-    console.log(`[checkApiKey] modelApiKey found:`, !!modelApiKey, modelApiKey ? '(has key)' : '(no key)');
     if (modelApiKey) return modelApiKey;
   }
 
   const registryKey = getRegistryApiKey();
-  console.log(`[checkApiKey] registryKey found:`, !!registryKey);
   if (registryKey) return registryKey;
 
-  console.log(`[checkApiKey] runtimeApiKey found:`, !!runtimeApiKey);
-  if (!runtimeApiKey) throw new ApiKeyError("API Key 缺失，请在模型配置中设置 API Key。");
+  if (!runtimeApiKey) {
+    throw new ApiKeyError('API Key is missing. Please configure it in model settings.');
+  }
+
   return runtimeApiKey;
 };
 
-/**
- * 获取 API 基础 URL
- */
+/** Get API base URL for model/type */
 export const getApiBase = (type: 'chat' | 'image' | 'video' = 'chat', modelId?: string): string => {
   try {
     const resolvedModel = resolveModel(type, modelId);
@@ -139,45 +139,57 @@ export const getApiBase = (type: 'chat' | 'image' | 'video' = 'chat', modelId?: 
       return getApiBaseUrlForModel(resolvedModel.id);
     }
     return DEFAULT_API_BASE;
-  } catch (e) {
+  } catch {
     return DEFAULT_API_BASE;
   }
 };
 
-/**
- * 获取当前激活的对话模型名称
- */
+/** Get active chat model name for logging/default behavior */
 export const getActiveChatModelName = (): string => {
   try {
     const model = getActiveChatModel();
     return model?.apiModel || model?.id || 'gpt-5.1';
-  } catch (e) {
+  } catch {
     return 'gpt-5.1';
   }
 };
 
-// Re-export modelRegistry helpers that other modules may need
+// Re-export helpers from modelRegistry
 export { getActiveModel, getActiveChatModel, getActiveVideoModel, getActiveImageModel };
 
 // ============================================
-// 通用工具函数
+// Generic helpers
 // ============================================
 
-/**
- * 重试操作辅助函数，用于处理429限流、超时、服务器错误等临时性错误
- * 采用指数退避策略
- */
+/** Retry helper with exponential backoff */
 export const retryOperation = async <T>(
   operation: () => Promise<T>,
   maxRetries: number = 3,
-  baseDelay: number = 2000
+  baseDelay: number = 2000,
+  abortSignal?: AbortSignal
 ): Promise<T> => {
-  let lastError;
-  for (let i = 0; i < maxRetries; i++) {
+  let lastError: any;
+
+  const isAbortError = (error: any): boolean =>
+    error?.name === 'AbortError' ||
+    error?.message?.includes('Request cancelled') ||
+    error?.message?.includes('请求已取消') ||
+    error?.message?.includes('aborted');
+
+  for (let i = 0; i < maxRetries; i += 1) {
+    if (abortSignal?.aborted) {
+      throw new Error('Request cancelled');
+    }
+
     try {
       return await operation();
     } catch (e: any) {
       lastError = e;
+
+      if (isAbortError(e) || abortSignal?.aborted) {
+        throw new Error('Request cancelled');
+      }
+
       const isRetryableError =
         e.status === 429 ||
         e.code === 429 ||
@@ -185,8 +197,9 @@ export const retryOperation = async <T>(
         e.message?.includes('429') ||
         e.message?.includes('quota') ||
         e.message?.includes('RESOURCE_EXHAUSTED') ||
-        e.message?.includes('超时') ||
+        e.message?.includes('timed out') ||
         e.message?.includes('timeout') ||
+        e.message?.includes('超时') ||
         e.message?.includes('Gateway Timeout') ||
         e.message?.includes('504') ||
         e.message?.includes('ECONNRESET') ||
@@ -197,37 +210,55 @@ export const retryOperation = async <T>(
 
       if (isRetryableError && i < maxRetries - 1) {
         const delay = baseDelay * Math.pow(2, i);
-        console.warn(`请求失败，正在重试... (第 ${i + 1}/${maxRetries} 次，${delay}ms后重试)`, e.message);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        console.warn(`Request failed, retrying (${i + 1}/${maxRetries}) in ${delay}ms`, e.message);
+
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            if (abortSignal) {
+              abortSignal.removeEventListener('abort', handleAbort);
+            }
+            resolve();
+          }, delay);
+
+          const handleAbort = () => {
+            clearTimeout(timer);
+            abortSignal?.removeEventListener('abort', handleAbort);
+            reject(new Error('Request cancelled'));
+          };
+
+          if (abortSignal) {
+            abortSignal.addEventListener('abort', handleAbort);
+          }
+        });
+
         continue;
       }
+
       throw e;
     }
   }
+
   throw lastError;
 };
 
-/**
- * 清理AI返回的JSON字符串，移除markdown代码块标记
- */
+/** Remove markdown code fences around JSON */
 export const cleanJsonString = (str: string): string => {
-  if (!str) return "{}";
+  if (!str) return '{}';
   let cleaned = str.trim();
   cleaned = cleaned.replace(/^```(?:json)?\s*/i, '');
   cleaned = cleaned.replace(/```\s*$/, '');
   return cleaned.trim();
 };
 
-/**
- * 从 HTTP 错误响应中解析错误信息，返回带 status 属性的 Error
- */
+/** Parse HTTP error payload to Error with status field */
 export const parseHttpError = async (response: Response): Promise<Error> => {
   const httpStatus = response.status;
-  let errorMessage = `HTTP错误: ${httpStatus}`;
+  let errorMessage = `HTTP error: ${httpStatus}`;
+
   try {
     const errorData = await response.json();
     errorMessage = errorData.error?.message || errorMessage;
-  } catch (e) {
+  } catch {
     try {
       const errorText = await response.text();
       if (errorText) errorMessage = errorText;
@@ -235,25 +266,25 @@ export const parseHttpError = async (response: Response): Promise<Error> => {
       // ignore
     }
   }
+
   const err: any = new Error(errorMessage);
   err.status = httpStatus;
   return err;
 };
 
 // ============================================
-// Chat Completion API
+// Chat completion API
 // ============================================
 
-/**
- * 调用聊天完成API（非流式）
- */
+/** Non-stream chat completion */
 export const chatCompletion = async (
   prompt: string,
   model: string = 'gpt-5.1',
   temperature: number = 0.7,
   maxTokens: number = 8192,
   responseFormat?: 'json_object',
-  timeout: number = 600000
+  timeout: number = 600000,
+  abortSignal?: AbortSignal
 ): Promise<string> => {
   const apiKey = checkApiKey('chat', model);
   const requestModel = resolveRequestModel('chat', model);
@@ -261,28 +292,43 @@ export const chatCompletion = async (
   const requestBody: any = {
     model: requestModel,
     messages: [{ role: 'user', content: prompt }],
-    temperature: temperature
+    temperature,
   };
+
+  if (Number.isFinite(maxTokens) && maxTokens > 0) {
+    requestBody.max_tokens = maxTokens;
+  }
 
   if (responseFormat === 'json_object') {
     requestBody.response_format = { type: 'json_object' };
   }
 
   const controller = new AbortController();
+  const handleExternalAbort = () => controller.abort();
+
+  if (abortSignal) {
+    if (abortSignal.aborted) {
+      controller.abort();
+    } else {
+      abortSignal.addEventListener('abort', handleExternalAbort);
+    }
+  }
+
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
     const apiBase = getApiBase('chat', model);
     const resolved = resolveModel('chat', model);
     const endpoint = resolved?.endpoint || '/v1/chat/completions';
+
     const response = await fetch(`${apiBase}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(requestBody),
-      signal: controller.signal
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -293,32 +339,38 @@ export const chatCompletion = async (
     return data.choices?.[0]?.message?.content || '';
   } catch (error: any) {
     if (error.name === 'AbortError') {
-      throw new Error(`请求超时（${timeout}ms）`);
+      if (abortSignal?.aborted) {
+        throw new Error('Request cancelled');
+      }
+      throw new Error(`Request timed out (${timeout}ms)`);
     }
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    if (abortSignal) {
+      abortSignal.removeEventListener('abort', handleExternalAbort);
+    }
   }
 };
 
-/**
- * 调用聊天完成API（SSE流式模式）
- */
+/** Streaming chat completion (SSE) */
 export const chatCompletionStream = async (
   prompt: string,
   model: string = 'gpt-5.1',
   temperature: number = 0.7,
   responseFormat: 'json_object' | undefined,
   timeout: number = 600000,
-  onDelta?: (delta: string) => void
+  onDelta?: (delta: string) => void,
+  abortSignal?: AbortSignal
 ): Promise<string> => {
   const apiKey = checkApiKey('chat', model);
   const requestModel = resolveRequestModel('chat', model);
+
   const requestBody: any = {
     model: requestModel,
     messages: [{ role: 'user', content: prompt }],
-    temperature: temperature,
-    stream: true
+    temperature,
+    stream: true,
   };
 
   if (responseFormat === 'json_object') {
@@ -326,20 +378,31 @@ export const chatCompletionStream = async (
   }
 
   const controller = new AbortController();
+  const handleExternalAbort = () => controller.abort();
+
+  if (abortSignal) {
+    if (abortSignal.aborted) {
+      controller.abort();
+    } else {
+      abortSignal.addEventListener('abort', handleExternalAbort);
+    }
+  }
+
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
     const apiBase = getApiBase('chat', model);
     const resolved = resolveModel('chat', model);
     const endpoint = resolved?.endpoint || '/v1/chat/completions';
+
     const response = await fetch(`${apiBase}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(requestBody),
-      signal: controller.signal
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -347,7 +410,7 @@ export const chatCompletionStream = async (
     }
 
     if (!response.body) {
-      throw new Error('响应流为空，无法进行流式处理');
+      throw new Error('Response body is empty; cannot process stream response.');
     }
 
     const reader = response.body.getReader();
@@ -358,6 +421,7 @@ export const chatCompletionStream = async (
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+
       buffer += decoder.decode(value, { stream: true });
 
       let boundaryIndex = buffer.indexOf('\n\n');
@@ -370,10 +434,12 @@ export const chatCompletionStream = async (
           for (const line of lines) {
             if (!line.startsWith('data:')) continue;
             const dataStr = line.replace(/^data:\s*/, '');
+
             if (dataStr === '[DONE]') {
               clearTimeout(timeoutId);
               return fullText;
             }
+
             try {
               const payload = JSON.parse(dataStr);
               const delta = payload?.choices?.[0]?.delta?.content || payload?.choices?.[0]?.message?.content || '';
@@ -381,8 +447,8 @@ export const chatCompletionStream = async (
                 fullText += delta;
                 onDelta?.(delta);
               }
-            } catch (e) {
-              // 忽略解析失败的行
+            } catch {
+              // Ignore malformed SSE JSON line.
             }
           }
         }
@@ -396,19 +462,24 @@ export const chatCompletionStream = async (
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      throw new Error(`请求超时（${timeout}ms）`);
+      if (abortSignal?.aborted) {
+        throw new Error('Request cancelled');
+      }
+      throw new Error(`Request timed out (${timeout}ms)`);
     }
     throw error;
+  } finally {
+    if (abortSignal) {
+      abortSignal.removeEventListener('abort', handleExternalAbort);
+    }
   }
 };
 
 // ============================================
-// API Key 验证
+// API key verification
 // ============================================
 
-/**
- * 验证 API Key 的连通性
- */
+/** Verify whether a provided key can call chat endpoint */
 export const verifyApiKey = async (key: string): Promise<{ success: boolean; message: string }> => {
   try {
     const apiBase = getApiBase('chat');
@@ -416,22 +487,22 @@ export const verifyApiKey = async (key: string): Promise<{ success: boolean; mes
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${key}`
+        Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
         model: 'gpt-41',
-        messages: [{ role: 'user', content: '仅返回1' }],
+        messages: [{ role: 'user', content: 'Return 1 only.' }],
         temperature: 0.1,
-        max_tokens: 5
-      })
+        max_tokens: 5,
+      }),
     });
 
     if (!response.ok) {
-      let errorMessage = `验证失败: ${response.status}`;
+      let errorMessage = `Verification failed: ${response.status}`;
       try {
         const errorData = await response.json();
         errorMessage = errorData.error?.message || errorMessage;
-      } catch (e) {
+      } catch {
         // ignore
       }
       return { success: false, message: errorMessage };
@@ -440,27 +511,26 @@ export const verifyApiKey = async (key: string): Promise<{ success: boolean; mes
     const data = await response.json();
     if (data.choices?.[0]?.message?.content !== undefined) {
       return { success: true, message: 'API Key 验证成功' };
-    } else {
-      return { success: false, message: '返回格式异常' };
     }
+
+    return { success: false, message: '返回格式异常' };
   } catch (error: any) {
     return { success: false, message: error.message || '网络错误' };
   }
 };
 
 // ============================================
-// 媒体工具函数
+// Media conversion helpers
 // ============================================
 
-/**
- * 将视频URL转换为base64格式
- */
+/** Convert a remote video URL to data URL base64 */
 export const convertVideoUrlToBase64 = async (url: string): Promise<string> => {
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`下载视频失败: HTTP ${response.status}`);
+      throw new Error(`Failed to fetch video: HTTP ${response.status}`);
     }
+
     const blob = await response.blob();
     return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -469,64 +539,68 @@ export const convertVideoUrlToBase64 = async (url: string): Promise<string> => {
         resolve(base64String);
       };
       reader.onerror = () => {
-        reject(new Error('转换视频为base64失败'));
+        reject(new Error('Failed to convert video to base64'));
       };
       reader.readAsDataURL(blob);
     });
   } catch (error: any) {
-    console.error('视频URL转base64失败:', error);
-    throw new Error(`视频转换失败: ${error.message}`);
+    console.error('convertVideoUrlToBase64 failed:', error);
+    throw new Error(`Failed to convert video to base64: ${error.message}`);
   }
 };
 
 /**
- * 调整图片尺寸到指定宽高（cover模式，保持比例居中裁剪）
+ * Resize base64 PNG image to target size with cover strategy.
+ * Return raw base64 (without data URI prefix).
  */
 export const resizeImageToSize = async (base64Data: string, targetWidth: number, targetHeight: number): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
+
     img.onload = () => {
       const canvas = document.createElement('canvas');
       canvas.width = targetWidth;
       canvas.height = targetHeight;
+
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        reject(new Error('无法创建canvas上下文'));
+        reject(new Error('Failed to create canvas context'));
         return;
       }
+
       const scale = Math.max(targetWidth / img.width, targetHeight / img.height);
       const scaledWidth = img.width * scale;
       const scaledHeight = img.height * scale;
       const offsetX = (targetWidth - scaledWidth) / 2;
       const offsetY = (targetHeight - scaledHeight) / 2;
+
       ctx.drawImage(img, offsetX, offsetY, scaledWidth, scaledHeight);
-      const result = canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+
+      const result = canvas
+        .toDataURL('image/png')
+        .replace(/^data:image\/png;base64,/, '');
       resolve(result);
     };
-    img.onerror = () => reject(new Error('图片加载失败'));
+
+    img.onerror = () => reject(new Error('Failed to load image'));
     img.src = `data:image/png;base64,${base64Data}`;
   });
 };
 
 // ============================================
-// 视频模型辅助
+// Video model helpers
 // ============================================
 
-/**
- * 获取 Veo 模型名称（根据横竖屏和是否有参考图）
- */
+/** Get Veo model by reference mode and aspect ratio */
 export const getVeoModelName = (hasReferenceImage: boolean, aspectRatio: AspectRatio): string => {
   const orientation = aspectRatio === '9:16' ? 'portrait' : 'landscape';
   if (hasReferenceImage) {
     return `veo_3_1_i2v_s_fast_fl_${orientation}`;
-  } else {
-    return `veo_3_1_t2v_fast_${orientation}`;
   }
+  return `veo_3_1_t2v_fast_${orientation}`;
 };
 
-/**
- * 根据横竖屏比例获取 Sora 视频尺寸
- */
+/** Map aspect ratio to Sora size */
 export const getSoraVideoSize = (aspectRatio: AspectRatio): string => {
   const sizeMap: Record<AspectRatio, string> = {
     '16:9': '1280x720',

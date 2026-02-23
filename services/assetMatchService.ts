@@ -22,7 +22,75 @@ export interface ApplyResult {
 }
 
 function normalize(s: string): string {
-  return s.replace(/\s+/g, '').toLowerCase();
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[()（）【】[\]{}'"`]/g, ' ')
+    .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenize(s: string): string[] {
+  const normalized = normalize(s);
+  if (!normalized) return [];
+  const segments = normalized.split(' ').filter(Boolean);
+  const tokens = new Set<string>(segments);
+  for (const segment of segments) {
+    if (/^[\u4e00-\u9fff]+$/u.test(segment) && segment.length > 1) {
+      for (let i = 0; i < segment.length - 1; i += 1) {
+        tokens.add(segment.slice(i, i + 2));
+      }
+    }
+  }
+  return Array.from(tokens);
+}
+
+function jaccard(tokensA: string[], tokensB: string[]): number {
+  if (tokensA.length === 0 || tokensB.length === 0) return 0;
+  const setB = new Set(tokensB);
+  let intersection = 0;
+  for (const token of tokensA) {
+    if (setB.has(token)) intersection += 1;
+  }
+  const union = new Set([...tokensA, ...tokensB]).size;
+  return union === 0 ? 0 : intersection / union;
+}
+
+function diceByBigram(a: string, b: string): number {
+  const s1 = normalize(a).replace(/\s+/g, '');
+  const s2 = normalize(b).replace(/\s+/g, '');
+  if (!s1 || !s2) return 0;
+  if (s1 === s2) return 1;
+  if (s1.length < 2 || s2.length < 2) return 0;
+
+  const grams1 = new Map<string, number>();
+  for (let i = 0; i < s1.length - 1; i += 1) {
+    const gram = s1.slice(i, i + 2);
+    grams1.set(gram, (grams1.get(gram) || 0) + 1);
+  }
+
+  let intersection = 0;
+  for (let i = 0; i < s2.length - 1; i += 1) {
+    const gram = s2.slice(i, i + 2);
+    const count = grams1.get(gram) || 0;
+    if (count > 0) {
+      intersection += 1;
+      grams1.set(gram, count - 1);
+    }
+  }
+  return (2 * intersection) / ((s1.length - 1) + (s2.length - 1));
+}
+
+function nameSimilarity(a: string, b: string): number {
+  const na = normalize(a);
+  const nb = normalize(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+
+  const containsBoost = na.includes(nb) || nb.includes(na) ? 0.2 : 0;
+  const tokenScore = jaccard(tokenize(na), tokenize(nb));
+  const bigramScore = diceByBigram(na, nb);
+  return Math.min(1, tokenScore * 0.55 + bigramScore * 0.45 + containsBoost);
 }
 
 function getAssetImage(asset: { referenceImage?: string } & Record<string, any>): string | undefined {
@@ -33,42 +101,100 @@ function getAssetImage(asset: { referenceImage?: string } & Record<string, any>)
 function pickBestByName<T extends { version?: number; referenceImage?: string } & Record<string, any>>(
   items: T[],
   getName: (item: T) => string,
-  targetName: string
+  targetName: string,
+  options?: {
+    minScore?: number;
+    extraScore?: (item: T) => number;
+  }
 ): T | null {
   const normalizedTarget = normalize(targetName);
-  const candidates = items.filter(item => normalize(getName(item)) === normalizedTarget);
-  if (candidates.length === 0) return null;
+  if (!normalizedTarget) return null;
 
-  candidates.sort((a, b) => {
-    const aHasImage = getAssetImage(a) ? 1 : 0;
-    const bHasImage = getAssetImage(b) ? 1 : 0;
-    if (aHasImage !== bHasImage) return bHasImage - aHasImage;
+  const minScore = options?.minScore ?? (
+    normalizedTarget.length <= 2
+      ? 0.95
+      : normalizedTarget.length <= 4
+        ? 0.72
+        : 0.5
+  );
 
-    const aVersion = a.version || 1;
-    const bVersion = b.version || 1;
-    if (aVersion !== bVersion) return bVersion - aVersion;
+  let best: T | null = null;
+  let bestScore = 0;
 
-    const aPromptLen = (a.visualPrompt || '').length;
-    const bPromptLen = (b.visualPrompt || '').length;
-    return bPromptLen - aPromptLen;
-  });
+  for (const item of items) {
+    const baseScore = nameSimilarity(getName(item), targetName);
+    const bonusImage = getAssetImage(item) ? 0.04 : 0;
+    const bonusVersion = Math.min((item.version || 1), 10) * 0.004;
+    const bonusPrompt = Math.min((item.visualPrompt || '').length, 240) / 6000;
+    const extra = options?.extraScore ? options.extraScore(item) : 0;
+    const totalScore = baseScore + bonusImage + bonusVersion + bonusPrompt + extra;
 
-  return candidates[0];
+    if (baseScore >= minScore && totalScore > bestScore) {
+      best = item;
+      bestScore = totalScore;
+    }
+  }
+
+  return best;
+}
+
+function pickBestCharacterMatch(aiChar: Character, library: Character[]): Character | null {
+  return pickBestByName(library, lib => lib.name, aiChar.name, { minScore: 0.5 });
+}
+
+function pickBestSceneMatch(aiScene: Scene, library: Scene[]): Scene | null {
+  const aiTime = normalize(aiScene.time || '');
+  const aiAtmosphere = normalize(aiScene.atmosphere || '');
+  return pickBestByName(
+    library,
+    lib => lib.location,
+    aiScene.location,
+    {
+      minScore: 0.48,
+      extraScore: (lib) => {
+        let score = 0;
+        if (aiTime && aiTime === normalize(lib.time || '')) score += 0.08;
+        if (aiAtmosphere && aiAtmosphere === normalize(lib.atmosphere || '')) score += 0.06;
+        return score;
+      }
+    }
+  );
+}
+
+function pickBestPropMatch(aiProp: Prop, library: Prop[]): Prop | null {
+  const aiCategory = normalize(aiProp.category || '');
+  const aiDescription = String(aiProp.description || '');
+  return pickBestByName(
+    library,
+    lib => lib.name,
+    aiProp.name,
+    {
+      minScore: 0.45,
+      extraScore: (lib) => {
+        let score = 0;
+        if (aiCategory && aiCategory === normalize(lib.category || '')) score += 0.08;
+        if (aiDescription && lib.description) {
+          score += Math.min(0.1, nameSimilarity(aiDescription, lib.description) * 0.15);
+        }
+        return score;
+      }
+    }
+  );
 }
 
 export function findAssetMatches(scriptData: ScriptData, project: SeriesProject): AssetMatchResult {
   const characters: AssetMatchItem<Character>[] = scriptData.characters.map(aiChar => {
-    const match = pickBestByName(project.characterLibrary, libChar => libChar.name, aiChar.name);
+    const match = pickBestCharacterMatch(aiChar, project.characterLibrary);
     return { aiAsset: aiChar, libraryAsset: match || null, reuse: !!match };
   });
 
   const scenes: AssetMatchItem<Scene>[] = scriptData.scenes.map(aiScene => {
-    const match = pickBestByName(project.sceneLibrary, libScene => libScene.location, aiScene.location);
+    const match = pickBestSceneMatch(aiScene, project.sceneLibrary);
     return { aiAsset: aiScene, libraryAsset: match || null, reuse: !!match };
   });
 
   const props: AssetMatchItem<Prop>[] = (scriptData.props || []).map(aiProp => {
-    const match = pickBestByName(project.propLibrary, libProp => libProp.name, aiProp.name);
+    const match = pickBestPropMatch(aiProp, project.propLibrary);
     return { aiAsset: aiProp, libraryAsset: match || null, reuse: !!match };
   });
 

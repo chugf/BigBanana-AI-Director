@@ -56,6 +56,7 @@ const clearInFlightGenerationStates = (episode: ProjectState): ProjectState => {
   return {
     ...episode,
     isParsingScript: false,
+    scriptGenerationCheckpoint: null,
     scriptData,
     shots: episode.shots.map(shot => ({
       ...shot,

@@ -47,6 +47,8 @@ export {
 
 // 剧本处理服务
 export {
+  parseScriptStructure,
+  enrichScriptDataVisuals,
   parseScriptToData,
   generateShotList,
   continueScript,

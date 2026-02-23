@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { ProjectState, ScriptData, Shot } from '../../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { ProjectState, ScriptData, ScriptGenerationCheckpoint, ScriptGenerationStep, Shot } from '../../types';
 import { useAlert } from '../GlobalAlert';
 import {
-  parseScriptToData,
+  parseScriptStructure,
+  enrichScriptDataVisuals,
   generateShotList,
   continueScript,
   continueScriptStream,
@@ -40,6 +41,77 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     if (selected !== 'custom') return selected;
     const trimmed = customInput.trim();
     return trimmed || fallback;
+  };
+
+  const buildAnalyzeConfigKey = (input: {
+    script: string;
+    language: string;
+    targetDuration: string;
+    model: string;
+    visualStyle: string;
+  }): string => {
+    const raw = JSON.stringify(input);
+    let hash = 5381;
+    for (let i = 0; i < raw.length; i += 1) {
+      hash = ((hash << 5) + hash) ^ raw.charCodeAt(i);
+    }
+    return `v1-${(hash >>> 0).toString(16)}-${raw.length}`;
+  };
+
+  const isPlaceholderProjectTitle = (value: string): boolean => {
+    const trimmed = value.trim();
+    if (!trimmed) return true;
+    if (/^untitled\b/i.test(trimmed)) return true;
+    if (/^episode\s*\d+$/i.test(trimmed)) return true;
+    if (/^project\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$/i.test(trimmed)) return true;
+    return false;
+  };
+
+  const hydrateScriptDataMeta = (
+    source: ScriptData,
+    params: {
+      targetDuration: string;
+      language: string;
+      visualStyle: string;
+      model: string;
+      localTitle: string;
+    }
+  ): ScriptData => {
+    const next: ScriptData = {
+      ...source,
+      targetDuration: params.targetDuration,
+      language: params.language,
+      visualStyle: params.visualStyle,
+      shotGenerationModel: params.model
+    };
+    const trimmedTitle = params.localTitle.trim();
+    if (!isPlaceholderProjectTitle(trimmedTitle)) {
+      next.title = trimmedTitle;
+    }
+    return next;
+  };
+
+  const createAnalyzeCheckpoint = (
+    step: ScriptGenerationStep,
+    configKey: string,
+    scriptData?: ScriptData | null
+  ): ScriptGenerationCheckpoint => ({
+    step,
+    configKey,
+    scriptData: scriptData || null,
+    updatedAt: Date.now()
+  });
+
+  const isAbortError = (err: unknown, signal?: AbortSignal): boolean => {
+    if (signal?.aborted) return true;
+    const message = String((err as any)?.message || '').toLowerCase();
+    return (
+      message.includes('abort') ||
+      message.includes('aborted') ||
+      message.includes('cancel') ||
+      message.includes('canceled') ||
+      message.includes('取消')
+    );
   };
   
   // Configuration state
@@ -81,6 +153,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
   const [editingShotActionText, setEditingShotActionText] = useState('');
   const [editingShotDialogueText, setEditingShotDialogueText] = useState('');
   const [lastRewriteSnapshot, setLastRewriteSnapshot] = useState<string | null>(null);
+  const analyzeAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setLocalScript(project.rawScript);
@@ -103,6 +176,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
   // 组件卸载时重置生成状态
   useEffect(() => {
     return () => {
+      analyzeAbortControllerRef.current?.abort();
       onGeneratingChange?.(false);
     };
   }, []);
@@ -188,17 +262,41 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       return;
     }
 
-    console.log('🎯 用户选择的模型:', localModel);
-    console.log('🎯 最终使用的模型:', finalModel);
+    const analyzeConfigKey = buildAnalyzeConfigKey({
+      script: localScript,
+      language: localLanguage,
+      targetDuration: finalDuration,
+      model: finalModel,
+      visualStyle: finalVisualStyle
+    });
+    const savedCheckpoint = project.scriptGenerationCheckpoint;
+    const resumeCheckpoint =
+      savedCheckpoint && savedCheckpoint.configKey === analyzeConfigKey
+        ? savedCheckpoint
+        : null;
+
+    let nextStep: ScriptGenerationStep = resumeCheckpoint?.step || 'structure';
+    let workingScriptData: ScriptData | null = resumeCheckpoint?.scriptData || null;
+
+    analyzeAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    analyzeAbortControllerRef.current = controller;
+
+    console.log('📌 用户选择的模型:', localModel);
+    console.log('📌 最终使用的模型:', finalModel);
     console.log('🎨 视觉风格:', finalVisualStyle);
     logScriptProgress(`已选择模型：${localModel}`);
     logScriptProgress(`最终使用模型：${finalModel}`);
     logScriptProgress(`视觉风格：${finalVisualStyle}`);
+    if (resumeCheckpoint) {
+      logScriptProgress(`检测到断点，将从 ${resumeCheckpoint.step} 步骤继续`);
+    }
 
     setIsProcessing(true);
-    setProcessingMessage('正在解析剧本...');
+    setProcessingMessage('正在准备生成流程...');
     setProcessingLogs([]);
     setError(null);
+
     try {
       updateProject({
         title: localTitle,
@@ -207,42 +305,80 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
         language: localLanguage,
         visualStyle: finalVisualStyle,
         shotGenerationModel: finalModel,
-        isParsingScript: true
+        isParsingScript: true,
+        scriptGenerationCheckpoint: createAnalyzeCheckpoint(nextStep, analyzeConfigKey, workingScriptData)
       });
 
-      console.log('📞 调用 parseScriptToData, 传入模型:', finalModel);
-      logScriptProgress('开始解析剧本...');
-      const scriptData = await parseScriptToData(localScript, localLanguage, finalModel, finalVisualStyle);
-      
-      scriptData.targetDuration = finalDuration;
-      scriptData.language = localLanguage;
-      scriptData.visualStyle = finalVisualStyle;
-      scriptData.shotGenerationModel = finalModel;
-
-      const trimmedLocalTitle = localTitle.trim();
-      const isPlaceholderTitle =
-        !trimmedLocalTitle ||
-        trimmedLocalTitle === '未命名项目' ||
-        /^第\s*\d+\s*集$/u.test(trimmedLocalTitle) ||
-        /^新建项目\s\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}$/.test(trimmedLocalTitle);
-
-      if (!isPlaceholderTitle) {
-        scriptData.title = trimmedLocalTitle;
+      if (nextStep === 'structure' || !workingScriptData) {
+        setProcessingMessage('正在解析剧本结构...');
+        logScriptProgress('开始解析剧本结构...');
+        const structured = await parseScriptStructure(
+          localScript,
+          localLanguage,
+          finalModel,
+          controller.signal
+        );
+        workingScriptData = hydrateScriptDataMeta(structured, {
+          targetDuration: finalDuration,
+          language: localLanguage,
+          visualStyle: finalVisualStyle,
+          model: finalModel,
+          localTitle
+        });
+        nextStep = 'visuals';
+        updateProject({
+          scriptData: workingScriptData,
+          isParsingScript: true,
+          scriptGenerationCheckpoint: createAnalyzeCheckpoint(nextStep, analyzeConfigKey, workingScriptData)
+        });
       }
 
-      console.log('📞 调用 generateShotList, 传入模型:', finalModel);
-      logScriptProgress('开始生成分镜...');
+      if (nextStep === 'visuals') {
+        setProcessingMessage('正在生成角色/场景/道具视觉提示词...');
+        logScriptProgress('开始生成视觉提示词...');
+        const enriched = await enrichScriptDataVisuals(
+          workingScriptData!,
+          finalModel,
+          finalVisualStyle,
+          localLanguage,
+          { abortSignal: controller.signal }
+        );
+        workingScriptData = hydrateScriptDataMeta(enriched, {
+          targetDuration: finalDuration,
+          language: localLanguage,
+          visualStyle: finalVisualStyle,
+          model: finalModel,
+          localTitle
+        });
+        nextStep = 'shots';
+        updateProject({
+          scriptData: workingScriptData,
+          isParsingScript: true,
+          scriptGenerationCheckpoint: createAnalyzeCheckpoint(nextStep, analyzeConfigKey, workingScriptData)
+        });
+      }
+
       setProcessingMessage('正在生成分镜...');
-      const shots = await generateShotList(scriptData, finalModel);
+      logScriptProgress('开始生成分镜...');
+      const shots = await generateShotList(workingScriptData!, finalModel, controller.signal);
 
       if (project.projectId) {
         try {
           const seriesProject = await loadSeriesProject(project.projectId);
           if (seriesProject) {
-            const matches = findAssetMatches(scriptData, seriesProject);
+            const matches = findAssetMatches(workingScriptData!, seriesProject);
             if (matches.hasAnyMatch) {
-              setPendingParseResult({ scriptData, shots, matches, title: scriptData.title });
-              updateProject({ isParsingScript: false });
+              setPendingParseResult({
+                scriptData: workingScriptData!,
+                shots,
+                matches,
+                title: workingScriptData!.title
+              });
+              updateProject({
+                scriptData: workingScriptData!,
+                isParsingScript: false,
+                scriptGenerationCheckpoint: null
+              });
               setIsProcessing(false);
               setProcessingMessage('');
               return;
@@ -253,26 +389,41 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
         }
       }
 
-      updateProject({ 
-        scriptData, 
-        shots, 
+      updateProject({
+        scriptData: workingScriptData!,
+        shots,
         characterRefs: [],
         sceneRefs: [],
         propRefs: [],
         isParsingScript: false,
-        title: scriptData.title 
+        title: workingScriptData!.title,
+        scriptGenerationCheckpoint: null
       });
-      
-      setActiveTab('script');
 
+      setActiveTab('script');
     } catch (err: any) {
       console.error(err);
-      setError(`错误: ${err.message || "AI 连接失败"}`);
+      if (isAbortError(err, controller.signal)) {
+        setError('已取消生成，可点击“继续生成分镜脚本”从断点继续。');
+        logScriptProgress('生成已取消，可点击继续按钮从断点续跑。');
+      } else {
+        setError(`错误: ${err.message || 'AI 连接失败'}`);
+      }
       updateProject({ isParsingScript: false });
     } finally {
+      if (analyzeAbortControllerRef.current === controller) {
+        analyzeAbortControllerRef.current = null;
+      }
       setIsProcessing(false);
       setProcessingMessage('');
     }
+  };
+
+  const handleCancelAnalyze = () => {
+    if (!isProcessing) return;
+    analyzeAbortControllerRef.current?.abort();
+    setProcessingMessage('正在取消生成...');
+    logScriptProgress('正在取消当前生成流程...');
   };
 
   const handleAssetMatchConfirm = (finalMatches: AssetMatchResult) => {
@@ -288,6 +439,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       propRefs: result.propRefs,
       isParsingScript: false,
       title: result.scriptData.title,
+      scriptGenerationCheckpoint: null,
     });
 
     setPendingParseResult(null);
@@ -306,6 +458,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       propRefs: [],
       isParsingScript: false,
       title,
+      scriptGenerationCheckpoint: null,
     });
 
     setPendingParseResult(null);
@@ -542,6 +695,23 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     setLastRewriteSnapshot(null);
     showAlert('已撤回上次改写', { type: 'success' });
   };
+
+  const draftAnalyzeConfigKey = buildAnalyzeConfigKey({
+    script: localScript,
+    language: localLanguage,
+    targetDuration: getDraftValue(localDuration, customDurationInput, project.targetDuration || DEFAULTS.duration),
+    model: getDraftValue(localModel, customModelInput, project.shotGenerationModel || DEFAULTS.model),
+    visualStyle: getDraftValue(localVisualStyle, customStyleInput, project.visualStyle || DEFAULTS.visualStyle)
+  });
+  const analyzeCheckpoint = project.scriptGenerationCheckpoint;
+  const hasResumeCheckpoint =
+    !!analyzeCheckpoint &&
+    analyzeCheckpoint.configKey === draftAnalyzeConfigKey &&
+    !!analyzeCheckpoint.scriptData;
+  const analyzeButtonLabel =
+    hasResumeCheckpoint && analyzeCheckpoint?.step !== 'structure'
+      ? '继续生成分镜脚本'
+      : '生成分镜脚本';
 
   const showProcessingToast = isProcessing || isContinuing || isRewriting;
   const toastMessage = processingMessage || (isProcessing
@@ -855,6 +1025,17 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
               ))}
             </div>
           )}
+          {isProcessing && (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={handleCancelAnalyze}
+                className="rounded border border-zinc-400/60 px-2 py-1 text-[11px] text-white/90 transition-colors hover:border-white hover:text-white"
+              >
+                取消生成
+              </button>
+            </div>
+          )}
         </div>
       )}
       {activeTab === 'story' ? (
@@ -880,6 +1061,9 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
             onCustomModelChange={setCustomModelInput}
             onCustomStyleChange={setCustomStyleInput}
             onAnalyze={handleAnalyze}
+            analyzeButtonLabel={analyzeButtonLabel}
+            canCancelAnalyze={!!analyzeAbortControllerRef.current}
+            onCancelAnalyze={handleCancelAnalyze}
           />
           <ScriptEditor
             script={localScript}
@@ -941,3 +1125,4 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
 };
 
 export default StageScript;
+

@@ -154,6 +154,7 @@ export async function runV2ToV3Migration(db: IDBDatabase): Promise<void> {
         characterRefs,
         sceneRefs,
         propRefs,
+        scriptGenerationCheckpoint: null,
       };
 
       spStore.put(sp);

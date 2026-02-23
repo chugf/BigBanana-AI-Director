@@ -297,6 +297,18 @@ export interface EpisodePropRef {
   syncStatus: AssetSyncStatus;
 }
 
+export type ScriptGenerationStep = 'structure' | 'visuals' | 'shots';
+
+export interface ScriptGenerationCheckpoint {
+  // Next step to execute in the analyze pipeline.
+  step: ScriptGenerationStep;
+  // Hash of script/config inputs so stale checkpoints can be invalidated.
+  configKey: string;
+  // Latest successful intermediate result for resume.
+  scriptData?: ScriptData | null;
+  updatedAt: number;
+}
+
 export interface Episode {
   id: string;
   projectId: string;
@@ -318,6 +330,7 @@ export interface Episode {
   characterRefs: EpisodeCharacterRef[];
   sceneRefs: EpisodeSceneRef[];
   propRefs: EpisodePropRef[];
+  scriptGenerationCheckpoint?: ScriptGenerationCheckpoint | null;
 }
 
 export type ProjectState = Episode;

@@ -3,7 +3,7 @@
  * 包含剧本解析、分镜生成、续写、改写等功能
  */
 
-import { ScriptData, Shot, Scene, ArtDirection } from "../../types";
+import { ScriptData, Shot, Scene, Character, Prop, ArtDirection } from "../../types";
 import { addRenderLogWithTokens } from '../renderLogService';
 import { parseDurationToSeconds } from '../durationParser';
 import {
@@ -25,18 +25,134 @@ export { setScriptLogCallback, clearScriptLogCallback, logScriptProgress } from 
 // ============================================
 
 /**
- * Agent 1 & 2: Script Structuring & Breakdown
- * 解析原始文本为结构化剧本数据
+ * Agent 1: Script Structuring
+ * 解析原始文本为结构化剧本数据（不包含视觉提示词生成）
  */
-export const parseScriptToData = async (
+export const parseScriptStructure = async (
   rawText: string,
   language: string = '中文',
   model: string = 'gpt-5.1',
-  visualStyle: string = '3d-animation'
+  abortSignal?: AbortSignal
 ): Promise<ScriptData> => {
-  console.log('📝 parseScriptToData 调用 - 使用模型:', model, '视觉风格:', visualStyle);
+  const wait = async (ms: number) =>
+    new Promise<void>((resolve, reject) => {
+      let onAbort: (() => void) | null = null;
+      const timer = setTimeout(() => {
+        if (abortSignal && onAbort) {
+          abortSignal.removeEventListener('abort', onAbort);
+        }
+        resolve();
+      }, ms);
+      if (abortSignal) {
+        onAbort = () => {
+          clearTimeout(timer);
+          abortSignal.removeEventListener('abort', onAbort);
+          reject(new Error('请求已取消'));
+        };
+        abortSignal.addEventListener('abort', onAbort);
+      }
+    });
+
+  const ensureNotAborted = () => {
+    if (abortSignal?.aborted) {
+      throw new Error('请求已取消');
+    }
+  };
+
+  const normalizePropCategory = (value: string): string => {
+    const raw = String(value || '').trim();
+    if (!raw) return '其他';
+    const dictionary = ['武器', '文件/书信', '食物/饮品', '交通工具', '装饰品', '科技设备', '其他'];
+    if (dictionary.includes(raw)) return raw;
+    const normalized = raw.toLowerCase();
+    if (normalized.includes('weapon') || normalized.includes('武')) return '武器';
+    if (normalized.includes('document') || normalized.includes('letter') || normalized.includes('文件') || normalized.includes('书信')) return '文件/书信';
+    if (normalized.includes('food') || normalized.includes('drink') || normalized.includes('食') || normalized.includes('饮')) return '食物/饮品';
+    if (normalized.includes('vehicle') || normalized.includes('car') || normalized.includes('车') || normalized.includes('交通')) return '交通工具';
+    if (normalized.includes('decor') || normalized.includes('ornament') || normalized.includes('装饰')) return '装饰品';
+    if (normalized.includes('tech') || normalized.includes('device') || normalized.includes('科技') || normalized.includes('设备')) return '科技设备';
+    return '其他';
+  };
+
+  const normalizeStructure = (parsed: any): ScriptData => {
+    const characters: Character[] = Array.isArray(parsed.characters)
+      ? parsed.characters.map((c: any, idx: number) => ({
+          id: String(c?.id ?? `char-${idx + 1}`),
+          name: String(c?.name || `角色${idx + 1}`),
+          gender: String(c?.gender || ''),
+          age: String(c?.age || ''),
+          personality: String(c?.personality || ''),
+          visualPrompt: c?.visualPrompt ? String(c.visualPrompt) : undefined,
+          negativePrompt: c?.negativePrompt ? String(c.negativePrompt) : undefined,
+          variations: []
+        }))
+      : [];
+
+    const scenes: Scene[] = Array.isArray(parsed.scenes)
+      ? parsed.scenes.map((s: any, idx: number) => ({
+          id: String(s?.id ?? `scene-${idx + 1}`),
+          location: String(s?.location || `场景${idx + 1}`),
+          time: String(s?.time || ''),
+          atmosphere: String(s?.atmosphere || ''),
+          visualPrompt: s?.visualPrompt ? String(s.visualPrompt) : undefined,
+          negativePrompt: s?.negativePrompt ? String(s.negativePrompt) : undefined
+        }))
+      : [];
+
+    const props: Prop[] = Array.isArray(parsed.props)
+      ? parsed.props.map((p: any, idx: number) => ({
+          id: String(p?.id ?? `prop-${idx + 1}`),
+          name: String(p?.name || `道具${idx + 1}`),
+          category: normalizePropCategory(String(p?.category || '其他')),
+          description: String(p?.description || ''),
+          visualPrompt: p?.visualPrompt ? String(p.visualPrompt) : undefined,
+          negativePrompt: p?.negativePrompt ? String(p.negativePrompt) : undefined,
+          status: 'pending'
+        }))
+      : [];
+
+    const validSceneIds = new Set(scenes.map(scene => String(scene.id)));
+    const firstSceneId = scenes[0]?.id || 'scene-1';
+
+    const normalizeSceneRefId = (value: any, paragraphIndex: number): string => {
+      const raw = String(value ?? '').trim();
+      if (raw && validSceneIds.has(raw)) return raw;
+
+      const asNumber = Number(raw);
+      if (Number.isFinite(asNumber) && scenes.length > 0) {
+        const idx = Math.min(Math.max(Math.floor(asNumber) - 1, 0), scenes.length - 1);
+        return scenes[idx].id;
+      }
+
+      if (scenes.length > 0) {
+        return scenes[Math.min(paragraphIndex, scenes.length - 1)].id;
+      }
+      return firstSceneId;
+    };
+
+    const storyParagraphsRaw = Array.isArray(parsed.storyParagraphs) ? parsed.storyParagraphs : [];
+    const storyParagraphs = storyParagraphsRaw.length > 0
+      ? storyParagraphsRaw.map((p: any, idx: number) => ({
+          id: Number.isFinite(Number(p?.id)) ? Number(p.id) : idx + 1,
+          text: String(p?.text || '').trim(),
+          sceneRefId: normalizeSceneRefId(p?.sceneRefId, idx)
+        })).filter((p: any) => p.text.length > 0)
+      : [];
+
+    return {
+      title: String(parsed.title || '未命名剧本'),
+      genre: String(parsed.genre || '通用'),
+      logline: String(parsed.logline || ''),
+      language,
+      characters,
+      scenes,
+      props,
+      storyParagraphs
+    };
+  };
+
+  console.log('📝 parseScriptStructure 调用 - 使用模型:', model);
   logScriptProgress('正在解析剧本结构...');
-  const startTime = Date.now();
 
   const prompt = `
     Analyze the text and output a JSON object in the language: ${language}.
@@ -45,7 +161,8 @@ export const parseScriptToData = async (
     1. Extract title, genre, logline (in ${language}).
     2. Extract characters (id, name, gender, age, personality).
     3. Extract scenes (id, location, time, atmosphere).
-    4. Break down the story into paragraphs linked to scenes.
+    4. Extract recurring props/items that appear in multiple scenes (id, name, category, description).
+    5. Break down the story into paragraphs linked to scenes.
     
     Input:
     "${rawText.slice(0, 30000)}" // Limit input context if needed
@@ -57,158 +174,281 @@ export const parseScriptToData = async (
       "logline": "string",
       "characters": [{"id": "string", "name": "string", "gender": "string", "age": "string", "personality": "string"}],
       "scenes": [{"id": "string", "location": "string", "time": "string", "atmosphere": "string"}],
+      "props": [{"id":"string","name":"string","category":"string","description":"string"}],
       "storyParagraphs": [{"id": number, "text": "string", "sceneRefId": "string"}]
     }
   `;
 
+  ensureNotAborted();
+  const responseText = await retryOperation(
+    () => chatCompletion(prompt, model, 0.7, 8192, 'json_object', 600000, abortSignal),
+    3,
+    2000,
+    abortSignal
+  );
+  ensureNotAborted();
+
+  let parsed: any = {};
   try {
-    const responseText = await retryOperation(() => chatCompletion(prompt, model, 0.7, 8192, 'json_object'));
+    const text = cleanJsonString(responseText);
+    parsed = JSON.parse(text);
+  } catch (e) {
+    console.error("Failed to parse script structure JSON:", e);
+    parsed = {};
+  }
 
-    let parsed: any = {};
-    try {
-      const text = cleanJsonString(responseText);
-      parsed = JSON.parse(text);
-    } catch (e) {
-      console.error("Failed to parse script data JSON:", e);
-      parsed = {};
+  const structured = normalizeStructure(parsed);
+
+  if (structured.storyParagraphs.length === 0 && structured.scenes.length > 0) {
+    const fallbackParagraphs = rawText
+      .split(/\n{2,}|\r\n{2,}/g)
+      .map(t => t.trim())
+      .filter(Boolean)
+      .slice(0, 12);
+
+    structured.storyParagraphs = fallbackParagraphs.map((text, idx) => ({
+      id: idx + 1,
+      text,
+      sceneRefId: structured.scenes[Math.min(idx, structured.scenes.length - 1)].id
+    }));
+  }
+
+  ensureNotAborted();
+  await wait(1);
+  return structured;
+};
+
+/**
+ * Agent 2: Visual Prompt Enrichment
+ * 基于结构化剧本生成美术指导、角色/场景/道具视觉提示词
+ */
+export const enrichScriptDataVisuals = async (
+  scriptData: ScriptData,
+  model: string = 'gpt-5.1',
+  visualStyle: string = '3d-animation',
+  language: string = '中文',
+  options?: {
+    onlyMissing?: boolean;
+    abortSignal?: AbortSignal;
+  }
+): Promise<ScriptData> => {
+  const onlyMissing = options?.onlyMissing ?? false;
+  const abortSignal = options?.abortSignal;
+
+  const ensureNotAborted = () => {
+    if (abortSignal?.aborted) {
+      throw new Error('请求已取消');
     }
+  };
 
-    // Enforce String IDs for consistency and init variations
-    const characters = Array.isArray(parsed.characters) ? parsed.characters.map((c: any) => ({
-      ...c,
-      id: String(c.id),
-      variations: []
-    })) : [];
-    const scenes = Array.isArray(parsed.scenes) ? parsed.scenes.map((s: any) => ({ ...s, id: String(s.id) })) : [];
-    const storyParagraphs = Array.isArray(parsed.storyParagraphs) ? parsed.storyParagraphs.map((p: any) => ({ ...p, sceneRefId: String(p.sceneRefId) })) : [];
+  const wait = async (ms: number) =>
+    new Promise<void>((resolve, reject) => {
+      let onAbort: (() => void) | null = null;
+      const timer = setTimeout(() => {
+        if (abortSignal && onAbort) {
+          abortSignal.removeEventListener('abort', onAbort);
+        }
+        resolve();
+      }, ms);
+      if (abortSignal) {
+        onAbort = () => {
+          clearTimeout(timer);
+          abortSignal.removeEventListener('abort', onAbort);
+          reject(new Error('请求已取消'));
+        };
+        abortSignal.addEventListener('abort', onAbort);
+      }
+    });
 
-    const genre = parsed.genre || "通用";
+  const cloneScriptData = (source: ScriptData): ScriptData => {
+    if (typeof structuredClone === 'function') {
+      return structuredClone(source);
+    }
+    return JSON.parse(JSON.stringify(source)) as ScriptData;
+  };
 
-    // ========== Phase 1: 生成全局美术指导文档 ==========
-    console.log("🎨 正在为角色和场景生成视觉提示词...", `风格: ${visualStyle}`);
-    logScriptProgress(`正在生成角色与场景的视觉提示词（风格：${visualStyle}）...`);
+  const nextData = cloneScriptData(scriptData);
+  nextData.language = language || nextData.language || '中文';
+  nextData.visualStyle = visualStyle || nextData.visualStyle || '3d-animation';
 
-    let artDirection: ArtDirection | undefined;
+  const genre = nextData.genre || "通用";
+  const characters = nextData.characters || [];
+  const scenes = nextData.scenes || [];
+  const props = nextData.props || [];
+
+  console.log("🎨 正在为角色、场景和道具生成视觉提示词...", `风格: ${nextData.visualStyle}`);
+  logScriptProgress(`正在生成角色/场景/道具视觉提示词（风格：${nextData.visualStyle}）...`);
+
+  ensureNotAborted();
+  let artDirection: ArtDirection | undefined = nextData.artDirection;
+  if (!artDirection) {
     try {
       artDirection = await generateArtDirection(
-        parsed.title || '未命名剧本',
+        nextData.title || '未命名剧本',
         genre,
-        parsed.logline || '',
-        characters.map((c: any) => ({ name: c.name, gender: c.gender, age: c.age, personality: c.personality })),
-        scenes.map((s: any) => ({ location: s.location, time: s.time, atmosphere: s.atmosphere })),
-        visualStyle,
-        language,
-        model
+        nextData.logline || '',
+        characters.map(c => ({ name: c.name, gender: c.gender, age: c.age, personality: c.personality })),
+        scenes.map(s => ({ location: s.location, time: s.time, atmosphere: s.atmosphere })),
+        nextData.visualStyle || '3d-animation',
+        nextData.language || language,
+        model,
+        abortSignal
       );
+      nextData.artDirection = artDirection;
       console.log("✅ 全局美术指导文档生成完成，风格关键词:", artDirection.moodKeywords.join(', '));
     } catch (e) {
       console.error("⚠️ 全局美术指导文档生成失败，将使用默认风格:", e);
     }
+  }
 
-    // ========== Phase 2: 批量生成角色视觉提示词 ==========
-    if (characters.length > 0 && artDirection) {
-      try {
-        await new Promise(resolve => setTimeout(resolve, 1500));
+  ensureNotAborted();
+  const missingCharacterIndexes = characters
+    .map((char, idx) => ({ idx, missing: !char.visualPrompt }))
+    .filter(entry => (onlyMissing ? entry.missing : true))
+    .map(entry => entry.idx);
 
-        const batchResults = await generateAllCharacterPrompts(
-          characters, artDirection, genre, visualStyle, language, model
-        );
+  const shouldBatchGenerateCharacters =
+    missingCharacterIndexes.length > 0 &&
+    !onlyMissing &&
+    !!artDirection;
 
-        for (let i = 0; i < characters.length; i++) {
-          if (batchResults[i] && batchResults[i].visualPrompt) {
-            characters[i].visualPrompt = batchResults[i].visualPrompt;
-            characters[i].negativePrompt = batchResults[i].negativePrompt;
-          }
-        }
+  if (shouldBatchGenerateCharacters) {
+    try {
+      await wait(1200);
+      const batchResults = await generateAllCharacterPrompts(
+        characters,
+        artDirection!,
+        genre,
+        nextData.visualStyle || '3d-animation',
+        nextData.language || language,
+        model,
+        abortSignal
+      );
 
-        // Fallback: individually generate failed characters
-        const failedCharacters = characters.filter((c: any) => !c.visualPrompt);
-        if (failedCharacters.length > 0) {
-          console.log(`⚠️ ${failedCharacters.length} 个角色需要单独重新生成提示词`);
-          logScriptProgress(`${failedCharacters.length} 个角色需要单独重新生成...`);
-          for (const char of failedCharacters) {
-            try {
-              await new Promise(resolve => setTimeout(resolve, 1500));
-              console.log(`  重新生成角色提示词: ${char.name}`);
-              logScriptProgress(`重新生成角色视觉提示词：${char.name}`);
-              const prompts = await generateVisualPrompts('character', char, genre, model, visualStyle, language, artDirection);
-              char.visualPrompt = prompts.visualPrompt;
-              char.negativePrompt = prompts.negativePrompt;
-            } catch (e) {
-              console.error(`Failed to generate visual prompt for character ${char.name}:`, e);
-            }
-          }
-        }
-      } catch (e) {
-        console.error("批量角色提示词生成失败，回退到逐个生成模式:", e);
-        for (let i = 0; i < characters.length; i++) {
-          try {
-            if (i > 0) await new Promise(resolve => setTimeout(resolve, 1500));
-            console.log(`  生成角色提示词: ${characters[i].name}`);
-            logScriptProgress(`生成角色视觉提示词：${characters[i].name}`);
-            const prompts = await generateVisualPrompts('character', characters[i], genre, model, visualStyle, language, artDirection);
-            characters[i].visualPrompt = prompts.visualPrompt;
-            characters[i].negativePrompt = prompts.negativePrompt;
-          } catch (e2) {
-            console.error(`Failed to generate visual prompt for character ${characters[i].name}:`, e2);
-          }
-        }
-      }
-    } else if (characters.length > 0) {
       for (let i = 0; i < characters.length; i++) {
-        try {
-          if (i > 0) await new Promise(resolve => setTimeout(resolve, 1500));
-          console.log(`  生成角色提示词: ${characters[i].name}`);
-          logScriptProgress(`生成角色视觉提示词：${characters[i].name}`);
-          const prompts = await generateVisualPrompts('character', characters[i], genre, model, visualStyle, language);
-          characters[i].visualPrompt = prompts.visualPrompt;
-          characters[i].negativePrompt = prompts.negativePrompt;
-        } catch (e) {
-          console.error(`Failed to generate visual prompt for character ${characters[i].name}:`, e);
+        if (batchResults[i]?.visualPrompt) {
+          characters[i].visualPrompt = batchResults[i].visualPrompt;
+          characters[i].negativePrompt = batchResults[i].negativePrompt;
         }
       }
+    } catch (e) {
+      console.error("批量角色提示词生成失败，回退到逐个生成模式:", e);
     }
+  }
 
-    // ========== Phase 3: 生成场景视觉提示词 ==========
-    for (let i = 0; i < scenes.length; i++) {
-      try {
-        if (i > 0 || characters.length > 0) await new Promise(resolve => setTimeout(resolve, 1500));
-        console.log(`  生成场景提示词: ${scenes[i].location}`);
-        logScriptProgress(`生成场景视觉提示词：${scenes[i].location}`);
-        const prompts = await generateVisualPrompts('scene', scenes[i], genre, model, visualStyle, language, artDirection);
-        scenes[i].visualPrompt = prompts.visualPrompt;
-        scenes[i].negativePrompt = prompts.negativePrompt;
-      } catch (e) {
-        console.error(`Failed to generate visual prompt for scene ${scenes[i].location}:`, e);
-      }
+  for (const idx of missingCharacterIndexes) {
+    ensureNotAborted();
+    if (characters[idx].visualPrompt) continue;
+    try {
+      if (idx > 0) await wait(1200);
+      console.log(`  生成角色提示词: ${characters[idx].name}`);
+      logScriptProgress(`生成角色视觉提示词：${characters[idx].name}`);
+      const prompts = await generateVisualPrompts(
+        'character',
+        characters[idx],
+        genre,
+        model,
+        nextData.visualStyle || '3d-animation',
+        nextData.language || language,
+        artDirection,
+        abortSignal
+      );
+      characters[idx].visualPrompt = prompts.visualPrompt;
+      characters[idx].negativePrompt = prompts.negativePrompt;
+    } catch (e) {
+      console.error(`Failed to generate visual prompt for character ${characters[idx].name}:`, e);
     }
+  }
 
-    console.log("✅ 视觉提示词生成完成！");
-    logScriptProgress('视觉提示词生成完成');
+  const sceneIndexes = scenes
+    .map((scene, idx) => ({ idx, missing: !scene.visualPrompt }))
+    .filter(entry => (onlyMissing ? entry.missing : true))
+    .map(entry => entry.idx);
 
-    const result = {
-      title: parsed.title || "未命名剧本",
-      genre: genre,
-      logline: parsed.logline || "",
-      language: language,
-      artDirection,
-      characters,
-      scenes,
-      props: [],
-      storyParagraphs
-    };
+  for (const idx of sceneIndexes) {
+    ensureNotAborted();
+    try {
+      await wait(1200);
+      console.log(`  生成场景提示词: ${scenes[idx].location}`);
+      logScriptProgress(`生成场景视觉提示词：${scenes[idx].location}`);
+      const prompts = await generateVisualPrompts(
+        'scene',
+        scenes[idx],
+        genre,
+        model,
+        nextData.visualStyle || '3d-animation',
+        nextData.language || language,
+        artDirection,
+        abortSignal
+      );
+      scenes[idx].visualPrompt = prompts.visualPrompt;
+      scenes[idx].negativePrompt = prompts.negativePrompt;
+    } catch (e) {
+      console.error(`Failed to generate visual prompt for scene ${scenes[idx].location}:`, e);
+    }
+  }
+
+  const propIndexes = props
+    .map((prop, idx) => ({ idx, missing: !prop.visualPrompt }))
+    .filter(entry => (onlyMissing ? entry.missing : true))
+    .map(entry => entry.idx);
+
+  for (const idx of propIndexes) {
+    ensureNotAborted();
+    try {
+      await wait(1000);
+      console.log(`  生成道具提示词: ${props[idx].name}`);
+      logScriptProgress(`生成道具视觉提示词：${props[idx].name}`);
+      const prompts = await generateVisualPrompts(
+        'prop',
+        props[idx],
+        genre,
+        model,
+        nextData.visualStyle || '3d-animation',
+        nextData.language || language,
+        artDirection,
+        abortSignal
+      );
+      props[idx].visualPrompt = prompts.visualPrompt;
+      props[idx].negativePrompt = prompts.negativePrompt;
+    } catch (e) {
+      console.error(`Failed to generate visual prompt for prop ${props[idx].name}:`, e);
+    }
+  }
+
+  console.log("✅ 视觉提示词生成完成！");
+  logScriptProgress('视觉提示词生成完成');
+  return nextData;
+};
+
+/**
+ * Agent 1 & 2: Script Structuring & Breakdown
+ * 解析原始文本并完成视觉提示词增强
+ */
+export const parseScriptToData = async (
+  rawText: string,
+  language: string = '中文',
+  model: string = 'gpt-5.1',
+  visualStyle: string = '3d-animation'
+): Promise<ScriptData> => {
+  console.log('📝 parseScriptToData 调用 - 使用模型:', model, '视觉风格:', visualStyle);
+  const startTime = Date.now();
+
+  try {
+    const structured = await parseScriptStructure(rawText, language, model);
+    const enriched = await enrichScriptDataVisuals(structured, model, visualStyle, language);
 
     addRenderLogWithTokens({
       type: 'script-parsing',
       resourceId: 'script-parse-' + Date.now(),
-      resourceName: result.title,
+      resourceName: enriched.title || '剧本解析',
       status: 'success',
       model: model,
-      prompt: prompt.substring(0, 200) + '...',
+      prompt: rawText.substring(0, 200) + '...',
       duration: Date.now() - startTime
     });
 
-    return result;
+    return enriched;
   } catch (error: any) {
     addRenderLogWithTokens({
       type: 'script-parsing',
@@ -216,7 +456,7 @@ export const parseScriptToData = async (
       resourceName: '剧本解析',
       status: 'failed',
       model: model,
-      prompt: prompt.substring(0, 200) + '...',
+      prompt: rawText.substring(0, 200) + '...',
       error: error.message,
       duration: Date.now() - startTime
     });
@@ -232,10 +472,39 @@ export const parseScriptToData = async (
  * 生成分镜列表
  * 根据剧本数据和目标时长，为每个场景生成适量的分镜头
  */
-export const generateShotList = async (scriptData: ScriptData, model: string = 'gpt-5.1'): Promise<Shot[]> => {
+export const generateShotList = async (
+  scriptData: ScriptData,
+  model: string = 'gpt-5.1',
+  abortSignal?: AbortSignal
+): Promise<Shot[]> => {
   console.log('🎬 generateShotList 调用 - 使用模型:', model, '视觉风格:', scriptData.visualStyle);
   logScriptProgress('正在生成分镜列表...');
   const overallStartTime = Date.now();
+
+  const ensureNotAborted = () => {
+    if (abortSignal?.aborted) {
+      throw new Error('请求已取消');
+    }
+  };
+
+  const wait = async (ms: number) =>
+    new Promise<void>((resolve, reject) => {
+      let onAbort: (() => void) | null = null;
+      const timer = setTimeout(() => {
+        if (abortSignal && onAbort) {
+          abortSignal.removeEventListener('abort', onAbort);
+        }
+        resolve();
+      }, ms);
+      if (abortSignal) {
+        onAbort = () => {
+          clearTimeout(timer);
+          abortSignal.removeEventListener('abort', onAbort);
+          reject(new Error('请求已取消'));
+        };
+        abortSignal.addEventListener('abort', onAbort);
+      }
+    });
 
   if (!scriptData.scenes || scriptData.scenes.length === 0) {
     return [];
@@ -265,6 +534,102 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
   const extraShots = totalShotsNeeded % scenesCount;
   const sceneShotPlan = scriptData.scenes.map((_, idx) => baseShotsPerScene + (idx < extraShots ? 1 : 0));
 
+  const validCharacterIds = new Set((scriptData.characters || []).map(c => String(c.id)));
+  const validPropIds = new Set((scriptData.props || []).map(p => String(p.id)));
+  const sceneIdOrder = scriptData.scenes.map(scene => String(scene.id));
+  const directParagraphMap = new Map<string, string[]>();
+  (scriptData.storyParagraphs || []).forEach(paragraph => {
+    const key = String(paragraph.sceneRefId || '');
+    if (!directParagraphMap.has(key)) {
+      directParagraphMap.set(key, []);
+    }
+    const text = String(paragraph.text || '').trim();
+    if (text) {
+      directParagraphMap.get(key)!.push(text);
+    }
+  });
+
+  const tokenizeForMatch = (value: string): string[] => {
+    const normalized = String(value || '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, ' ')
+      .trim();
+    if (!normalized) return [];
+    const segments = normalized.split(/\s+/g).filter(Boolean);
+    const tokens = new Set<string>(segments);
+    for (const segment of segments) {
+      if (/^[\u4e00-\u9fff]+$/u.test(segment) && segment.length > 1) {
+        for (let i = 0; i < segment.length - 1; i += 1) {
+          tokens.add(segment.slice(i, i + 2));
+        }
+      }
+    }
+    return Array.from(tokens);
+  };
+
+  const paragraphSceneScore = (paragraphText: string, scene: Scene): number => {
+    const sceneQuery = `${scene.location} ${scene.time} ${scene.atmosphere}`.trim();
+    const sceneTokens = tokenizeForMatch(sceneQuery);
+    const paraTokens = tokenizeForMatch(paragraphText);
+    if (sceneTokens.length === 0 || paraTokens.length === 0) return 0;
+
+    const paraSet = new Set(paraTokens);
+    const overlap = sceneTokens.filter(token => paraSet.has(token)).length;
+    const overlapRatio = overlap / Math.max(1, sceneTokens.length);
+    const containsLocation = paragraphText.includes(scene.location) ? 0.3 : 0;
+    const containsTime = scene.time && paragraphText.includes(scene.time) ? 0.15 : 0;
+    return overlapRatio + containsLocation + containsTime;
+  };
+
+  const resolveSceneActionText = (
+    scene: Scene,
+    sceneIndex: number
+  ): { text: string; source: 'direct' | 'semantic' | 'neighbor' | 'global' | 'none' } => {
+    const directParagraphs = (directParagraphMap.get(String(scene.id)) || []).filter(Boolean);
+    if (directParagraphs.length > 0) {
+      return { text: directParagraphs.join('\n'), source: 'direct' };
+    }
+
+    const allParagraphs = (scriptData.storyParagraphs || [])
+      .map(item => String(item.text || '').trim())
+      .filter(Boolean);
+    if (allParagraphs.length === 0) {
+      return { text: '', source: 'none' };
+    }
+
+    const semanticCandidates = allParagraphs
+      .map(text => ({ text, score: paragraphSceneScore(text, scene) }))
+      .filter(entry => entry.score >= 0.18)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+    if (semanticCandidates.length > 0) {
+      return { text: semanticCandidates.map(entry => entry.text).join('\n'), source: 'semantic' };
+    }
+
+    const neighborTexts: string[] = [];
+    for (let i = sceneIndex - 1; i >= 0; i -= 1) {
+      const prevSceneId = sceneIdOrder[i];
+      const texts = (directParagraphMap.get(prevSceneId) || []).filter(Boolean);
+      if (texts.length > 0) {
+        neighborTexts.push(texts.slice(-2).join('\n'));
+        break;
+      }
+    }
+    for (let i = sceneIndex + 1; i < sceneIdOrder.length; i += 1) {
+      const nextSceneId = sceneIdOrder[i];
+      const texts = (directParagraphMap.get(nextSceneId) || []).filter(Boolean);
+      if (texts.length > 0) {
+        neighborTexts.push(texts.slice(0, 2).join('\n'));
+        break;
+      }
+    }
+    if (neighborTexts.length > 0) {
+      return { text: neighborTexts.join('\n'), source: 'neighbor' };
+    }
+
+    return { text: allParagraphs.slice(0, 2).join('\n'), source: 'global' };
+  };
+
   const createFallbackShotsForScene = (
     scene: Scene,
     count: number,
@@ -279,7 +644,10 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
     const baseMovement = String(seedShot?.cameraMovement || 'Static Shot').trim() || 'Static Shot';
     const baseShotSize = String(seedShot?.shotSize || 'Medium Shot').trim() || 'Medium Shot';
     const baseCharacters = Array.isArray(seedShot?.characters)
-      ? seedShot.characters.map((c: any) => String(c)).filter(Boolean)
+      ? seedShot.characters.map((c: any) => String(c)).filter((id: string) => validCharacterIds.has(id))
+      : [];
+    const baseProps = Array.isArray(seedShot?.props)
+      ? seedShot.props.map((p: any) => String(p)).filter((id: string) => validPropIds.has(id))
       : [];
 
     return Array.from({ length: safeCount }, (_, idx) => {
@@ -293,6 +661,7 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
         cameraMovement: baseMovement,
         shotSize: baseShotSize,
         characters: baseCharacters,
+        props: baseProps,
         keyframes: [
           {
             id: `fallback-kf-${scene.id}-${sequence}-start`,
@@ -327,10 +696,8 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
   const processScene = async (scene: Scene, index: number): Promise<Shot[]> => {
     const sceneStartTime = Date.now();
     const shotsPerScene = sceneShotPlan[index] || 1;
-    const paragraphs = scriptData.storyParagraphs
-      .filter(p => String(p.sceneRefId) === String(scene.id))
-      .map(p => p.text)
-      .join('\n');
+    const actionSource = resolveSceneActionText(scene, index);
+    const paragraphs = actionSource.text;
 
     if (!paragraphs.trim()) {
       console.warn(`⚠️ 场景 ${index + 1} 缺少可用段落，使用兜底分镜填充 ${shotsPerScene} 条`);
@@ -339,6 +706,11 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
         shotsPerScene,
         `${scene.location} ${scene.time} ${scene.atmosphere}`.trim()
       );
+    }
+
+    if (actionSource.source !== 'direct') {
+      console.warn(`⚠️ 场景 ${index + 1} 使用 ${actionSource.source} 段落回填策略`);
+      logScriptProgress(`场景「${scene.location}」段落映射缺失，已使用${actionSource.source}回填策略`);
     }
 
     const prompt = `
@@ -355,6 +727,7 @@ ${artDirectionBlock}
       
       Scene Action:
       "${paragraphs.slice(0, 5000)}"
+      Scene Action Source: ${actionSource.source}
       
       Context:
       Genre: ${scriptData.genre}
@@ -367,6 +740,8 @@ ${artDirectionBlock}
       
       Characters:
       ${JSON.stringify(scriptData.characters.map(c => ({ id: c.id, name: c.name, desc: c.visualPrompt || c.personality })))}
+      Props:
+      ${JSON.stringify((scriptData.props || []).map(p => ({ id: p.id, name: p.name, category: p.category, desc: p.description })))}
 
       Professional Camera Movement Reference (Choose from these categories):
       - Horizontal Left Shot (向左平移) - Camera moves left
@@ -406,7 +781,9 @@ ${artDirectionBlock}
       4. 'cameraMovement': Can reference the Professional Camera Movement Reference list above for inspiration, or use your own creative camera movements. You may use the exact English terms (e.g., "Dolly Shot", "Pan Right Shot", "Zoom In Shot", "Tracking Shot") or describe custom movements.
       5. 'shotSize': Specify the field of view (e.g., Extreme Close-up, Medium Shot, Wide Shot).
       6. 'actionSummary': Detailed description of what happens in the shot (in ${lang}).
-      7. 'visualPrompt': Detailed description for image generation in ${visualStyle} style (OUTPUT IN ${lang}). Include style-specific keywords.${artDir ? ' MUST follow the Global Art Direction color palette, lighting, and mood.' : ''} Keep it under 50 words.
+      7. 'characters': Return ONLY IDs from provided Characters list.
+      8. 'props': Return ONLY IDs from provided Props list when a prop is visibly involved. Use [] if none.
+      9. 'visualPrompt': Detailed description for image generation in ${visualStyle} style (OUTPUT IN ${lang}). Include style-specific keywords.${artDir ? ' MUST follow the Global Art Direction color palette, lighting, and mood.' : ''} Keep it under 50 words.
       
       Output ONLY a valid JSON OBJECT with this exact structure (no markdown, no extra text):
       {
@@ -419,6 +796,7 @@ ${artDirectionBlock}
             "cameraMovement": "string",
             "shotSize": "string",
             "characters": ["string"],
+            "props": ["string"],
             "keyframes": [
               {"id": "string", "type": "start|end", "visualPrompt": "string (MUST include ${visualStyle} style keywords${artDir ? ' and follow Art Direction' : ''})"}
             ]
@@ -430,7 +808,13 @@ ${artDirectionBlock}
     let responseText = '';
     try {
       console.log(`  📡 场景 ${index + 1} API调用 - 模型:`, model);
-      responseText = await retryOperation(() => chatCompletion(prompt, model, 0.5, 8192, 'json_object'));
+      ensureNotAborted();
+      responseText = await retryOperation(
+        () => chatCompletion(prompt, model, 0.5, 8192, 'json_object', 600000, abortSignal),
+        3,
+        2000,
+        abortSignal
+      );
       const text = cleanJsonString(responseText);
       const parsed = JSON.parse(text);
 
@@ -457,13 +841,19 @@ Requirements:
 1. Return EXACTLY ${shotsPerScene} shots in JSON object format: {"shots":[...]}.
 2. Keep story continuity and preserve the original cinematic intent.
 3. Each shot represents about ${shotDurationSeconds} seconds.
-4. Include fields: id, sceneId, actionSummary, dialogue, cameraMovement, shotSize, characters, keyframes.
-5. keyframes must include type=start/end and visualPrompt.
-6. Output ONLY valid JSON object (no markdown).
+4. Include fields: id, sceneId, actionSummary, dialogue, cameraMovement, shotSize, characters, props, keyframes.
+5. characters/props must be arrays of valid IDs from provided context.
+6. keyframes must include type=start/end and visualPrompt.
+7. Output ONLY valid JSON object (no markdown).
 `;
 
         try {
-          const repairedText = await retryOperation(() => chatCompletion(repairPrompt, model, 0.4, 8192, 'json_object'));
+          const repairedText = await retryOperation(
+            () => chatCompletion(repairPrompt, model, 0.4, 8192, 'json_object', 600000, abortSignal),
+            2,
+            2000,
+            abortSignal
+          );
           const repairedParsed = JSON.parse(cleanJsonString(repairedText));
           const repairedShots = Array.isArray(repairedParsed?.shots) ? repairedParsed.shots : [];
           if (repairedShots.length > 0) {
@@ -486,10 +876,28 @@ Requirements:
         console.warn(`⚠️ 场景 ${index + 1} 分镜不足，已补足 ${missingCount} 条兜底分镜以满足精确数量约束`);
       }
 
-      const result = normalizedShots.map((s: any) => ({
-        ...s,
-        sceneId: String(scene.id)
-      }));
+      const result = normalizedShots.map((s: any, shotIndex: number) => {
+        const normalizedCharacters = Array.isArray(s?.characters)
+          ? s.characters.map((id: any) => String(id)).filter((id: string) => validCharacterIds.has(id))
+          : [];
+        const normalizedProps = Array.isArray(s?.props)
+          ? s.props.map((id: any) => String(id)).filter((id: string) => validPropIds.has(id))
+          : [];
+        const keyframes = Array.isArray(s?.keyframes) && s.keyframes.length > 0
+          ? s.keyframes
+          : [
+              { id: `auto-${scene.id}-${shotIndex + 1}-start`, type: 'start', visualPrompt: `${s?.actionSummary || '镜头'} 起始画面` },
+              { id: `auto-${scene.id}-${shotIndex + 1}-end`, type: 'end', visualPrompt: `${s?.actionSummary || '镜头'} 结束画面` }
+            ];
+
+        return {
+          ...s,
+          sceneId: String(scene.id),
+          characters: normalizedCharacters,
+          props: normalizedProps,
+          keyframes
+        };
+      });
 
       addRenderLogWithTokens({
         type: 'script-parsing',
@@ -530,7 +938,8 @@ Requirements:
   const allShots: Shot[] = [];
 
   for (let i = 0; i < scriptData.scenes.length; i += BATCH_SIZE) {
-    if (i > 0) await new Promise(resolve => setTimeout(resolve, 1500));
+    ensureNotAborted();
+    if (i > 0) await wait(1200);
 
     const batch = scriptData.scenes.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.all(
@@ -546,11 +955,31 @@ Requirements:
   return allShots.map((s, idx) => ({
     ...s,
     id: `shot-${idx + 1}`,
+    characters: Array.isArray(s.characters)
+      ? s.characters.map(id => String(id)).filter(id => validCharacterIds.has(id))
+      : [],
+    props: Array.isArray(s.props)
+      ? s.props.map(id => String(id)).filter(id => validPropIds.has(id))
+      : [],
     keyframes: Array.isArray(s.keyframes) ? s.keyframes.map((k: any) => ({
       ...k,
-      id: `kf-${idx + 1}-${k.type}`,
+      id: `kf-${idx + 1}-${k.type === 'end' ? 'end' : 'start'}`,
+      type: k.type === 'end' ? 'end' : 'start',
       status: 'pending'
-    })) : []
+    })) : [
+      {
+        id: `kf-${idx + 1}-start`,
+        type: 'start',
+        visualPrompt: `${s.actionSummary || '镜头'} 起始画面`,
+        status: 'pending'
+      },
+      {
+        id: `kf-${idx + 1}-end`,
+        type: 'end',
+        visualPrompt: `${s.actionSummary || '镜头'} 结束画面`,
+        status: 'pending'
+      }
+    ]
   }));
 };
 

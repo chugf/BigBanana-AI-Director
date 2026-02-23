@@ -3,7 +3,7 @@
  * 包含美术指导文档生成、角色/场景视觉提示词生成、图像生成
  */
 
-import { Character, Scene, AspectRatio, ArtDirection, CharacterTurnaroundPanel } from "../../types";
+import { Character, Scene, Prop, AspectRatio, ArtDirection, CharacterTurnaroundPanel } from "../../types";
 import { addRenderLogWithTokens } from '../renderLogService';
 import {
   retryOperation,
@@ -38,7 +38,8 @@ export const generateArtDirection = async (
   scenes: { location: string; time: string; atmosphere: string }[],
   visualStyle: string,
   language: string = '中文',
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.1',
+  abortSignal?: AbortSignal
 ): Promise<ArtDirection> => {
   console.log('🎨 generateArtDirection 调用 - 生成全局美术指导文档');
   logScriptProgress('正在生成全局美术指导文档（Art Direction）...');
@@ -94,7 +95,12 @@ Output ONLY valid JSON with this exact structure:
 }`;
 
   try {
-    const responseText = await retryOperation(() => chatCompletion(prompt, model, 0.4, 4096, 'json_object'));
+    const responseText = await retryOperation(
+      () => chatCompletion(prompt, model, 0.4, 4096, 'json_object', 600000, abortSignal),
+      3,
+      2000,
+      abortSignal
+    );
     const text = cleanJsonString(responseText);
     const parsed = JSON.parse(text);
 
@@ -149,7 +155,8 @@ export const generateAllCharacterPrompts = async (
   genre: string,
   visualStyle: string,
   language: string = '中文',
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.1',
+  abortSignal?: AbortSignal
 ): Promise<{ visualPrompt: string; negativePrompt: string }[]> => {
   console.log(`🎭 generateAllCharacterPrompts 调用 - 批量生成 ${characters.length} 个角色的视觉提示词`);
   logScriptProgress(`正在批量生成 ${characters.length} 个角色的视觉提示词（风格统一模式）...`);
@@ -232,7 +239,12 @@ The "characters" array MUST have exactly ${characters.length} items, in the SAME
 Output ONLY the JSON, no explanations.`;
 
   try {
-    const responseText = await retryOperation(() => chatCompletion(prompt, model, 0.4, 4096, 'json_object'));
+    const responseText = await retryOperation(
+      () => chatCompletion(prompt, model, 0.4, 4096, 'json_object', 600000, abortSignal),
+      3,
+      2000,
+      abortSignal
+    );
     const text = cleanJsonString(responseText);
     const parsed = JSON.parse(text);
 
@@ -274,13 +286,14 @@ Output ONLY the JSON, no explanations.`;
  * 生成角色或场景的视觉提示词
  */
 export const generateVisualPrompts = async (
-  type: 'character' | 'scene',
-  data: Character | Scene,
+  type: 'character' | 'scene' | 'prop',
+  data: Character | Scene | Prop,
   genre: string,
   model: string = 'gpt-5.1',
   visualStyle: string = 'live-action',
   language: string = '中文',
-  artDirection?: ArtDirection
+  artDirection?: ArtDirection,
+  abortSignal?: AbortSignal
 ): Promise<{ visualPrompt: string; negativePrompt: string }> => {
   const stylePrompt = getStylePrompt(visualStyle);
   const negativePrompt = type === 'scene'
@@ -333,7 +346,7 @@ CRITICAL RULES:
 - Focus on visual details that can be rendered in images
 
 Output ONLY the visual prompt text, no explanations.`;
-  } else {
+  } else if (type === 'scene') {
     const scene = data as Scene;
     prompt = `You are an expert cinematographer and AI prompt engineer for ${visualStyle} productions.
 ${artDirectionBlock}
@@ -369,9 +382,42 @@ CRITICAL RULES:
 - Focus on elements that establish mood and cinematic quality
 
 Output ONLY the visual prompt text, no explanations.`;
+  } else {
+    const prop = data as Prop;
+    prompt = `You are an expert prop/product prompt engineer for ${visualStyle} style image generation.
+${artDirectionBlock}
+Create a cinematic visual prompt for a standalone prop/item.
+
+Prop Data:
+- Name: ${prop.name}
+- Category: ${prop.category}
+- Description: ${prop.description}
+- Genre Context: ${genre}
+
+REQUIRED STRUCTURE (output in ${language}):
+1. Form & Silhouette: [overall shape, scale cues, distinctive outline]
+2. Material & Texture: [material type, micro texture, wear/age details]
+3. Color & Finish: [primary/secondary/accent colors, finish level]
+4. Craft & Details: [logos, engravings, seams, patterns, moving parts]
+5. Presentation: [clean product-shot framing, controlled studio/cinematic lighting]
+6. Technical Quality: ${stylePrompt}
+
+CRITICAL RULES:
+- Object-only shot, absolutely NO people, NO characters, NO hands
+- Keep identity-defining details concrete and renderable
+- Output as single paragraph, comma-separated
+- MUST emphasize ${visualStyle} style
+- Length: 55-95 words
+
+Output ONLY the visual prompt text, no explanations.`;
   }
 
-  const visualPrompt = await retryOperation(() => chatCompletion(prompt, model, 0.5, 1024));
+  const visualPrompt = await retryOperation(
+    () => chatCompletion(prompt, model, 0.5, 1024, undefined, 600000, abortSignal),
+    3,
+    2000,
+    abortSignal
+  );
 
   return {
     visualPrompt: visualPrompt.trim(),
@@ -916,7 +962,12 @@ Rules:
       return null;
     };
 
-    const responseText = await retryOperation(() => chatCompletion(prompt, model, 0.4, 4096, 'json_object'));
+    const responseText = await retryOperation(
+      () => chatCompletion(prompt, model, 0.4, 4096, 'json_object', 600000, abortSignal),
+      3,
+      2000,
+      abortSignal
+    );
     let parsed = JSON.parse(cleanJsonString(responseText));
     let panels = buildPanels(parsed);
     let validationError = validatePanels(panels);
