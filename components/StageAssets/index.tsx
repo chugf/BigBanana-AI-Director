@@ -127,10 +127,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       const currentItems = ((currentScriptData as any)[field] || []) as any[];
       return {
         ...prev,
-        scriptData: {
+        scriptData: invalidateShotGenerationMeta({
           ...currentScriptData,
           [field]: [...currentItems, linkedAsset],
-        },
+        }),
         [refField]: nextRefs,
       };
     });
@@ -144,6 +144,18 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       return structuredClone(scriptData);
     }
     return JSON.parse(JSON.stringify(scriptData)) as T;
+  };
+
+  const invalidateShotGenerationMeta = <T extends ProjectState['scriptData']>(scriptData: T): T => {
+    if (!scriptData) return scriptData;
+    return {
+      ...scriptData,
+      generationMeta: {
+        ...(scriptData.generationMeta || {}),
+        shotsKey: undefined,
+        generatedAt: Date.now()
+      }
+    } as T;
   };
 
   useEffect(() => {
@@ -570,7 +582,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const handleImportFromLibrary = (item: AssetLibraryItem) => {
     try {
       const updated = applyLibraryItemToProject(project, item);
-      updateProject(() => updated);
+      updateProject(() => ({
+        ...updated,
+        scriptData: invalidateShotGenerationMeta(updated.scriptData)
+      }));
       showAlert(`已导入：${item.name}`, { type: 'success' });
     } catch (e: any) {
       showAlert(e?.message || '导入失败', { type: 'error' });
@@ -613,7 +628,11 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       }
     }
 
-    updateProject({ scriptData: newData, shots: nextShots, characterRefs: nextRefs });
+    updateProject({
+      scriptData: invalidateShotGenerationMeta(newData),
+      shots: nextShots,
+      characterRefs: nextRefs
+    });
     showAlert(`已替换角色：${previous.name} → ${cloned.name}`, { type: 'success' });
     setShowLibraryModal(false);
     setReplaceTargetCharId(null);
@@ -643,7 +662,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         'manual-edit'
       );
       char.visualPrompt = newPrompt;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
@@ -659,7 +678,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       if (updates.gender !== undefined) char.gender = updates.gender;
       if (updates.age !== undefined) char.age = updates.age;
       if (updates.personality !== undefined) char.personality = updates.personality;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
@@ -678,7 +697,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         'manual-edit'
       );
       scene.visualPrompt = newPrompt;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
@@ -693,7 +712,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       if (updates.location !== undefined) scene.location = updates.location;
       if (updates.time !== undefined) scene.time = updates.time;
       if (updates.atmosphere !== undefined) scene.atmosphere = updates.atmosphere;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
@@ -716,7 +735,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
     const newData = cloneScriptData(project.scriptData);
     newData.characters.push(newChar);
-    updateProject({ scriptData: newData });
+    updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     showAlert('新角色已创建，请编辑提示词并生成图片', { type: 'success' });
   };
 
@@ -770,7 +789,11 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
             }
           }
 
-          updateProject({ scriptData: newData, shots: nextShots, characterRefs: nextRefs });
+          updateProject({
+            scriptData: invalidateShotGenerationMeta(newData),
+            shots: nextShots,
+            characterRefs: nextRefs
+          });
           showAlert(`角色 "${char.name}" 已删除`, { type: 'success' });
         }
       }
@@ -794,7 +817,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
     const newData = cloneScriptData(project.scriptData);
     newData.scenes.push(newScene);
-    updateProject({ scriptData: newData });
+    updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     showAlert('新场景已创建，请编辑提示词并生成图片', { type: 'success' });
   };
 
@@ -825,7 +848,11 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
               nextRefs = nextRefs.filter(ref => ref.sceneId !== scene.libraryId);
             }
           }
-          updateProject({ scriptData: newData, shots: nextShots, sceneRefs: nextRefs });
+          updateProject({
+            scriptData: invalidateShotGenerationMeta(newData),
+            shots: nextShots,
+            sceneRefs: nextRefs
+          });
           showAlert(`场景 "${scene.location}" 已删除`, { type: 'success' });
         }
       }
@@ -854,7 +881,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     const newData = cloneScriptData(project.scriptData);
     if (!newData.props) newData.props = [];
     newData.props.push(newProp);
-    updateProject({ scriptData: newData });
+    updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     showAlert('新道具已创建，请编辑描述和提示词并生成图片', { type: 'success' });
   };
 
@@ -891,7 +918,11 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
             }
           }
 
-          updateProject({ scriptData: newData, shots: nextShots, propRefs: nextRefs });
+          updateProject({
+            scriptData: invalidateShotGenerationMeta(newData),
+            shots: nextShots,
+            propRefs: nextRefs
+          });
           showAlert(`道具 "${prop.name}" 已删除`, { type: 'success' });
         }
       }
@@ -999,7 +1030,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         'manual-edit'
       );
       prop.visualPrompt = newPrompt;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
@@ -1014,7 +1045,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       if (updates.name !== undefined) prop.name = updates.name;
       if (updates.category !== undefined) prop.category = updates.category;
       if (updates.description !== undefined) prop.description = updates.description;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
