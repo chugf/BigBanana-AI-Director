@@ -1,6 +1,6 @@
 import React from 'react';
 import { Film } from 'lucide-react';
-import { Shot, ScriptData } from '../../types';
+import { Shot, ScriptData, PromptVersion } from '../../types';
 import { EditingPrompt, STYLES } from './constants';
 import { getDefaultVideoPrompt } from './utils';
 import CollapsibleSection from './CollapsibleSection';
@@ -13,10 +13,12 @@ interface Props {
   isExpanded: boolean;
   onToggle: () => void;
   editingPrompt: EditingPrompt;
+  editingVersions: PromptVersion[];
   onStartEdit: (type: 'keyframe' | 'video', id: string, value: string, variationId: undefined, shotId: string) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
   onPromptChange: (value: string) => void;
+  onRollbackVersion: (versionId: string) => void;
 }
 
 const KeyframeSection: React.FC<Props> = ({
@@ -25,10 +27,12 @@ const KeyframeSection: React.FC<Props> = ({
   isExpanded,
   onToggle,
   editingPrompt,
+  editingVersions,
   onStartEdit,
   onSaveEdit,
   onCancelEdit,
-  onPromptChange
+  onPromptChange,
+  onRollbackVersion
 }) => {
   if (shots.length === 0) return null;
 
@@ -92,6 +96,8 @@ const KeyframeSection: React.FC<Props> = ({
                       onSave={onSaveEdit}
                       onCancel={onCancelEdit}
                       size="small"
+                      versions={editingVersions}
+                      onRollback={onRollbackVersion}
                     />
                   ) : (
                     <p className={STYLES.display.small}>
@@ -141,6 +147,8 @@ const KeyframeSection: React.FC<Props> = ({
                         onCancel={onCancelEdit}
                         size="video"
                         isVideo={true}
+                        versions={editingVersions}
+                        onRollback={onRollbackVersion}
                       />
                     ) : (
                       <div className="space-y-2">

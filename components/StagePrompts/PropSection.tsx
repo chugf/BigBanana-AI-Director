@@ -1,6 +1,6 @@
 import React from 'react';
 import { Package } from 'lucide-react';
-import { Prop } from '../../types';
+import { Prop, PromptVersion } from '../../types';
 import { EditingPrompt, STYLES } from './constants';
 import CollapsibleSection from './CollapsibleSection';
 import PromptEditor from './PromptEditor';
@@ -10,10 +10,12 @@ interface Props {
   isExpanded: boolean;
   onToggle: () => void;
   editingPrompt: EditingPrompt;
+  editingVersions: PromptVersion[];
   onStartEdit: (type: 'prop', id: string, value: string) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
   onPromptChange: (value: string) => void;
+  onRollbackVersion: (versionId: string) => void;
 }
 
 const PropSection: React.FC<Props> = ({
@@ -21,10 +23,12 @@ const PropSection: React.FC<Props> = ({
   isExpanded,
   onToggle,
   editingPrompt,
+  editingVersions,
   onStartEdit,
   onSaveEdit,
   onCancelEdit,
-  onPromptChange
+  onPromptChange,
+  onRollbackVersion
 }) => {
   if (props.length === 0) return null;
 
@@ -60,6 +64,8 @@ const PropSection: React.FC<Props> = ({
               onSave={onSaveEdit}
               onCancel={onCancelEdit}
               size="large"
+              versions={editingVersions}
+              onRollback={onRollbackVersion}
             />
           ) : (
             <p className={STYLES.display.base}>

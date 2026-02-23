@@ -23,6 +23,7 @@ import { getAllAssetLibraryItems, saveAssetToLibrary, deleteAssetFromLibrary } f
 import { applyLibraryItemToProject, createLibraryItemFromCharacter, createLibraryItemFromScene, createLibraryItemFromProp, cloneCharacterForProject } from '../../services/assetLibraryService';
 import { AspectRatioSelector } from '../AspectRatioSelector';
 import { getUserAspectRatio, setUserAspectRatio, getActiveImageModel } from '../../services/modelRegistry';
+import { updatePromptWithVersion } from '../../services/promptVersionService';
 import CharacterLibraryPickerModal from './CharacterLibraryPicker';
 import ProjectAssetPicker from './ProjectAssetPicker';
 import { loadSeriesProject } from '../../services/storageService';
@@ -319,6 +320,13 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
               const newData = cloneScriptData(project.scriptData);
               const c = newData.characters.find(c => compareIds(c.id, id));
               if (c) {
+                c.promptVersions = updatePromptWithVersion(
+                  c.visualPrompt,
+                  prompts.visualPrompt,
+                  c.promptVersions,
+                  'ai-generated',
+                  'Auto-generated character prompt'
+                );
                 c.visualPrompt = prompts.visualPrompt;
                 c.negativePrompt = prompts.negativePrompt;
               }
@@ -342,6 +350,13 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
               const newData = cloneScriptData(project.scriptData);
               const s = newData.scenes.find(s => compareIds(s.id, id));
               if (s) {
+                s.promptVersions = updatePromptWithVersion(
+                  s.visualPrompt,
+                  prompts.visualPrompt,
+                  s.promptVersions,
+                  'ai-generated',
+                  'Auto-generated scene prompt'
+                );
                 s.visualPrompt = prompts.visualPrompt;
                 s.negativePrompt = prompts.negativePrompt;
               }
@@ -621,6 +636,12 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     const newData = cloneScriptData(project.scriptData);
     const char = newData.characters.find(c => compareIds(c.id, charId));
     if (char) {
+      char.promptVersions = updatePromptWithVersion(
+        char.visualPrompt,
+        newPrompt,
+        char.promptVersions,
+        'manual-edit'
+      );
       char.visualPrompt = newPrompt;
       updateProject({ scriptData: newData });
     }
@@ -650,6 +671,12 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     const newData = cloneScriptData(project.scriptData);
     const scene = newData.scenes.find(s => compareIds(s.id, sceneId));
     if (scene) {
+      scene.promptVersions = updatePromptWithVersion(
+        scene.visualPrompt,
+        newPrompt,
+        scene.promptVersions,
+        'manual-edit'
+      );
       scene.visualPrompt = newPrompt;
       updateProject({ scriptData: newData });
     }
@@ -915,6 +942,13 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         updated.referenceImage = imageUrl;
         updated.status = 'completed';
         if (!updated.visualPrompt) {
+          updated.promptVersions = updatePromptWithVersion(
+            updated.visualPrompt,
+            prompt,
+            updated.promptVersions,
+            'ai-generated',
+            'Auto-generated prop prompt'
+          );
           updated.visualPrompt = prompt;
         }
       }
@@ -958,6 +992,12 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     const newData = cloneScriptData(project.scriptData);
     const prop = (newData.props || []).find(p => compareIds(p.id, propId));
     if (prop) {
+      prop.promptVersions = updatePromptWithVersion(
+        prop.visualPrompt,
+        newPrompt,
+        prop.promptVersions,
+        'manual-edit'
+      );
       prop.visualPrompt = newPrompt;
       updateProject({ scriptData: newData });
     }

@@ -30,8 +30,11 @@ import ImagePreviewModal from './ImagePreviewModal';
 import NineGridPreview from './NineGridPreview';
 import { useAlert } from '../GlobalAlert';
 import { AspectRatioSelector } from '../AspectRatioSelector';
-import { getUserAspectRatio, setUserAspectRatio, getModelById } from '../../services/modelRegistry';
+import { getUserAspectRatio, setUserAspectRatio, getModelById, getActiveImageModel } from '../../services/modelRegistry';
 import { persistVideoReference } from '../../services/videoStorageService';
+import { runKeyframePreflight, runVideoPreflight, formatLintIssues } from '../../services/promptLintService';
+import { assessShotQuality, getProjectAverageQualityScore } from '../../services/qualityAssessmentService';
+import { updatePromptWithVersion } from '../../services/promptVersionService';
 
 interface Props {
   project: ProjectState;
@@ -70,12 +73,18 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
 
   const activeShotIndex = project.shots.findIndex(s => s.id === activeShotId);
   const activeShot = project.shots[activeShotIndex];
+  const projectQualityScore = getProjectAverageQualityScore(project.shots);
 
   const getModelDefaultDuration = (modelId?: string): number => {
     const model = getModelById(modelId || DEFAULTS.videoModel) as any;
     const duration = model?.params?.defaultDuration;
     return typeof duration === 'number' && Number.isFinite(duration) ? duration : 8;
   };
+
+  const applyShotQuality = (shot: Shot, scriptData: ProjectState['scriptData']): Shot => ({
+    ...shot,
+    qualityAssessment: assessShotQuality(shot, scriptData),
+  });
 
   /**
    * 场景负面提示词里常包含“禁止人物”的约束（用于纯环境图），
@@ -204,20 +213,22 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       console.log('🔧 检测到卡住的生成状态，正在重置...');
       updateProject((prevProject: ProjectState) => ({
         ...prevProject,
-        shots: prevProject.shots.map(shot => ({
-          ...shot,
-          keyframes: shot.keyframes?.map(kf => 
-            kf.status === 'generating'
-              ? { ...kf, status: 'failed' as const }
-              : kf
-          ),
-          interval: shot.interval && shot.interval.status === 'generating'
-            ? { ...shot.interval, status: 'failed' as const }
-            : shot.interval,
-          nineGrid: shot.nineGrid && (shot.nineGrid.status === 'generating_panels' || shot.nineGrid.status === 'generating_image' || (shot.nineGrid.status as string) === 'generating')
-            ? { ...shot.nineGrid, status: 'failed' as const }
-            : shot.nineGrid
-        }))
+        shots: prevProject.shots.map(shot =>
+          applyShotQuality({
+            ...shot,
+            keyframes: shot.keyframes?.map(kf => 
+              kf.status === 'generating'
+                ? { ...kf, status: 'failed' as const }
+                : kf
+            ),
+            interval: shot.interval && shot.interval.status === 'generating'
+              ? { ...shot.interval, status: 'failed' as const }
+              : shot.interval,
+            nineGrid: shot.nineGrid && (shot.nineGrid.status === 'generating_panels' || shot.nineGrid.status === 'generating_image' || (shot.nineGrid.status as string) === 'generating')
+              ? { ...shot.nineGrid, status: 'failed' as const }
+              : shot.nineGrid
+          }, prevProject.scriptData)
+        )
       }));
     }
   }, []); // 进入导演页时执行一次，清理离开页面后遗留的 generating 状态
@@ -254,13 +265,29 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     return () => clearTimeout(timerId);
   }, [toastMessage]);
 
+  useEffect(() => {
+    const hasMissingAssessment = project.shots.some((shot) => !shot.qualityAssessment);
+    if (!hasMissingAssessment) return;
+
+    updateProject((prevProject: ProjectState) => ({
+      ...prevProject,
+      shots: prevProject.shots.map((shot) =>
+        shot.qualityAssessment ? shot : applyShotQuality(shot, prevProject.scriptData)
+      ),
+    }));
+  }, [project.id]);
+
   /**
    * 更新镜头
    */
   const updateShot = (shotId: string, transform: (s: Shot) => Shot) => {
     updateProject((prevProject: ProjectState) => ({
       ...prevProject,
-      shots: prevProject.shots.map(s => s.id === shotId ? transform(s) : s)
+      shots: prevProject.shots.map((shot) =>
+        shot.id === shotId
+          ? applyShotQuality(transform(shot), prevProject.scriptData)
+          : shot
+      )
     }));
   };
 
@@ -313,16 +340,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || '3d-animation';
     const negativePrompt = buildShotNegativePrompt(shot, visualStyle);
-    
-    // 立即设置生成状态，显示loading
-    updateProject((prevProject: ProjectState) => ({
-      ...prevProject,
-      shots: prevProject.shots.map(s => {
-        if (s.id !== shot.id) return s;
-        return updateKeyframeInShot(s, type, createKeyframe(kfId, type, basePrompt, undefined, 'generating'));
-      })
-    }));
-    
+
     // 获取道具信息用于提示词注入
     const propsInfo = getPropsInfoForShot(shot, project.scriptData);
     
@@ -338,15 +356,54 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     } else {
       prompt = buildKeyframePrompt(basePrompt, visualStyle, shot.cameraMovement, type, propsInfo);
     }
-    
-    try {
-      const refResult = getRefImagesForShot(shot, project.scriptData);
-      const referenceImages = [...refResult.images];
-      const continuityReferenceImage =
-        type === 'end' && startKf?.imageUrl && !referenceImages.includes(startKf.imageUrl)
-          ? startKf.imageUrl
-          : undefined;
 
+    const refResult = getRefImagesForShot(shot, project.scriptData);
+    const referenceImages = [...refResult.images];
+    const continuityReferenceImage =
+      type === 'end' && startKf?.imageUrl && !referenceImages.includes(startKf.imageUrl)
+        ? startKf.imageUrl
+        : undefined;
+
+    const activeImageModel = getActiveImageModel() as any;
+    const preflightResult = runKeyframePreflight({
+      prompt,
+      negativePrompt,
+      hasCharacters: (shot.characters?.length || 0) > 0,
+      frameType: type,
+      hasStartFrameImage: !!startKf?.imageUrl,
+      referenceImageCount: referenceImages.length + (continuityReferenceImage ? 1 : 0),
+      aspectRatio: keyframeAspectRatio,
+      supportedAspectRatios: activeImageModel?.params?.supportedAspectRatios,
+    });
+
+    if (!preflightResult.canProceed) {
+      showAlert(`关键帧预检未通过：\n${formatLintIssues(preflightResult.issues)}`, { type: 'warning' });
+      return;
+    }
+
+    const nonErrorIssues = preflightResult.issues.filter((issue) => issue.severity !== 'error');
+    if (nonErrorIssues.length > 0) {
+      setToastMessage(`关键帧预检提醒：\n${formatLintIssues(nonErrorIssues)}`);
+    }
+
+    const promptVersions = updatePromptWithVersion(
+      existingKf?.visualPrompt,
+      prompt,
+      existingKf?.promptVersions,
+      'ai-generated',
+      `Generate ${type} keyframe`
+    );
+
+    // 立即设置生成状态，显示loading
+    updateShot(shot.id, (s) => {
+      const generatingKeyframe = {
+        ...createKeyframe(kfId, type, prompt, undefined, 'generating'),
+        promptVersions,
+      };
+      return updateKeyframeInShot(s, type, generatingKeyframe);
+    });
+
+    try {
       // 使用当前设置的横竖屏比例生成关键帧，传递 hasTurnaround 标记
       const url = await generateImage(
         prompt,
@@ -360,22 +417,22 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
           : { referencePackType: 'shot' }
       );
 
-      updateProject((prevProject: ProjectState) => ({
-        ...prevProject,
-        shots: prevProject.shots.map(s => {
-          if (s.id !== shot.id) return s;
-          return updateKeyframeInShot(s, type, createKeyframe(kfId, type, prompt, url, 'completed'));
-        })
-      }));
+      updateShot(shot.id, (s) => {
+        const completedKeyframe = {
+          ...createKeyframe(kfId, type, prompt, url, 'completed'),
+          promptVersions,
+        };
+        return updateKeyframeInShot(s, type, completedKeyframe);
+      });
     } catch (e: any) {
       console.error(e);
-      updateProject((prevProject: ProjectState) => ({
-        ...prevProject,
-        shots: prevProject.shots.map(s => {
-          if (s.id !== shot.id) return s;
-          return updateKeyframeInShot(s, type, createKeyframe(kfId, type, prompt, undefined, 'failed'));
-        })
-      }));
+      updateShot(shot.id, (s) => {
+        const failedKeyframe = {
+          ...createKeyframe(kfId, type, prompt, undefined, 'failed'),
+          promptVersions,
+        };
+        return updateKeyframeInShot(s, type, failedKeyframe);
+      });
       
       if (onApiKeyError && onApiKeyError(e)) return;
       showAlert(`生成失败: ${formatUserFriendlyError(e, '图片生成失败，请稍后重试。')}`, { type: 'error' });
@@ -404,14 +461,14 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         const existingKf = shot.keyframes?.find(k => k.type === type);
         const kfId = existingKf?.id || generateId(`kf-${shot.id}-${type}`);
         
-        updateProject((prevProject: ProjectState) => ({
-          ...prevProject,
-          shots: prevProject.shots.map(s => {
-            if (s.id !== shot.id) return s;
-            const visualPrompt = existingKf?.visualPrompt || shot.actionSummary;
-            return updateKeyframeInShot(s, type, createKeyframe(kfId, type, visualPrompt, base64Url, 'completed'));
-          })
-        }));
+        updateShot(shot.id, (s) => {
+          const visualPrompt = existingKf?.visualPrompt || shot.actionSummary;
+          const uploadedKeyframe = {
+            ...createKeyframe(kfId, type, visualPrompt, base64Url, 'completed'),
+            promptVersions: existingKf?.promptVersions,
+          };
+          return updateKeyframeInShot(s, type, uploadedKeyframe);
+        });
       } catch (error) {
         showAlert('读取文件失败！', { type: 'error' });
       }
@@ -475,20 +532,51 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         hasEndFrame: !!routedFrames.endImage,
       }
     );
+
+    const selectedModelConfig = (getModelById(selectedModelInput) || getModelById(selectedModel)) as any;
+    const preflightResult = runVideoPreflight({
+      prompt: videoPrompt,
+      hasStartFrame: !!sKf?.imageUrl,
+      hasEndFrame: !!eKf?.imageUrl,
+      modelId: selectedModel,
+      supportsEndFrame: selectedModelRouting.supportsEndFrame,
+      aspectRatio,
+      supportedAspectRatios: selectedModelConfig?.params?.supportedAspectRatios,
+      duration,
+      supportedDurations: selectedModelConfig?.params?.supportedDurations,
+    });
+
+    if (!preflightResult.canProceed) {
+      showAlert(`视频预检未通过：\n${formatLintIssues(preflightResult.issues)}`, { type: 'warning' });
+      return;
+    }
+
+    const nonErrorIssues = preflightResult.issues.filter((issue) => issue.severity !== 'error');
+    if (nonErrorIssues.length > 0) {
+      setToastMessage(`视频预检提醒：\n${formatLintIssues(nonErrorIssues)}`);
+    }
     
     const intervalId = shot.interval?.id || generateId(`int-${shot.id}`);
+    const intervalPromptVersions = updatePromptWithVersion(
+      shot.interval?.videoPrompt,
+      videoPrompt,
+      shot.interval?.promptVersions,
+      'ai-generated',
+      `Generate video (${selectedModel})`
+    );
     
     // 更新 shot 的 videoModel
     updateShot(shot.id, (s) => ({
       ...s,
       videoModel: selectedModel as any,
-      interval: s.interval ? { ...s.interval, status: 'generating', videoPrompt } : {
+      interval: s.interval ? { ...s.interval, status: 'generating', videoPrompt, promptVersions: intervalPromptVersions } : {
         id: intervalId,
         startKeyframeId: sKf?.id || '',
         endKeyframeId: routedEndKeyframeId,
         duration: duration,
         motionStrength: 5,
         videoPrompt,
+        promptVersions: intervalPromptVersions,
         status: 'generating'
       }
     }));
@@ -510,13 +598,14 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
 
       updateShot(shot.id, (s) => ({
         ...s,
-        interval: s.interval ? { ...s.interval, videoUrl: persistedVideoUrl, status: 'completed' } : {
+        interval: s.interval ? { ...s.interval, videoUrl: persistedVideoUrl, status: 'completed', promptVersions: intervalPromptVersions } : {
           id: intervalId,
           startKeyframeId: sKf?.id || '',
           endKeyframeId: routedEndKeyframeId,
           duration: duration,
           motionStrength: 5,
           videoPrompt,
+          promptVersions: intervalPromptVersions,
           videoUrl: persistedVideoUrl,
           status: 'completed'
         }
@@ -525,11 +614,20 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       console.error(e);
       updateShot(shot.id, (s) => ({
         ...s,
-        interval: s.interval ? { ...s.interval, status: 'failed' } : undefined
+        interval: s.interval ? { ...s.interval, status: 'failed', promptVersions: intervalPromptVersions } : {
+          id: intervalId,
+          startKeyframeId: sKf?.id || '',
+          endKeyframeId: routedEndKeyframeId,
+          duration: duration,
+          motionStrength: 5,
+          videoPrompt,
+          promptVersions: intervalPromptVersions,
+          status: 'failed'
+        }
       }));
       
       if (onApiKeyError && onApiKeyError(e)) return;
-      showAlert(`视频生成失败: ${e.message}`, { type: 'error' });
+      showAlert(`视频生成失败: ${formatUserFriendlyError(e, '请稍后重试。')}`, { type: 'error' });
     }
   };
 
@@ -654,17 +752,36 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       case 'keyframe':
         updateShot(activeShot.id, (s) => ({
           ...s,
-          keyframes: s.keyframes?.map(kf => 
-            kf.type === editModal.frameType 
-              ? { ...kf, visualPrompt: editModal.value }
-              : kf
-          ) || []
+          keyframes: s.keyframes?.map((kf) => {
+            if (kf.type !== editModal.frameType) return kf;
+            return {
+              ...kf,
+              visualPrompt: editModal.value,
+              promptVersions: updatePromptWithVersion(
+                kf.visualPrompt,
+                editModal.value,
+                kf.promptVersions,
+                'manual-edit',
+                `Manual ${kf.type} keyframe edit`
+              ),
+            };
+          }) || []
         }));
         break;
       case 'video':
         updateShot(activeShot.id, (s) => ({
           ...s,
-          interval: s.interval ? { ...s.interval, videoPrompt: editModal.value } : undefined
+          interval: s.interval ? {
+            ...s.interval,
+            videoPrompt: editModal.value,
+            promptVersions: updatePromptWithVersion(
+              s.interval.videoPrompt,
+              editModal.value,
+              s.interval.promptVersions,
+              'manual-edit',
+              'Manual video prompt edit'
+            ),
+          } : undefined
         }));
         break;
     }
@@ -919,6 +1036,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       updateProject((prevProject: ProjectState) => ({
         ...prevProject,
         shots: replaceShotWithSubShots(prevProject.shots, shot.id, subShots)
+          .map((nextShot) => applyShotQuality(nextShot, prevProject.scriptData))
       }));
       
       // 6. 关闭工作台，显示成功提示
@@ -1247,6 +1365,15 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
             </label>
           </div>
           
+          <span className={`text-xs font-mono px-2 py-1 rounded border ${
+            projectQualityScore >= 80
+              ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+              : projectQualityScore >= 60
+                ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+                : 'text-rose-300 border-rose-500/40 bg-rose-500/10'
+          }`}>
+            质检分 {projectQualityScore}
+          </span>
           <span className="text-xs text-[var(--text-tertiary)] mr-4 font-mono">
             {project.shots.filter(s => s.interval?.videoUrl).length} / {project.shots.length} 完成
           </span>

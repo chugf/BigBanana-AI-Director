@@ -2,9 +2,38 @@ export interface CharacterVariation {
   id: string;
   name: string; // e.g., "Casual", "Tactical Gear", "Injured"
   visualPrompt: string;
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
   negativePrompt?: string; // 负面提示词，用于排除不想要的元素
   referenceImage?: string; // 角色变体参考图，存储为base64格式（data:image/png;base64,...）
   status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
+}
+
+export type PromptVersionSource = 'ai-generated' | 'manual-edit' | 'rollback' | 'imported' | 'system';
+
+export interface PromptVersion {
+  id: string;
+  prompt: string;
+  createdAt: number;
+  source: PromptVersionSource;
+  note?: string;
+}
+
+export interface QualityCheck {
+  key: string;
+  label: string;
+  score: number; // 0-100
+  weight: number; // Weight percentage in total score
+  passed: boolean;
+  details?: string;
+}
+
+export interface ShotQualityAssessment {
+  version: number; // Quality scoring schema version
+  score: number; // 0-100
+  grade: 'pass' | 'warning' | 'fail';
+  generatedAt: number;
+  checks: QualityCheck[];
+  summary: string;
 }
 
 /**
@@ -39,6 +68,7 @@ export interface Character {
   age: string;
   personality: string;
   visualPrompt?: string;
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
   negativePrompt?: string;
   coreFeatures?: string;
   referenceImage?: string;
@@ -56,6 +86,7 @@ export interface Scene {
   time: string;
   atmosphere: string;
   visualPrompt?: string;
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
   negativePrompt?: string; // 负面提示词，用于排除不想要的元素
   referenceImage?: string; // 场景参考图，存储为base64格式（data:image/png;base64,...）
   status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
@@ -74,6 +105,7 @@ export interface Prop {
   category: string;       // 分类：武器、文件/书信、食物/饮品、交通工具、装饰品、科技设备、其他
   description: string;    // 道具描述
   visualPrompt?: string;  // 视觉提示词
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
   negativePrompt?: string; // 负面提示词，用于排除不想要的元素
   referenceImage?: string; // 道具参考图，存储为base64格式（data:image/png;base64,...）
   status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
@@ -99,6 +131,7 @@ export interface Keyframe {
   id: string;
   type: 'start' | 'end';
   visualPrompt: string;
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
   imageUrl?: string; // 关键帧图像，存储为base64格式（data:image/png;base64,...）
   status: 'pending' | 'generating' | 'completed' | 'failed';
 }
@@ -111,6 +144,7 @@ export interface VideoInterval {
   motionStrength: number;
   videoUrl?: string; // 视频数据，存储为base64格式（data:video/mp4;base64,...），避免URL过期问题
   videoPrompt?: string; // 视频生成时使用的提示词
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
   status: 'pending' | 'generating' | 'completed' | 'failed';
 }
 
@@ -149,6 +183,7 @@ export interface Shot {
   props?: string[]; // 道具ID数组，引用 ScriptData.props 中的道具
   keyframes: Keyframe[];
   interval?: VideoInterval;
+  qualityAssessment?: ShotQualityAssessment;
   videoModel?: 'veo' | 'sora-2' | 'veo_3_1-fast' | 'veo_3_1-fast-4K' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait' | 'doubao-seedance-1-5-pro-251215' | 'doubao-seedance-2-0-260128'; // Video generation model selection
   nineGrid?: NineGridData; // 可选的九宫格分镜预览数据（高级功能）
 }

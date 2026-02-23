@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { Search, Film, Users, MapPin, Package, X } from 'lucide-react';
-import { ProjectState } from '../../types';
+import { ProjectState, PromptVersion } from '../../types';
 import { PromptCategory, EditingPrompt } from './constants';
 import { 
   savePromptEdit, 
+  rollbackPromptEdit,
+  getPromptVersionsForEdit,
   filterCharacters, 
   filterScenes, 
   filterProps,
@@ -74,6 +76,25 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
     if (editingPrompt) {
       setEditingPrompt({ ...editingPrompt, value });
     }
+  };
+
+  const editingVersions: PromptVersion[] = getPromptVersionsForEdit(project, editingPrompt);
+
+  const handleRollbackVersion = (versionId: string) => {
+    if (!editingPrompt) return;
+    const { project: nextProject, restoredPrompt } = rollbackPromptEdit(
+      project,
+      {
+        type: editingPrompt.type,
+        id: editingPrompt.id,
+        variationId: editingPrompt.variationId,
+        shotId: editingPrompt.shotId,
+      },
+      versionId
+    );
+    if (!restoredPrompt) return;
+    updateProject(nextProject);
+    setEditingPrompt({ ...editingPrompt, value: restoredPrompt });
   };
 
   const setAllSectionsExpanded = (expanded: boolean) => {
@@ -287,10 +308,12 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
                 isExpanded={expandedSections.has('characters')}
                 onToggle={() => toggleSection('characters')}
                 editingPrompt={editingPrompt}
+                editingVersions={editingVersions}
                 onStartEdit={handleStartEdit}
                 onSaveEdit={handleSaveEdit}
                 onCancelEdit={handleCancelEdit}
                 onPromptChange={handlePromptChange}
+                onRollbackVersion={handleRollbackVersion}
               />
 
               <SceneSection
@@ -298,10 +321,12 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
                 isExpanded={expandedSections.has('scenes')}
                 onToggle={() => toggleSection('scenes')}
                 editingPrompt={editingPrompt}
+                editingVersions={editingVersions}
                 onStartEdit={handleStartEdit}
                 onSaveEdit={handleSaveEdit}
                 onCancelEdit={handleCancelEdit}
                 onPromptChange={handlePromptChange}
+                onRollbackVersion={handleRollbackVersion}
               />
 
               <PropSection
@@ -309,10 +334,12 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
                 isExpanded={expandedSections.has('props')}
                 onToggle={() => toggleSection('props')}
                 editingPrompt={editingPrompt}
+                editingVersions={editingVersions}
                 onStartEdit={handleStartEdit}
                 onSaveEdit={handleSaveEdit}
                 onCancelEdit={handleCancelEdit}
                 onPromptChange={handlePromptChange}
+                onRollbackVersion={handleRollbackVersion}
               />
             </>
           )}
@@ -324,10 +351,12 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
               isExpanded={expandedSections.has('shots')}
               onToggle={() => toggleSection('shots')}
               editingPrompt={editingPrompt}
+              editingVersions={editingVersions}
               onStartEdit={handleStartEdit}
               onSaveEdit={handleSaveEdit}
               onCancelEdit={handleCancelEdit}
               onPromptChange={handlePromptChange}
+              onRollbackVersion={handleRollbackVersion}
             />
           )}
 

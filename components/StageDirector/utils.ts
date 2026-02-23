@@ -512,7 +512,11 @@ export const updateKeyframeInShot = (
   const idx = newKeyframes.findIndex(k => k.type === type);
   
   if (idx >= 0) {
-    newKeyframes[idx] = keyframe;
+    const previous = newKeyframes[idx];
+    newKeyframes[idx] =
+      keyframe.promptVersions === undefined
+        ? { ...keyframe, promptVersions: previous.promptVersions }
+        : keyframe;
   } else {
     newKeyframes.push(keyframe);
   }

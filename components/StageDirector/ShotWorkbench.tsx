@@ -94,6 +94,12 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   const startKf = shot.keyframes?.find(k => k.type === 'start');
   const endKf = shot.keyframes?.find(k => k.type === 'end');
   const [localVideoModelId, setLocalVideoModelId] = useState(currentVideoModelId);
+  const quality = shot.qualityAssessment;
+  const qualityBadgeClass = quality?.grade === 'pass'
+    ? 'bg-[var(--success-bg)] text-[var(--success-text)] border-[var(--success-border)]'
+    : quality?.grade === 'warning'
+      ? 'bg-[var(--warning-bg)] text-[var(--warning-text)] border-[var(--warning-border)]'
+      : 'bg-[var(--error-hover-bg)] text-[var(--error-text)] border-[var(--error-border)]';
 
   useEffect(() => {
     setLocalVideoModelId(currentVideoModelId);
@@ -160,6 +166,32 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6 space-y-8">
+        {quality && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Quality Assessment</h4>
+              <span className={`px-2 py-1 rounded-md text-[10px] font-mono border ${qualityBadgeClass}`}>
+                {quality.score} {quality.grade.toUpperCase()}
+              </span>
+            </div>
+            <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] p-3 space-y-2">
+              <p className="text-xs text-[var(--text-secondary)]">{quality.summary}</p>
+              <div className="space-y-1.5">
+                {quality.checks.map((check) => (
+                  <div key={check.key} className="flex items-center gap-2">
+                    <span className={`w-16 text-[10px] font-mono ${check.passed ? 'text-[var(--success-text)]' : 'text-[var(--warning-text)]'}`}>
+                      {check.score}
+                    </span>
+                    <span className="text-[11px] text-[var(--text-tertiary)] truncate" title={check.details || check.label}>
+                      {check.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Scene Context */}
         {scriptData && (
           <SceneContext
