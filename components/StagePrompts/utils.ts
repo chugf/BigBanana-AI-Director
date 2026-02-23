@@ -17,60 +17,74 @@ export const savePromptEdit = (
     value: string;
   }
 ): ProjectState => {
-  const newProject = { ...project };
-
   switch (editingPrompt.type) {
     case 'character':
-      if (newProject.scriptData) {
-        newProject.scriptData.characters = newProject.scriptData.characters.map(char =>
-          char.id === editingPrompt.id
-            ? { ...char, visualPrompt: editingPrompt.value }
-            : char
-        );
-      }
-      break;
+      if (!project.scriptData) return project;
+      return {
+        ...project,
+        scriptData: {
+          ...project.scriptData,
+          characters: project.scriptData.characters.map(char =>
+            char.id === editingPrompt.id
+              ? { ...char, visualPrompt: editingPrompt.value }
+              : char
+          )
+        }
+      };
 
     case 'character-variation':
-      if (newProject.scriptData) {
-        newProject.scriptData.characters = newProject.scriptData.characters.map(char => {
-          if (char.id === editingPrompt.id) {
+      if (!project.scriptData) return project;
+      return {
+        ...project,
+        scriptData: {
+          ...project.scriptData,
+          characters: project.scriptData.characters.map(char => {
+            if (char.id !== editingPrompt.id) return char;
             return {
               ...char,
-              variations: char.variations.map(variation =>
+              variations: (char.variations || []).map(variation =>
                 variation.id === editingPrompt.variationId
                   ? { ...variation, visualPrompt: editingPrompt.value }
                   : variation
               )
             };
-          }
-          return char;
-        });
-      }
-      break;
+          })
+        }
+      };
 
     case 'scene':
-      if (newProject.scriptData) {
-        newProject.scriptData.scenes = newProject.scriptData.scenes.map(scene =>
-          scene.id === editingPrompt.id
-            ? { ...scene, visualPrompt: editingPrompt.value }
-            : scene
-        );
-      }
-      break;
+      if (!project.scriptData) return project;
+      return {
+        ...project,
+        scriptData: {
+          ...project.scriptData,
+          scenes: project.scriptData.scenes.map(scene =>
+            scene.id === editingPrompt.id
+              ? { ...scene, visualPrompt: editingPrompt.value }
+              : scene
+          )
+        }
+      };
 
     case 'prop':
-      if (newProject.scriptData) {
-        newProject.scriptData.props = (newProject.scriptData.props || []).map(prop =>
-          prop.id === editingPrompt.id
-            ? { ...prop, visualPrompt: editingPrompt.value }
-            : prop
-        );
-      }
-      break;
+      if (!project.scriptData) return project;
+      return {
+        ...project,
+        scriptData: {
+          ...project.scriptData,
+          props: (project.scriptData.props || []).map(prop =>
+            prop.id === editingPrompt.id
+              ? { ...prop, visualPrompt: editingPrompt.value }
+              : prop
+          )
+        }
+      };
 
     case 'keyframe':
-      newProject.shots = newProject.shots.map(shot => {
-        if (shot.id === editingPrompt.shotId) {
+      return {
+        ...project,
+        shots: project.shots.map(shot => {
+          if (shot.id !== editingPrompt.shotId) return shot;
           return {
             ...shot,
             keyframes: shot.keyframes.map(kf =>
@@ -79,44 +93,43 @@ export const savePromptEdit = (
                 : kf
             )
           };
-        }
-        return shot;
-      });
-      break;
+        })
+      };
 
     case 'video':
-      newProject.shots = newProject.shots.map(shot => {
-        if (shot.id === editingPrompt.shotId) {
+      return {
+        ...project,
+        shots: project.shots.map(shot => {
+          if (shot.id !== editingPrompt.shotId) return shot;
           return {
             ...shot,
             interval: shot.interval ? { ...shot.interval, videoPrompt: editingPrompt.value } : undefined
           };
-        }
-        return shot;
-      });
-      break;
-  }
+        })
+      };
 
-  return newProject;
+    default:
+      return project;
+  }
 };
 
 /**
  * 搜索过滤
  */
-export const filterBySearch = (text: string, searchQuery: string): boolean => {
+export const filterBySearch = (text: string | undefined | null, searchQuery: string): boolean => {
   if (!searchQuery.trim()) return true;
-  return text.toLowerCase().includes(searchQuery.toLowerCase());
+  return (text || '').toLowerCase().includes(searchQuery.toLowerCase());
 };
 
 /**
  * 过滤角色
  */
 export const filterCharacters = (characters: Character[], searchQuery: string): Character[] => {
-  return characters.filter(char => 
-    filterBySearch(char.name, searchQuery) || 
+  return characters.filter(char =>
+    filterBySearch(char.name, searchQuery) ||
     filterBySearch(char.visualPrompt || '', searchQuery) ||
-    char.variations.some(v => 
-      filterBySearch(v.name, searchQuery) || 
+    (char.variations || []).some(v =>
+      filterBySearch(v.name, searchQuery) ||
       filterBySearch(v.visualPrompt, searchQuery)
     )
   );
@@ -126,8 +139,8 @@ export const filterCharacters = (characters: Character[], searchQuery: string): 
  * 过滤场景
  */
 export const filterScenes = (scenes: Scene[], searchQuery: string): Scene[] => {
-  return scenes.filter(scene => 
-    filterBySearch(scene.location, searchQuery) || 
+  return scenes.filter(scene =>
+    filterBySearch(scene.location, searchQuery) ||
     filterBySearch(scene.visualPrompt || '', searchQuery)
   );
 };
@@ -136,8 +149,8 @@ export const filterScenes = (scenes: Scene[], searchQuery: string): Scene[] => {
  * 过滤道具
  */
 export const filterProps = (props: Prop[], searchQuery: string): Prop[] => {
-  return props.filter(prop => 
-    filterBySearch(prop.name, searchQuery) || 
+  return props.filter(prop =>
+    filterBySearch(prop.name, searchQuery) ||
     filterBySearch(prop.description || '', searchQuery) ||
     filterBySearch(prop.visualPrompt || '', searchQuery)
   );
@@ -148,11 +161,15 @@ export const filterProps = (props: Prop[], searchQuery: string): Prop[] => {
  */
 export const filterShots = (shots: Shot[], searchQuery: string): Shot[] => {
   return shots.filter(shot => {
-    const hasMatchingKeyframe = shot.keyframes.some(kf => 
-      filterBySearch(kf.visualPrompt, searchQuery) || 
-      filterBySearch(shot.actionSummary, searchQuery)
+    const hasMatchingShotMeta =
+      filterBySearch(shot.actionSummary, searchQuery) ||
+      filterBySearch(shot.cameraMovement, searchQuery) ||
+      filterBySearch(shot.shotSize, searchQuery);
+    const hasMatchingKeyframe = shot.keyframes.some(kf =>
+      filterBySearch(kf.visualPrompt, searchQuery)
     );
-    return hasMatchingKeyframe;
+    const hasMatchingVideoPrompt = filterBySearch(shot.interval?.videoPrompt, searchQuery);
+    return hasMatchingShotMeta || hasMatchingKeyframe || hasMatchingVideoPrompt;
   });
 };
 
