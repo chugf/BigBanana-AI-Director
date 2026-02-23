@@ -1,7 +1,8 @@
 import React from 'react';
-import { FileText, Users, Clapperboard, Film, ChevronLeft, ListTree, HelpCircle, Cpu, Sun, Moon, Loader2, FolderOpen } from 'lucide-react';
+import { FileText, Users, Clapperboard, Film, ChevronLeft, ListTree, HelpCircle, Cpu, Sun, Moon, Loader2, FolderOpen, BookOpen } from 'lucide-react';
 import logoImg from '../logo.png';
 import { useTheme } from '../contexts/ThemeContext';
+import { USER_MANUAL_URL } from '../constants/links';
 
 interface SidebarProps {
   currentStage: string;
@@ -107,6 +108,15 @@ const Sidebar: React.FC<SidebarProps> = ({ currentStage, setStage, onExit, proje
             <HelpCircle className="w-4 h-4" />
           </button>
         )}
+        <a
+          href={USER_MANUAL_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="w-full flex items-center justify-between text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+        >
+          <span className="font-mono text-[10px] uppercase tracking-widest">使用手册</span>
+          <BookOpen className="w-4 h-4" />
+        </a>
         {onShowModelConfig && (
           <button onClick={onShowModelConfig} className="w-full flex items-center justify-between text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer transition-colors">
             <span className="font-mono text-[10px] uppercase tracking-widest">模型配置</span>

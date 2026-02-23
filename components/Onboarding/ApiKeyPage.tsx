@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Key, Loader2, CheckCircle, AlertCircle, ExternalLink } from 'lucide-react';
 import { verifyApiKey } from '../../services/aiService';
+import { USER_MANUAL_URL } from '../../constants/links';
 
 interface ApiKeyPageProps {
   currentApiKey: string;
@@ -147,7 +148,7 @@ const ApiKeyPage: React.FC<ApiKeyPageProps> = ({
         </a>
         <span className="text-[var(--text-muted)]">|</span>
         <a 
-          href="https://ocnf8yod3ljg.feishu.cn/wiki/MgFVw2EoQieTLKktaf2cHvu6nY3" 
+          href={USER_MANUAL_URL}
           target="_blank" 
           rel="noreferrer" 
           className="text-xs text-[var(--accent-text)] hover:underline inline-flex items-center gap-1"
