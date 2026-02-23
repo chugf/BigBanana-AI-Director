@@ -758,3 +758,116 @@ ${originalScript}
     throw error;
   }
 };
+
+/**
+ * AI局部改写功能 - 仅改写用户选中的片段
+ */
+export const rewriteScriptSegment = async (
+  fullScript: string,
+  selectedText: string,
+  requirements: string,
+  language: string = '中文',
+  model: string = 'gpt-5.1'
+): Promise<string> => {
+  console.log('🧩 rewriteScriptSegment 调用 - 使用模型:', model);
+  const startTime = Date.now();
+
+  const prompt = `
+你是一位顶级剧本编剧顾问。请基于上下文和改写要求，对“选中片段”进行精准改写。
+
+硬性要求：
+1. 只输出改写后的“选中片段”文本，不要输出完整剧本，不要解释说明。
+2. 输出语言必须是：${language}。
+3. 保持人物设定、世界观与上下文事实一致，除非改写要求明确要求改变。
+4. 保持与前后文衔接自然，不出现突兀跳跃。
+5. 尽量保持原片段格式（段落、台词、场景标记），除非改写要求另有指定。
+
+【完整剧本（仅作上下文，不要整体改写）】
+${fullScript.slice(0, 30000)}
+
+【选中片段（只改写这里）】
+${selectedText}
+
+【改写要求】
+${requirements}
+
+请直接输出改写后的选中片段：
+`;
+
+  try {
+    const result = await retryOperation(() => chatCompletion(prompt, model, 0.7, 4096));
+    const duration = Date.now() - startTime;
+
+    await addRenderLogWithTokens({
+      type: 'script-parsing',
+      resourceId: 'rewrite-script-segment',
+      resourceName: 'AI局部改写剧本',
+      status: 'success',
+      model,
+      duration,
+      prompt: `${requirements.substring(0, 120)}...`
+    });
+
+    return result;
+  } catch (error) {
+    console.error('❌ 局部改写失败:', error);
+    throw error;
+  }
+};
+
+/**
+ * AI局部改写功能（流式）- 仅改写用户选中的片段
+ */
+export const rewriteScriptSegmentStream = async (
+  fullScript: string,
+  selectedText: string,
+  requirements: string,
+  language: string = '中文',
+  model: string = 'gpt-5.1',
+  onDelta?: (delta: string) => void
+): Promise<string> => {
+  console.log('🧩 rewriteScriptSegmentStream 调用 - 使用模型:', model);
+  const startTime = Date.now();
+
+  const prompt = `
+你是一位顶级剧本编剧顾问。请基于上下文和改写要求，对“选中片段”进行精准改写。
+
+硬性要求：
+1. 只输出改写后的“选中片段”文本，不要输出完整剧本，不要解释说明。
+2. 输出语言必须是：${language}。
+3. 保持人物设定、世界观与上下文事实一致，除非改写要求明确要求改变。
+4. 保持与前后文衔接自然，不出现突兀跳跃。
+5. 尽量保持原片段格式（段落、台词、场景标记），除非改写要求另有指定。
+
+【完整剧本（仅作上下文，不要整体改写）】
+${fullScript.slice(0, 30000)}
+
+【选中片段（只改写这里）】
+${selectedText}
+
+【改写要求】
+${requirements}
+
+请直接输出改写后的选中片段：
+`;
+
+  try {
+    const result = await retryOperation(() => chatCompletionStream(prompt, model, 0.7, undefined, 600000, onDelta));
+    const duration = Date.now() - startTime;
+
+    await addRenderLogWithTokens({
+      type: 'script-parsing',
+      resourceId: 'rewrite-script-segment',
+      resourceName: 'AI局部改写剧本（流式）',
+      status: 'success',
+      model,
+      duration,
+      prompt: `${requirements.substring(0, 120)}...`
+    });
+
+    return result;
+  } catch (error) {
+    console.error('❌ 局部改写失败（流式）:', error);
+    throw error;
+  }
+};

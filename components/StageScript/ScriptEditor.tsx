@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, RotateCw, BrainCircuit } from 'lucide-react';
+import { Plus, RotateCw, BrainCircuit, Wand2 } from 'lucide-react';
 import { STYLES } from './constants';
 
 interface Props {
@@ -7,6 +7,11 @@ interface Props {
   onChange: (value: string) => void;
   onContinue: () => void;
   onRewrite: () => void;
+  onSelectionChange: (start: number, end: number) => void;
+  selectedText: string;
+  rewriteInstruction: string;
+  onRewriteInstructionChange: (value: string) => void;
+  onRewriteSelection: () => void;
   isContinuing: boolean;
   isRewriting: boolean;
   lastModified?: string;
@@ -17,6 +22,11 @@ const ScriptEditor: React.FC<Props> = ({
   onChange,
   onContinue,
   onRewrite,
+  onSelectionChange,
+  selectedText,
+  rewriteInstruction,
+  onRewriteInstructionChange,
+  onRewriteSelection,
   isContinuing,
   isRewriting,
   lastModified
@@ -25,8 +35,18 @@ const ScriptEditor: React.FC<Props> = ({
     characters: script.length,
     lines: script.split('\n').length
   };
+  const selectedCount = selectedText.length;
+  const selectedPreview = selectedCount > 220
+    ? `${selectedText.slice(0, 220)}...`
+    : selectedText;
 
-  const isDisabled = isContinuing || isRewriting || !script.trim();
+  const isBusy = isContinuing || isRewriting;
+  const isBaseDisabled = isBusy || !script.trim();
+  const canRewriteSelection = !isBusy && selectedText.trim().length > 0 && rewriteInstruction.trim().length > 0;
+
+  const reportSelection = (target: HTMLTextAreaElement) => {
+    onSelectionChange(target.selectionStart ?? 0, target.selectionEnd ?? 0);
+  };
 
   return (
     <div className="flex-1 flex flex-col bg-[var(--bg-base)] relative">
@@ -39,9 +59,9 @@ const ScriptEditor: React.FC<Props> = ({
         <div className="flex items-center gap-3">
           <button
             onClick={onContinue}
-            disabled={isDisabled}
+            disabled={isBaseDisabled}
             className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-1.5 transition-all shadow-sm ${
-              isDisabled
+              isBaseDisabled
                 ? STYLES.button.disabled
                 : STYLES.button.primary
             }`}
@@ -60,9 +80,9 @@ const ScriptEditor: React.FC<Props> = ({
           </button>
           <button
             onClick={onRewrite}
-            disabled={isDisabled}
+            disabled={isBaseDisabled}
             className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-1.5 transition-all shadow-sm ${
-              isDisabled
+              isBaseDisabled
                 ? STYLES.button.disabled
                 : STYLES.button.primary
             }`}
@@ -79,8 +99,54 @@ const ScriptEditor: React.FC<Props> = ({
               </>
             )}
           </button>
+          <button
+            onClick={onRewriteSelection}
+            disabled={!canRewriteSelection}
+            className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-1.5 transition-all shadow-sm ${
+              canRewriteSelection
+                ? STYLES.button.primary
+                : STYLES.button.disabled
+            }`}
+          >
+            {isRewriting ? (
+              <>
+                <BrainCircuit className="w-3.5 h-3.5 animate-spin" />
+                选段改写中...
+              </>
+            ) : (
+              <>
+                <Wand2 className="w-3.5 h-3.5" />
+                选段改写
+              </>
+            )}
+          </button>
           <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-widest">MARKDOWN SUPPORTED</span>
         </div>
+      </div>
+
+      {/* Segment Rewrite Controls */}
+      <div className="px-8 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]">
+        <div className="flex items-center gap-3">
+          <input
+            value={rewriteInstruction}
+            onChange={(e) => onRewriteInstructionChange(e.target.value)}
+            placeholder="输入改写要求，例如：更紧张、增加冲突、对白更口语化..."
+            className="flex-1 bg-[var(--bg-surface)] border border-[var(--border-primary)] text-[var(--text-primary)] px-3 py-2 text-sm rounded-md focus:border-[var(--border-secondary)] focus:outline-none transition-all placeholder:text-[var(--text-muted)]"
+          />
+          <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">
+            {selectedCount > 0 ? `已选择 ${selectedCount} 字符` : '请先在下方选择段落'}
+          </span>
+        </div>
+        {selectedCount > 0 && (
+          <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-400/10 px-3 py-2">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-amber-300 mb-1">
+              Locked Selection
+            </div>
+            <p className="text-xs leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap max-h-24 overflow-y-auto">
+              {selectedPreview}
+            </p>
+          </div>
+        )}
       </div>
       
       {/* Editor Area */}
@@ -89,6 +155,9 @@ const ScriptEditor: React.FC<Props> = ({
           <textarea
             value={script}
             onChange={(e) => onChange(e.target.value)}
+            onSelect={(e) => reportSelection(e.currentTarget)}
+            onMouseUp={(e) => reportSelection(e.currentTarget)}
+            onKeyUp={(e) => reportSelection(e.currentTarget)}
             className="flex-1 bg-transparent text-[var(--text-secondary)] font-serif text-lg leading-loose focus:outline-none resize-none placeholder:text-[var(--text-muted)] selection:bg-[var(--bg-hover)]"
             placeholder="在此输入故事大纲或直接粘贴剧本..."
             spellCheck={false}

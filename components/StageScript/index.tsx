@@ -1,7 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { ProjectState, ScriptData, Shot } from '../../types';
 import { useAlert } from '../GlobalAlert';
-import { parseScriptToData, generateShotList, continueScript, continueScriptStream, rewriteScript, rewriteScriptStream, setScriptLogCallback, clearScriptLogCallback, logScriptProgress } from '../../services/aiService';
+import {
+  parseScriptToData,
+  generateShotList,
+  continueScript,
+  continueScriptStream,
+  rewriteScript,
+  rewriteScriptStream,
+  rewriteScriptSegment,
+  rewriteScriptSegmentStream,
+  setScriptLogCallback,
+  clearScriptLogCallback,
+  logScriptProgress,
+} from '../../services/aiService';
 import { getFinalValue, validateConfig } from './utils';
 import { DEFAULTS } from './constants';
 import ConfigPanel from './ConfigPanel';
@@ -34,6 +46,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
   const [customDurationInput, setCustomDurationInput] = useState('');
   const [customModelInput, setCustomModelInput] = useState('');
   const [customStyleInput, setCustomStyleInput] = useState('');
+  const [rewriteInstruction, setRewriteInstruction] = useState('');
+  const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
   
   // Processing state
   const [isProcessing, setIsProcessing] = useState(false);
@@ -68,6 +82,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     setLocalLanguage(project.language || DEFAULTS.language);
     setLocalModel(project.shotGenerationModel || DEFAULTS.model);
     setLocalVisualStyle(project.visualStyle || DEFAULTS.visualStyle);
+    setRewriteInstruction('');
+    setSelectionRange(null);
   }, [project.id]);
 
   // 上报生成状态给父组件，用于导航锁定
@@ -329,6 +345,108 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
         const rewrittenContent = await rewriteScript(baseScript, localLanguage, finalModel);
         setLocalScript(rewrittenContent);
         updateProject({ rawScript: rewrittenContent });
+      } catch (fallbackErr: any) {
+        console.error(fallbackErr);
+      }
+    } finally {
+      setIsRewriting(false);
+      setProcessingMessage('');
+    }
+  };
+
+  const handleSelectionChange = (start: number, end: number) => {
+    if (end <= start) {
+      setSelectionRange(null);
+      return;
+    }
+    setSelectionRange({ start, end });
+  };
+
+  const selectedText = selectionRange
+    ? localScript.slice(selectionRange.start, selectionRange.end)
+    : '';
+
+  const handleRewriteSelection = async () => {
+    const finalModel = getFinalValue(localModel, customModelInput);
+    const currentSelection = selectionRange;
+    const trimmedInstruction = rewriteInstruction.trim();
+
+    if (!localScript.trim()) {
+      setError('请先输入剧本内容。');
+      return;
+    }
+    if (!currentSelection || currentSelection.end <= currentSelection.start) {
+      setError('请先在编辑区选择需要改写的段落。');
+      return;
+    }
+    if (!trimmedInstruction) {
+      setError('请输入改写要求。');
+      return;
+    }
+    if (!finalModel) {
+      setError('请选择或输入模型名称。');
+      return;
+    }
+
+    const baseScript = localScript;
+    const selectedSegment = baseScript.slice(currentSelection.start, currentSelection.end);
+
+    if (!selectedSegment.trim()) {
+      setError('选中内容为空，请重新选择段落。');
+      return;
+    }
+
+    const prefix = baseScript.slice(0, currentSelection.start);
+    const suffix = baseScript.slice(currentSelection.end);
+
+    setIsRewriting(true);
+    setProcessingMessage('AI选段改写中...');
+    setProcessingLogs([]);
+    setError(null);
+
+    let streamed = '';
+
+    try {
+      const rewrittenSegment = await rewriteScriptSegmentStream(
+        baseScript,
+        selectedSegment,
+        trimmedInstruction,
+        localLanguage,
+        finalModel,
+        (delta) => {
+          streamed += delta;
+          const nextScript = prefix + streamed + suffix;
+          setLocalScript(nextScript);
+          updateProject({ rawScript: nextScript });
+        }
+      );
+
+      const finalSegment = rewrittenSegment || streamed;
+      const nextScript = prefix + finalSegment + suffix;
+      setLocalScript(nextScript);
+      updateProject({ rawScript: nextScript });
+      setSelectionRange({
+        start: currentSelection.start,
+        end: currentSelection.start + finalSegment.length,
+      });
+    } catch (err: any) {
+      console.error(err);
+      setError(`AI选段改写失败: ${err.message || '连接失败'}`);
+      try {
+        const rewrittenSegment = await rewriteScriptSegment(
+          baseScript,
+          selectedSegment,
+          trimmedInstruction,
+          localLanguage,
+          finalModel
+        );
+        const nextScript = prefix + rewrittenSegment + suffix;
+        setLocalScript(nextScript);
+        updateProject({ rawScript: nextScript });
+        setSelectionRange({
+          start: currentSelection.start,
+          end: currentSelection.start + rewrittenSegment.length,
+        });
       } catch (fallbackErr: any) {
         console.error(fallbackErr);
       }
@@ -681,6 +799,11 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
             onChange={setLocalScript}
             onContinue={handleContinueScript}
             onRewrite={handleRewriteScript}
+            onSelectionChange={handleSelectionChange}
+            selectedText={selectedText}
+            rewriteInstruction={rewriteInstruction}
+            onRewriteInstructionChange={setRewriteInstruction}
+            onRewriteSelection={handleRewriteSelection}
             isContinuing={isContinuing}
             isRewriting={isRewriting}
             lastModified={project.lastModified}

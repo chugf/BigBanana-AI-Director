@@ -53,6 +53,8 @@ export {
   continueScriptStream,
   rewriteScript,
   rewriteScriptStream,
+  rewriteScriptSegment,
+  rewriteScriptSegmentStream,
 } from './scriptService';
 
 // 视觉资产生成服务
