@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, RotateCw, BrainCircuit, Wand2 } from 'lucide-react';
+import { Plus, RotateCw, BrainCircuit, Wand2, Undo2 } from 'lucide-react';
 import { STYLES } from './constants';
 
 interface Props {
@@ -12,6 +12,8 @@ interface Props {
   rewriteInstruction: string;
   onRewriteInstructionChange: (value: string) => void;
   onRewriteSelection: () => void;
+  onUndoRewrite: () => void;
+  canUndoRewrite: boolean;
   isContinuing: boolean;
   isRewriting: boolean;
   lastModified?: string;
@@ -27,6 +29,8 @@ const ScriptEditor: React.FC<Props> = ({
   rewriteInstruction,
   onRewriteInstructionChange,
   onRewriteSelection,
+  onUndoRewrite,
+  canUndoRewrite,
   isContinuing,
   isRewriting,
   lastModified
@@ -43,6 +47,7 @@ const ScriptEditor: React.FC<Props> = ({
   const isBusy = isContinuing || isRewriting;
   const isBaseDisabled = isBusy || !script.trim();
   const canRewriteSelection = !isBusy && selectedText.trim().length > 0 && rewriteInstruction.trim().length > 0;
+  const canUndo = !isBusy && canUndoRewrite;
 
   const reportSelection = (target: HTMLTextAreaElement) => {
     onSelectionChange(target.selectionStart ?? 0, target.selectionEnd ?? 0);
@@ -119,6 +124,18 @@ const ScriptEditor: React.FC<Props> = ({
                 选段改写
               </>
             )}
+          </button>
+          <button
+            onClick={onUndoRewrite}
+            disabled={!canUndo}
+            className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-1.5 transition-all shadow-sm ${
+              canUndo
+                ? STYLES.button.secondary
+                : STYLES.button.disabled
+            }`}
+          >
+            <Undo2 className="w-3.5 h-3.5" />
+            撤回改写
           </button>
           <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-widest">MARKDOWN SUPPORTED</span>
         </div>

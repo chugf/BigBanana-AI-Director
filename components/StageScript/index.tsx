@@ -35,6 +35,12 @@ type TabMode = 'story' | 'script';
 const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfig, onGeneratingChange }) => {
   const { showAlert } = useAlert();
   const [activeTab, setActiveTab] = useState<TabMode>(project.scriptData ? 'script' : 'story');
+
+  const getDraftValue = (selected: string, customInput: string, fallback: string): string => {
+    if (selected !== 'custom') return selected;
+    const trimmed = customInput.trim();
+    return trimmed || fallback;
+  };
   
   // Configuration state
   const [localScript, setLocalScript] = useState(project.rawScript);
@@ -74,6 +80,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
   const [editingShotActionId, setEditingShotActionId] = useState<string | null>(null);
   const [editingShotActionText, setEditingShotActionText] = useState('');
   const [editingShotDialogueText, setEditingShotDialogueText] = useState('');
+  const [lastRewriteSnapshot, setLastRewriteSnapshot] = useState<string | null>(null);
 
   useEffect(() => {
     setLocalScript(project.rawScript);
@@ -84,6 +91,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     setLocalVisualStyle(project.visualStyle || DEFAULTS.visualStyle);
     setRewriteInstruction('');
     setSelectionRange(null);
+    setLastRewriteSnapshot(null);
   }, [project.id]);
 
   // 上报生成状态给父组件，用于导航锁定
@@ -109,6 +117,59 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
 
     return () => clearScriptLogCallback();
   }, []);
+
+  useEffect(() => {
+    if (isProcessing || isContinuing || isRewriting) return;
+
+    const draftDuration = getDraftValue(localDuration, customDurationInput, project.targetDuration || DEFAULTS.duration);
+    const draftModel = getDraftValue(localModel, customModelInput, project.shotGenerationModel || DEFAULTS.model);
+    const draftVisualStyle = getDraftValue(localVisualStyle, customStyleInput, project.visualStyle || DEFAULTS.visualStyle);
+
+    const draftUpdates = {
+      rawScript: localScript,
+      title: localTitle,
+      targetDuration: draftDuration,
+      language: localLanguage,
+      shotGenerationModel: draftModel,
+      visualStyle: draftVisualStyle,
+    };
+
+    const unchanged =
+      draftUpdates.rawScript === project.rawScript &&
+      draftUpdates.title === project.title &&
+      draftUpdates.targetDuration === project.targetDuration &&
+      draftUpdates.language === project.language &&
+      draftUpdates.shotGenerationModel === project.shotGenerationModel &&
+      draftUpdates.visualStyle === project.visualStyle;
+
+    if (unchanged) return;
+
+    const timeoutId = window.setTimeout(() => {
+      updateProject(draftUpdates);
+    }, 450);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    isProcessing,
+    isContinuing,
+    isRewriting,
+    localScript,
+    localTitle,
+    localDuration,
+    customDurationInput,
+    localLanguage,
+    localModel,
+    customModelInput,
+    localVisualStyle,
+    customStyleInput,
+    project.rawScript,
+    project.title,
+    project.targetDuration,
+    project.language,
+    project.shotGenerationModel,
+    project.visualStyle,
+    updateProject
+  ]);
 
   const handleAnalyze = async () => {
     const finalDuration = getFinalValue(localDuration, customDurationInput);
@@ -322,8 +383,6 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     const baseScript = localScript;
     let streamed = '';
     try {
-      setLocalScript('');
-      updateProject({ rawScript: '' });
       const rewrittenContent = await rewriteScriptStream(
         baseScript,
         localLanguage,
@@ -331,22 +390,34 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
         (delta) => {
           streamed += delta;
           setLocalScript(streamed);
-          updateProject({ rawScript: streamed });
         }
       );
-      if (rewrittenContent) {
-        setLocalScript(rewrittenContent);
-        updateProject({ rawScript: rewrittenContent });
+      const finalContent = (rewrittenContent || streamed).trim();
+      if (!finalContent) {
+        throw new Error('AI 未返回改写内容');
       }
-    } catch (err: any) {
-      console.error(err);
-      setError(`AI改写失败: ${err.message || "连接失败"}`);
+      if (finalContent !== baseScript) {
+        setLastRewriteSnapshot(baseScript);
+      }
+      setLocalScript(finalContent);
+      updateProject({ rawScript: finalContent });
+    } catch (streamErr: any) {
+      console.error(streamErr);
       try {
         const rewrittenContent = await rewriteScript(baseScript, localLanguage, finalModel);
+        if (!rewrittenContent.trim()) {
+          throw new Error('AI 未返回改写内容');
+        }
+        if (rewrittenContent !== baseScript) {
+          setLastRewriteSnapshot(baseScript);
+        }
         setLocalScript(rewrittenContent);
         updateProject({ rawScript: rewrittenContent });
       } catch (fallbackErr: any) {
         console.error(fallbackErr);
+        setLocalScript(baseScript);
+        updateProject({ rawScript: baseScript });
+        setError(`AI改写失败，已恢复原稿: ${fallbackErr.message || streamErr?.message || "连接失败"}`);
       }
     } finally {
       setIsRewriting(false);
@@ -423,6 +494,9 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
 
       const finalSegment = rewrittenSegment || streamed;
       const nextScript = prefix + finalSegment + suffix;
+      if (nextScript !== baseScript) {
+        setLastRewriteSnapshot(baseScript);
+      }
       setLocalScript(nextScript);
       updateProject({ rawScript: nextScript });
       setSelectionRange({
@@ -441,6 +515,9 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
           finalModel
         );
         const nextScript = prefix + rewrittenSegment + suffix;
+        if (nextScript !== baseScript) {
+          setLastRewriteSnapshot(baseScript);
+        }
         setLocalScript(nextScript);
         updateProject({ rawScript: nextScript });
         setSelectionRange({
@@ -454,6 +531,16 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       setIsRewriting(false);
       setProcessingMessage('');
     }
+  };
+
+  const handleUndoRewrite = () => {
+    if (!lastRewriteSnapshot) return;
+
+    setLocalScript(lastRewriteSnapshot);
+    updateProject({ rawScript: lastRewriteSnapshot });
+    setSelectionRange(null);
+    setLastRewriteSnapshot(null);
+    showAlert('已撤回上次改写', { type: 'success' });
   };
 
   const showProcessingToast = isProcessing || isContinuing || isRewriting;
@@ -804,6 +891,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
             rewriteInstruction={rewriteInstruction}
             onRewriteInstructionChange={setRewriteInstruction}
             onRewriteSelection={handleRewriteSelection}
+            onUndoRewrite={handleUndoRewrite}
+            canUndoRewrite={!!lastRewriteSnapshot}
             isContinuing={isContinuing}
             isRewriting={isRewriting}
             lastModified={project.lastModified}

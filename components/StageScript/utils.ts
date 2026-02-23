@@ -3,6 +3,7 @@
  */
 
 import { Scene } from '../../types';
+import { parseDurationToSeconds } from '../../services/durationParser';
 
 /**
  * 获取最终选择的值（处理自定义选项）
@@ -51,6 +52,9 @@ export const validateConfig = (config: {
   }
   if (!config.duration) {
     return { valid: false, error: '请选择目标时长。' };
+  }
+  if (parseDurationToSeconds(config.duration) === null) {
+    return { valid: false, error: '目标时长格式无效，请使用如 90s、3m 或 2min。' };
   }
   if (!config.model) {
     return { valid: false, error: '请选择或输入模型名称。' };

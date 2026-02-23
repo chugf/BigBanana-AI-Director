@@ -5,6 +5,7 @@
 
 import { ScriptData, Shot, Scene, ArtDirection } from "../../types";
 import { addRenderLogWithTokens } from '../renderLogService';
+import { parseDurationToSeconds } from '../durationParser';
 import {
   retryOperation,
   cleanJsonString,
@@ -246,7 +247,7 @@ export const generateShotList = async (scriptData: ScriptData, model: string = '
   const artDir = scriptData.artDirection;
 
   const targetDurationStr = scriptData.targetDuration || '60s';
-  const targetSeconds = parseInt(targetDurationStr.replace(/[^\d]/g, '')) || 60;
+  const targetSeconds = parseDurationToSeconds(targetDurationStr) || 60;
   const activeVideoModel = getActiveVideoModel();
   const requestedPlanningDuration = Number(scriptData.planningShotDuration);
   const shotDurationSeconds = Math.max(

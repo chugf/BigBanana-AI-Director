@@ -3,6 +3,7 @@ import { BookOpen, Wand2, BrainCircuit, AlertCircle, ChevronRight, Aperture } fr
 import OptionSelector from './OptionSelector';
 import { DURATION_OPTIONS, LANGUAGE_OPTIONS, VISUAL_STYLE_OPTIONS, STYLES } from './constants';
 import ModelSelector from '../ModelSelector';
+import { parseDurationToSeconds } from '../../services/durationParser';
 
 interface Props {
   title: string;
@@ -49,6 +50,23 @@ const ConfigPanel: React.FC<Props> = ({
   onCustomStyleChange,
   onAnalyze
 }) => {
+  const rawDurationValue = duration === 'custom' ? customDurationInput : duration;
+  const parsedDurationSeconds = parseDurationToSeconds(rawDurationValue);
+  const hasDurationInput = rawDurationValue.trim().length > 0;
+
+  const formatDuration = (totalSeconds: number): string => {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const parts: string[] = [];
+
+    if (hours > 0) parts.push(`${hours} 小时`);
+    if (minutes > 0) parts.push(`${minutes} 分钟`);
+    if (seconds > 0 || parts.length === 0) parts.push(`${seconds} 秒`);
+
+    return parts.join(' ');
+  };
+
   return (
     <div className="w-96 border-r border-[var(--border-primary)] flex flex-col bg-[var(--bg-primary)]">
       {/* Header */}
@@ -103,6 +121,19 @@ const ConfigPanel: React.FC<Props> = ({
           customPlaceholder="输入时长 (如: 90s, 3m)"
           gridCols={2}
         />
+        <div className="mt-2 text-[10px] leading-relaxed">
+          {parsedDurationSeconds !== null ? (
+            <p className="text-[var(--text-tertiary)]">
+              当前将按 <span className="font-mono text-[var(--text-secondary)]">{parsedDurationSeconds}s</span>（{formatDuration(parsedDurationSeconds)}）规划分镜。
+            </p>
+          ) : hasDurationInput ? (
+            <p className="text-[var(--error)]">
+              时长格式无效。支持示例：90s、3m、2min、1m30s、02:30。
+            </p>
+          ) : (
+            <p className="text-[var(--text-muted)]">支持格式：90s、3m、2min、1m30s、02:30。</p>
+          )}
+        </div>
 
         {/* Model */}
         <div className="space-y-2">
