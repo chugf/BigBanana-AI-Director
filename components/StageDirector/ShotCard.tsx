@@ -15,6 +15,11 @@ const ShotCard: React.FC<ShotCardProps> = ({ shot, index, isActive, onClick, onD
   const hasImage = !!sKf?.imageUrl;
   const hasVideo = !!shot.interval?.videoUrl;
   const quality = shot.qualityAssessment;
+  const qualityGradeLabel = quality?.grade === 'pass'
+    ? '通过'
+    : quality?.grade === 'warning'
+      ? '需优化'
+      : '高风险';
   const qualityBadgeClass = quality?.grade === 'pass'
     ? 'bg-[var(--success-bg)] text-[var(--success-text)] border-[var(--success-border)]'
     : quality?.grade === 'warning'
@@ -86,8 +91,8 @@ const ShotCard: React.FC<ShotCardProps> = ({ shot, index, isActive, onClick, onD
         {/* Badges */}
         <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
           {quality && (
-            <div className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase border ${qualityBadgeClass}`}>
-              {quality.score} {quality.grade}
+            <div className={`px-2 py-1 rounded-full text-[9px] font-bold border ${qualityBadgeClass}`}>
+              评分 {quality.score} · {qualityGradeLabel}
             </div>
           )}
           {hasVideo && (

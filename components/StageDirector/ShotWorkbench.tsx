@@ -95,11 +95,38 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   const endKf = shot.keyframes?.find(k => k.type === 'end');
   const [localVideoModelId, setLocalVideoModelId] = useState(currentVideoModelId);
   const quality = shot.qualityAssessment;
+  const qualityGradeLabel = quality?.grade === 'pass'
+    ? '通过'
+    : quality?.grade === 'warning'
+      ? '需优化'
+      : '高风险';
   const qualityBadgeClass = quality?.grade === 'pass'
     ? 'bg-[var(--success-bg)] text-[var(--success-text)] border-[var(--success-border)]'
     : quality?.grade === 'warning'
       ? 'bg-[var(--warning-bg)] text-[var(--warning-text)] border-[var(--warning-border)]'
       : 'bg-[var(--error-hover-bg)] text-[var(--error-text)] border-[var(--error-border)]';
+
+  const checkLabelMap: Record<string, string> = {
+    'prompt-readiness': '提示词完整度',
+    'asset-coverage': '资产覆盖度',
+    'keyframe-execution': '关键帧就绪度',
+    'video-execution': '视频执行状态',
+    'continuity-risk': '连贯性风险',
+  };
+
+  const getCheckLabel = (checkKey: string, fallback: string) => checkLabelMap[checkKey] || fallback;
+  const qualitySummary = (() => {
+    if (!quality) return '';
+    const failedLabels = quality.checks
+      .filter((check) => !check.passed)
+      .map((check) => getCheckLabel(check.key, check.label));
+    if (failedLabels.length === 0) {
+      return '可进入生产，核心检查项已通过。';
+    }
+    if (quality.grade === 'fail') return `风险较高：${failedLabels.join('、')}`;
+    if (quality.grade === 'warning') return `需要优化：${failedLabels.join('、')}`;
+    return `轻微问题：${failedLabels.join('、')}`;
+  })();
 
   useEffect(() => {
     setLocalVideoModelId(currentVideoModelId);
@@ -169,21 +196,22 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
         {quality && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Quality Assessment</h4>
+              <h4 className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">质量评估</h4>
               <span className={`px-2 py-1 rounded-md text-[10px] font-mono border ${qualityBadgeClass}`}>
-                {quality.score} {quality.grade.toUpperCase()}
+                评分 {quality.score} · {qualityGradeLabel}
               </span>
             </div>
             <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] p-3 space-y-2">
-              <p className="text-xs text-[var(--text-secondary)]">{quality.summary}</p>
+              <p className="text-xs text-[var(--text-secondary)]">{qualitySummary}</p>
+              <p className="text-[10px] text-[var(--text-muted)]">注：这里显示的是总分与等级，不是“警告条数”。</p>
               <div className="space-y-1.5">
                 {quality.checks.map((check) => (
                   <div key={check.key} className="flex items-center gap-2">
                     <span className={`w-16 text-[10px] font-mono ${check.passed ? 'text-[var(--success-text)]' : 'text-[var(--warning-text)]'}`}>
-                      {check.score}
+                      {check.score}/100
                     </span>
                     <span className="text-[11px] text-[var(--text-tertiary)] truncate" title={check.details || check.label}>
-                      {check.label}
+                      {getCheckLabel(check.key, check.label)}
                     </span>
                   </div>
                 ))}
