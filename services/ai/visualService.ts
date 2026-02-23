@@ -466,6 +466,24 @@ const buildImageApiError = (status: number, backendMessage?: string): Error => {
   return err;
 };
 
+const MAX_IMAGE_PROMPT_CHARS = 5000;
+
+const truncatePromptToMaxChars = (
+  input: string,
+  maxChars: number
+): { text: string; wasTruncated: boolean; originalLength: number } => {
+  const chars = Array.from(input);
+  const originalLength = chars.length;
+  if (originalLength <= maxChars) {
+    return { text: input, wasTruncated: false, originalLength };
+  }
+  return {
+    text: chars.slice(0, maxChars).join(''),
+    wasTruncated: true,
+    originalLength,
+  };
+};
+
 export const generateImage = async (
   prompt: string,
   referenceImages: string[] = [],
@@ -623,6 +641,15 @@ export const generateImage = async (
 
 NEGATIVE PROMPT (strictly avoid all of the following): ${negativePrompt.trim()}`;
     }
+
+    const promptLimitResult = truncatePromptToMaxChars(finalPrompt, MAX_IMAGE_PROMPT_CHARS);
+    if (promptLimitResult.wasTruncated) {
+      console.warn(
+        `[ImagePrompt] Prompt exceeded ${MAX_IMAGE_PROMPT_CHARS} chars ` +
+        `(${promptLimitResult.originalLength}). Truncated before image request.`
+      );
+    }
+    finalPrompt = promptLimitResult.text;
 
     const parts: any[] = [{ text: finalPrompt }];
 

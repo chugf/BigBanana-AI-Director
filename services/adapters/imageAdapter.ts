@@ -73,6 +73,24 @@ const buildImageApiError = (status: number, backendMessage?: string): Error => {
   return err;
 };
 
+const MAX_IMAGE_PROMPT_CHARS = 5000;
+
+const truncatePromptToMaxChars = (
+  input: string,
+  maxChars: number
+): { text: string; wasTruncated: boolean; originalLength: number } => {
+  const chars = Array.from(input);
+  const originalLength = chars.length;
+  if (originalLength <= maxChars) {
+    return { text: input, wasTruncated: false, originalLength };
+  }
+  return {
+    text: chars.slice(0, maxChars).join(''),
+    wasTruncated: true,
+    originalLength,
+  };
+};
+
 /**
  * 调用图片生成 API
  */
@@ -129,6 +147,15 @@ export const callImageApi = async (
       ⚠️ Character appearance consistency is THE MOST IMPORTANT requirement!
     `;
   }
+
+  const promptLimitResult = truncatePromptToMaxChars(finalPrompt, MAX_IMAGE_PROMPT_CHARS);
+  if (promptLimitResult.wasTruncated) {
+    console.warn(
+      `[ImagePrompt] Prompt exceeded ${MAX_IMAGE_PROMPT_CHARS} chars ` +
+      `(${promptLimitResult.originalLength}). Truncated before image request.`
+    );
+  }
+  finalPrompt = promptLimitResult.text;
 
   // 构建请求 parts
   const parts: any[] = [{ text: finalPrompt }];
