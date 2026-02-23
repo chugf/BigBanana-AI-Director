@@ -58,6 +58,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     targetDuration: string;
     model: string;
     visualStyle: string;
+    enableQualityCheck: boolean;
   }): string => {
     const raw = JSON.stringify(input);
     return `v1-${hashRaw(raw)}`;
@@ -407,7 +408,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     const shotsKey = buildStepKey('shots', {
       visualsKey,
       model: finalModel,
-      targetDuration: finalDuration
+      targetDuration: finalDuration,
+      enableQualityCheck
     });
 
     const analyzeConfigKey = buildAnalyzeConfigKey({
@@ -415,7 +417,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       language: localLanguage,
       targetDuration: finalDuration,
       model: finalModel,
-      visualStyle: finalVisualStyle
+      visualStyle: finalVisualStyle,
+      enableQualityCheck
     });
     const savedCheckpoint = project.scriptGenerationCheckpoint;
     const resumeCheckpoint =
@@ -929,7 +932,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     language: localLanguage,
     targetDuration: getDraftValue(localDuration, customDurationInput, project.targetDuration || DEFAULTS.duration),
     model: getDraftValue(localModel, customModelInput, project.shotGenerationModel || DEFAULTS.model),
-    visualStyle: getDraftValue(localVisualStyle, customStyleInput, project.visualStyle || DEFAULTS.visualStyle)
+    visualStyle: getDraftValue(localVisualStyle, customStyleInput, project.visualStyle || DEFAULTS.visualStyle),
+    enableQualityCheck
   });
   const analyzeCheckpoint = project.scriptGenerationCheckpoint;
   const hasResumeCheckpoint =

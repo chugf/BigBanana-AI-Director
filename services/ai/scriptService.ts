@@ -476,7 +476,8 @@ interface GenerateShotListOptions {
   enableQualityCheck?: boolean;
 }
 
-const SCRIPT_STAGE_QUALITY_SCHEMA_VERSION = 2;
+// Keep version=1 so StageDirector does not mislabel this deterministic pass as AI V2 scoring.
+const SCRIPT_STAGE_QUALITY_SCHEMA_VERSION = 1;
 
 const isAbortSignalLike = (value: unknown): value is AbortSignal => {
   return !!value && typeof value === 'object' && 'aborted' in (value as Record<string, unknown>);
