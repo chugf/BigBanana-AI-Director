@@ -1,7 +1,8 @@
-import React, { useRef, useEffect } from 'react';
+import React from 'react';
 import { Play, Pause, SkipForward, SkipBack, X } from 'lucide-react';
 import { Shot, ProjectState } from '../../types';
 import { STYLES } from './constants';
+import { useResolvedVideoUrl } from '../../hooks/useResolvedVideoUrl';
 
 interface Props {
   completedShots: Shot[];
@@ -30,6 +31,7 @@ const VideoPlayerModal: React.FC<Props> = ({
 }) => {
   const currentShot = completedShots[currentShotIndex];
   const shotOriginalIndex = project.shots.findIndex(s => s.id === currentShot.id);
+  const resolvedVideoSrc = useResolvedVideoUrl(currentShot.interval?.videoUrl);
 
   return (
     <div className={STYLES.videoModal.overlay}>
@@ -56,7 +58,7 @@ const VideoPlayerModal: React.FC<Props> = ({
           <video
             ref={videoRef}
             key={currentShot.id}
-            src={currentShot.interval?.videoUrl}
+            src={resolvedVideoSrc}
             className="max-w-full max-h-full object-contain"
             autoPlay
             controls={false}

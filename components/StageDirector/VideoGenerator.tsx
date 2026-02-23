@@ -11,6 +11,7 @@ import {
   getProviderById,
 } from '../../services/modelRegistry';
 import { VideoModelDefinition } from '../../types/model';
+import { useResolvedVideoUrl } from '../../hooks/useResolvedVideoUrl';
 
 interface VideoGeneratorProps {
   shot: Shot;
@@ -80,6 +81,7 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
   
   const isGenerating = shot.interval?.status === 'generating';
   const hasVideo = !!shot.interval?.videoUrl;
+  const resolvedVideoSrc = useResolvedVideoUrl(shot.interval?.videoUrl);
 
   // 当模型变化时，更新横竖屏和时长的默认值
   useEffect(() => {
@@ -285,7 +287,7 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
       {/* Video Preview */}
       {hasVideo ? (
         <div className="w-full aspect-video bg-[var(--bg-base)] rounded-lg overflow-hidden border border-[var(--border-secondary)] relative shadow-lg">
-          <video src={shot.interval.videoUrl} controls className="w-full h-full" />
+          <video src={resolvedVideoSrc} controls className="w-full h-full" />
         </div>
       ) : (
         <div className="w-full aspect-video bg-[var(--nav-hover-bg)] rounded-lg border border-dashed border-[var(--border-primary)] flex items-center justify-center">

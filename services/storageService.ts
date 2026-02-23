@@ -1,5 +1,6 @@
 import { ProjectState, AssetLibraryItem, SeriesProject, Series, Episode } from '../types';
 import { runV2ToV3Migration, runEpisodeTitleFixMigration } from './migrationService';
+import { materializeProjectVideosForExport, migrateProjectVideosToOPFS } from './videoStorageService';
 
 const DB_NAME = 'BigBananaDB';
 const DB_VERSION = 3;
@@ -118,6 +119,17 @@ const normalizeEpisode = (ep: Episode): Episode => {
     sceneRefs: mergeByKey(ep.sceneRefs, inferredSceneRefs, r => r.sceneId),
     propRefs: mergeByKey(ep.propRefs, inferredPropRefs, r => r.propId),
   };
+};
+
+const normalizeAndPersistEpisodeVideos = async (ep: Episode): Promise<Episode> => {
+  const normalized = normalizeEpisode(ep);
+  try {
+    const { project } = await migrateProjectVideosToOPFS(normalized);
+    return project as Episode;
+  } catch (error) {
+    console.warn('Normalize episode video storage failed, use original episode data.', error);
+    return normalized;
+  }
 };
 
 // =============================================
@@ -255,8 +267,8 @@ export const createNewSeries = (projectId: string, title: string, sortOrder: num
 // =============================================
 
 export const saveEpisode = async (ep: Episode): Promise<void> => {
+  const normalized = await normalizeAndPersistEpisodeVideos(ep);
   const db = await openDB();
-  const normalized = normalizeEpisode(ep);
   return new Promise((resolve, reject) => {
     const tx = db.transaction(EP_STORE, 'readwrite');
     tx.objectStore(EP_STORE).put({ ...normalized, lastModified: Date.now() });
@@ -272,7 +284,22 @@ export const loadEpisode = async (id: string): Promise<Episode> => {
     const req = tx.objectStore(EP_STORE).get(id);
     req.onsuccess = () => {
       if (req.result) {
-        resolve(normalizeEpisode(req.result as Episode));
+        const normalized = normalizeEpisode(req.result as Episode);
+        void (async () => {
+          try {
+            const { project: migrated, changed } = await migrateProjectVideosToOPFS(normalized);
+            const migratedEpisode = migrated as Episode;
+            if (changed) {
+              void saveEpisode(migratedEpisode).catch(error => {
+                console.warn('Persist OPFS migration for episode failed.', error);
+              });
+            }
+            resolve(migratedEpisode);
+          } catch (error) {
+            console.warn('Episode OPFS migration failed, fallback to original episode data.', error);
+            resolve(normalized);
+          }
+        })();
       } else reject(new Error('Episode not found'));
     };
     req.onerror = () => reject(req.error);
@@ -431,26 +458,38 @@ export const exportIndexedDBData = async (): Promise<IndexedDBExportPayload> => 
     const epReq = tx.objectStore(EP_STORE).getAll();
 
     tx.oncomplete = () => {
-      resolve({
-        schemaVersion: EXPORT_SCHEMA_VERSION,
-        exportedAt: Date.now(),
-        scope: 'all',
-        dbName: DB_NAME,
-        dbVersion: DB_VERSION,
-        stores: {
-          projects: [],
-          assetLibrary: (assetReq.result as AssetLibraryItem[]) || [],
-          seriesProjects: (spReq.result as SeriesProject[]) || [],
-          series: (seriesReq.result as Series[]) || [],
-          episodes: (epReq.result as Episode[]) || [],
-        },
-      });
+      void (async () => {
+        try {
+          const episodes = (epReq.result as Episode[]) || [];
+          const portableEpisodes = await Promise.all(
+            episodes.map(ep => materializeProjectVideosForExport(normalizeEpisode(ep)))
+          );
+
+          resolve({
+            schemaVersion: EXPORT_SCHEMA_VERSION,
+            exportedAt: Date.now(),
+            scope: 'all',
+            dbName: DB_NAME,
+            dbVersion: DB_VERSION,
+            stores: {
+              projects: [],
+              assetLibrary: (assetReq.result as AssetLibraryItem[]) || [],
+              seriesProjects: (spReq.result as SeriesProject[]) || [],
+              series: (seriesReq.result as Series[]) || [],
+              episodes: portableEpisodes as Episode[],
+            },
+          });
+        } catch (error) {
+          reject(error);
+        }
+      })();
     };
     tx.onerror = () => reject(tx.error);
   });
 };
 
 export const exportProjectData = async (project: ProjectState): Promise<IndexedDBExportPayload> => {
+  const portableProject = await materializeProjectVideosForExport(project);
   return {
     schemaVersion: EXPORT_SCHEMA_VERSION,
     exportedAt: Date.now(),
@@ -458,7 +497,7 @@ export const exportProjectData = async (project: ProjectState): Promise<IndexedD
     dbName: DB_NAME,
     dbVersion: DB_VERSION,
     stores: {
-      projects: [project],
+      projects: [portableProject],
       assetLibrary: [],
     },
   };
@@ -474,26 +513,37 @@ export const exportSeriesProjectData = async (projectId: string): Promise<Indexe
     const epReq = tx.objectStore(EP_STORE).index('projectId').getAll(projectId);
 
     tx.oncomplete = () => {
-      const seriesProject = spReq.result as SeriesProject | undefined;
-      if (!seriesProject) {
-        reject(new Error('Project not found'));
-        return;
-      }
+      void (async () => {
+        const seriesProject = spReq.result as SeriesProject | undefined;
+        if (!seriesProject) {
+          reject(new Error('Project not found'));
+          return;
+        }
 
-      resolve({
-        schemaVersion: EXPORT_SCHEMA_VERSION,
-        exportedAt: Date.now(),
-        scope: 'project',
-        dbName: DB_NAME,
-        dbVersion: DB_VERSION,
-        stores: {
-          projects: [],
-          assetLibrary: [],
-          seriesProjects: [seriesProject],
-          series: (seriesReq.result as Series[]) || [],
-          episodes: ((epReq.result as Episode[]) || []).map(normalizeEpisode),
-        },
-      });
+        try {
+          const rawEpisodes = ((epReq.result as Episode[]) || []).map(normalizeEpisode);
+          const portableEpisodes = await Promise.all(
+            rawEpisodes.map(ep => materializeProjectVideosForExport(ep))
+          );
+
+          resolve({
+            schemaVersion: EXPORT_SCHEMA_VERSION,
+            exportedAt: Date.now(),
+            scope: 'project',
+            dbName: DB_NAME,
+            dbVersion: DB_VERSION,
+            stores: {
+              projects: [],
+              assetLibrary: [],
+              seriesProjects: [seriesProject],
+              series: (seriesReq.result as Series[]) || [],
+              episodes: portableEpisodes as Episode[],
+            },
+          });
+        } catch (error) {
+          reject(error);
+        }
+      })();
     };
     tx.onerror = () => reject(tx.error);
   });
@@ -512,6 +562,16 @@ export const importIndexedDBData = async (
 
   const mode = options?.mode || 'merge';
   const db = await openDB();
+  const importedEpisodes = await Promise.all(
+    ((payload.stores.episodes || []) as Episode[]).map(async (ep) => {
+      try {
+        return await normalizeAndPersistEpisodeVideos(ep);
+      } catch (error) {
+        console.warn('Failed to normalize imported episode video storage. Keep original payload.', error);
+        return normalizeEpisode(ep);
+      }
+    })
+  );
 
   const storeNames = [ASSET_STORE_NAME, SP_STORE, SERIES_STORE, EP_STORE];
   return new Promise((resolve, reject) => {
@@ -535,7 +595,7 @@ export const importIndexedDBData = async (
     (payload.stores.series || []).forEach((s: Series) => { seriesStr.put(s); count++; });
 
     const epStore = tx.objectStore(EP_STORE);
-    (payload.stores.episodes || []).forEach((ep: Episode) => { epStore.put(normalizeEpisode(ep)); count++; });
+    importedEpisodes.forEach((ep: Episode) => { epStore.put(ep); count++; });
 
     if (payload.stores.projects && payload.stores.projects.length > 0 && !(payload.stores.episodes && payload.stores.episodes.length > 0)) {
       payload.stores.projects.forEach((p: any) => {

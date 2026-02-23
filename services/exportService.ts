@@ -1,10 +1,14 @@
 import { ProjectState } from '../types';
+import { isOpfsVideoRef, isVideoDataUrl, resolveVideoToBlob } from './videoStorageService';
 
 /**
  * 下载单个文件并转换为 Blob
  * 支持URL和base64两种格式
  */
 async function downloadFile(urlOrBase64: string): Promise<Blob> {
+  if (isVideoDataUrl(urlOrBase64) || isOpfsVideoRef(urlOrBase64)) {
+    return resolveVideoToBlob(urlOrBase64);
+  }
   // 检查是否为base64格式
   if (urlOrBase64.startsWith('data:video/')) {
     // 从base64 data URL中提取数据
