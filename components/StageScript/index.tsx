@@ -32,6 +32,7 @@ interface Props {
 }
 
 type TabMode = 'story' | 'script';
+type AnalyzeRunStep = ScriptGenerationStep | 'done';
 
 const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfig, onGeneratingChange }) => {
   const { showAlert } = useAlert();
@@ -43,6 +44,14 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     return trimmed || fallback;
   };
 
+  const hashRaw = (raw: string): string => {
+    let hash = 5381;
+    for (let i = 0; i < raw.length; i += 1) {
+      hash = ((hash << 5) + hash) ^ raw.charCodeAt(i);
+    }
+    return `${(hash >>> 0).toString(16)}-${raw.length}`;
+  };
+
   const buildAnalyzeConfigKey = (input: {
     script: string;
     language: string;
@@ -51,11 +60,129 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     visualStyle: string;
   }): string => {
     const raw = JSON.stringify(input);
-    let hash = 5381;
-    for (let i = 0; i < raw.length; i += 1) {
-      hash = ((hash << 5) + hash) ^ raw.charCodeAt(i);
+    return `v1-${hashRaw(raw)}`;
+  };
+
+  const buildStepKey = (step: ScriptGenerationStep, payload: Record<string, unknown>): string => {
+    return `${step}-${hashRaw(JSON.stringify(payload))}`;
+  };
+
+  const normalizeAssetKey = (value: string): string => {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const cloneScriptData = (data: ScriptData): ScriptData => {
+    if (typeof structuredClone === 'function') {
+      return structuredClone(data);
     }
-    return `v1-${(hash >>> 0).toString(16)}-${raw.length}`;
+    return JSON.parse(JSON.stringify(data)) as ScriptData;
+  };
+
+  const attachGenerationMeta = (
+    source: ScriptData,
+    patch: Partial<NonNullable<ScriptData['generationMeta']>>
+  ): ScriptData => ({
+    ...source,
+    generationMeta: {
+      ...(source.generationMeta || {}),
+      ...patch,
+      generatedAt: Date.now()
+    }
+  });
+
+  const buildReuseLookup = <T extends { id: string }>(
+    items: T[],
+    getKey: (item: T) => string
+  ): { byId: Map<string, T>; byKey: Map<string, T> } => {
+    const byId = new Map<string, T>();
+    const byKey = new Map<string, T>();
+    for (const item of items) {
+      const id = String(item.id);
+      byId.set(id, item);
+      const key = normalizeAssetKey(getKey(item));
+      if (key && !byKey.has(key)) {
+        byKey.set(key, item);
+      }
+    }
+    return { byId, byKey };
+  };
+
+  const reuseVisualDataFromPrevious = (
+    current: ScriptData,
+    previous: ScriptData | null,
+    reuseArtDirection: boolean
+  ): ScriptData => {
+    if (!previous) return current;
+    const next = cloneScriptData(current);
+
+    const previousCharacters = buildReuseLookup(previous.characters || [], (item) => item.name);
+    next.characters = (next.characters || []).map((character) => {
+      const direct = previousCharacters.byId.get(String(character.id));
+      const byName = previousCharacters.byKey.get(normalizeAssetKey(character.name));
+      const match = direct || byName;
+      if (!match) return character;
+      return {
+        ...character,
+        visualPrompt: character.visualPrompt || match.visualPrompt,
+        negativePrompt: character.negativePrompt || match.negativePrompt,
+        promptVersions: character.promptVersions || match.promptVersions,
+        referenceImage: character.referenceImage || match.referenceImage,
+        turnaround: character.turnaround || match.turnaround,
+        variations: character.variations?.length ? character.variations : (match.variations || []),
+        status: character.status || match.status,
+        libraryId: character.libraryId || match.libraryId,
+        libraryVersion: character.libraryVersion || match.libraryVersion,
+        version: character.version || match.version
+      };
+    });
+
+    const previousScenes = buildReuseLookup(previous.scenes || [], (item) => item.location);
+    next.scenes = (next.scenes || []).map((scene) => {
+      const direct = previousScenes.byId.get(String(scene.id));
+      const byLocation = previousScenes.byKey.get(normalizeAssetKey(scene.location));
+      const match = direct || byLocation;
+      if (!match) return scene;
+      return {
+        ...scene,
+        visualPrompt: scene.visualPrompt || match.visualPrompt,
+        negativePrompt: scene.negativePrompt || match.negativePrompt,
+        promptVersions: scene.promptVersions || match.promptVersions,
+        referenceImage: scene.referenceImage || match.referenceImage,
+        status: scene.status || match.status,
+        libraryId: scene.libraryId || match.libraryId,
+        libraryVersion: scene.libraryVersion || match.libraryVersion,
+        version: scene.version || match.version
+      };
+    });
+
+    const previousProps = buildReuseLookup(previous.props || [], (item) => item.name);
+    next.props = (next.props || []).map((prop) => {
+      const direct = previousProps.byId.get(String(prop.id));
+      const byName = previousProps.byKey.get(normalizeAssetKey(prop.name));
+      const match = direct || byName;
+      if (!match) return prop;
+      return {
+        ...prop,
+        visualPrompt: prop.visualPrompt || match.visualPrompt,
+        negativePrompt: prop.negativePrompt || match.negativePrompt,
+        promptVersions: prop.promptVersions || match.promptVersions,
+        referenceImage: prop.referenceImage || match.referenceImage,
+        status: prop.status || match.status,
+        libraryId: prop.libraryId || match.libraryId,
+        libraryVersion: prop.libraryVersion || match.libraryVersion,
+        version: prop.version || match.version
+      };
+    });
+
+    if (reuseArtDirection && !next.artDirection && previous.artDirection) {
+      next.artDirection = previous.artDirection;
+    }
+
+    return next;
   };
 
   const isPlaceholderProjectTitle = (value: string): boolean => {
@@ -121,6 +248,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
   const [localLanguage, setLocalLanguage] = useState(project.language || DEFAULTS.language);
   const [localModel, setLocalModel] = useState(project.shotGenerationModel || DEFAULTS.model);
   const [localVisualStyle, setLocalVisualStyle] = useState(project.visualStyle || DEFAULTS.visualStyle);
+  const [enableQualityCheck, setEnableQualityCheck] = useState(true);
   const [customDurationInput, setCustomDurationInput] = useState('');
   const [customModelInput, setCustomModelInput] = useState('');
   const [customStyleInput, setCustomStyleInput] = useState('');
@@ -162,6 +290,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     setLocalLanguage(project.language || DEFAULTS.language);
     setLocalModel(project.shotGenerationModel || DEFAULTS.model);
     setLocalVisualStyle(project.visualStyle || DEFAULTS.visualStyle);
+    setEnableQualityCheck(true);
     setRewriteInstruction('');
     setSelectionRange(null);
     setLastRewriteSnapshot(null);
@@ -262,6 +391,25 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       return;
     }
 
+    const previousScriptData = project.scriptData || null;
+    const previousShots = Array.isArray(project.shots) ? project.shots : [];
+
+    const structureKey = buildStepKey('structure', {
+      script: localScript,
+      language: localLanguage
+    });
+    const visualsKey = buildStepKey('visuals', {
+      structureKey,
+      language: localLanguage,
+      model: finalModel,
+      visualStyle: finalVisualStyle
+    });
+    const shotsKey = buildStepKey('shots', {
+      visualsKey,
+      model: finalModel,
+      targetDuration: finalDuration
+    });
+
     const analyzeConfigKey = buildAnalyzeConfigKey({
       script: localScript,
       language: localLanguage,
@@ -275,8 +423,49 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
         ? savedCheckpoint
         : null;
 
-    let nextStep: ScriptGenerationStep = resumeCheckpoint?.step || 'structure';
-    let workingScriptData: ScriptData | null = resumeCheckpoint?.scriptData || null;
+    let nextStep: AnalyzeRunStep = 'structure';
+    let workingScriptData: ScriptData | null = resumeCheckpoint?.scriptData || previousScriptData || null;
+    let shouldGenerateOnlyMissingVisuals = false;
+    let reuseUnchangedScenes = !!previousScriptData && previousShots.length > 0;
+
+    if (resumeCheckpoint?.scriptData) {
+      nextStep = resumeCheckpoint.step;
+      shouldGenerateOnlyMissingVisuals = resumeCheckpoint.step === 'visuals';
+    } else {
+      const meta = previousScriptData?.generationMeta;
+      if (!previousScriptData || !meta?.structureKey) {
+        nextStep = 'structure';
+      } else if (meta.structureKey !== structureKey) {
+        nextStep = 'structure';
+      } else if (meta.visualsKey !== visualsKey) {
+        nextStep = 'visuals';
+      } else if (meta.shotsKey !== shotsKey || previousShots.length === 0) {
+        nextStep = 'shots';
+      } else {
+        nextStep = 'done';
+      }
+
+      const visualsInputStable =
+        !!previousScriptData &&
+        previousScriptData.language === localLanguage &&
+        previousScriptData.visualStyle === finalVisualStyle &&
+        previousScriptData.shotGenerationModel === finalModel;
+      shouldGenerateOnlyMissingVisuals = nextStep === 'structure' && visualsInputStable;
+    }
+
+    if (nextStep === 'done') {
+      setError(null);
+      setProcessingLogs([]);
+      logScriptProgress('配置未变化，已复用现有分镜结果。');
+      showAlert('未检测到变更，已复用现有分镜结果。', { type: 'success' });
+      setActiveTab('script');
+      return;
+    }
+
+    if (!workingScriptData && nextStep !== 'structure') {
+      nextStep = 'structure';
+      shouldGenerateOnlyMissingVisuals = false;
+    }
 
     analyzeAbortControllerRef.current?.abort();
     const controller = new AbortController();
@@ -318,13 +507,21 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
           finalModel,
           controller.signal
         );
-        workingScriptData = hydrateScriptDataMeta(structured, {
+        const hydrated = hydrateScriptDataMeta(structured, {
           targetDuration: finalDuration,
           language: localLanguage,
           visualStyle: finalVisualStyle,
           model: finalModel,
           localTitle
         });
+        const canReuseVisualData =
+          !!previousScriptData &&
+          previousScriptData.language === localLanguage &&
+          previousScriptData.visualStyle === finalVisualStyle &&
+          previousScriptData.shotGenerationModel === finalModel;
+        workingScriptData = reuseVisualDataFromPrevious(hydrated, previousScriptData, canReuseVisualData);
+        workingScriptData = attachGenerationMeta(workingScriptData, { structureKey });
+        shouldGenerateOnlyMissingVisuals = canReuseVisualData;
         nextStep = 'visuals';
         updateProject({
           scriptData: workingScriptData,
@@ -334,33 +531,64 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       }
 
       if (nextStep === 'visuals') {
-        setProcessingMessage('正在生成角色/场景/道具视觉提示词...');
-        logScriptProgress('开始生成视觉提示词...');
+        const visualPassMode = shouldGenerateOnlyMissingVisuals ? '增量补全' : '全量重建';
+        setProcessingMessage(`正在生成角色/场景/道具视觉提示词（${visualPassMode}）...`);
+        logScriptProgress(`开始生成视觉提示词（${visualPassMode}）...`);
+        if (!shouldGenerateOnlyMissingVisuals) {
+          reuseUnchangedScenes = false;
+        }
         const enriched = await enrichScriptDataVisuals(
           workingScriptData!,
           finalModel,
           finalVisualStyle,
           localLanguage,
-          { abortSignal: controller.signal }
+          {
+            abortSignal: controller.signal,
+            onlyMissing: shouldGenerateOnlyMissingVisuals
+          }
         );
-        workingScriptData = hydrateScriptDataMeta(enriched, {
+        const hydrated = hydrateScriptDataMeta(enriched, {
           targetDuration: finalDuration,
           language: localLanguage,
           visualStyle: finalVisualStyle,
           model: finalModel,
           localTitle
         });
+        workingScriptData = attachGenerationMeta(hydrated, { structureKey, visualsKey });
         nextStep = 'shots';
         updateProject({
           scriptData: workingScriptData,
           isParsingScript: true,
           scriptGenerationCheckpoint: createAnalyzeCheckpoint(nextStep, analyzeConfigKey, workingScriptData)
         });
+      } else {
+        workingScriptData = attachGenerationMeta(workingScriptData!, { structureKey, visualsKey });
       }
 
       setProcessingMessage('正在生成分镜...');
-      logScriptProgress('开始生成分镜...');
-      const shots = await generateShotList(workingScriptData!, finalModel, controller.signal);
+      logScriptProgress(
+        reuseUnchangedScenes
+          ? '开始生成分镜（启用未变场景复用）...'
+          : '开始生成分镜...'
+      );
+      logScriptProgress(enableQualityCheck ? '已启用分镜质量校验与自动修复。' : '分镜质量校验已关闭。');
+      const shots = await generateShotList(workingScriptData!, finalModel, {
+        abortSignal: controller.signal,
+        previousScriptData,
+        previousShots,
+        reuseUnchangedScenes,
+        enableQualityCheck
+      });
+      workingScriptData = attachGenerationMeta(
+        hydrateScriptDataMeta(workingScriptData!, {
+          targetDuration: finalDuration,
+          language: localLanguage,
+          visualStyle: finalVisualStyle,
+          model: finalModel,
+          localTitle
+        }),
+        { structureKey, visualsKey, shotsKey }
+      );
 
       if (project.projectId) {
         try {
@@ -1060,6 +1288,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
             onCustomDurationChange={setCustomDurationInput}
             onCustomModelChange={setCustomModelInput}
             onCustomStyleChange={setCustomStyleInput}
+            enableQualityCheck={enableQualityCheck}
+            onToggleQualityCheck={setEnableQualityCheck}
             onAnalyze={handleAnalyze}
             analyzeButtonLabel={analyzeButtonLabel}
             canCancelAnalyze={!!analyzeAbortControllerRef.current}

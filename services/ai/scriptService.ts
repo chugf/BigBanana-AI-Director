@@ -3,7 +3,7 @@
  * 包含剧本解析、分镜生成、续写、改写等功能
  */
 
-import { ScriptData, Shot, Scene, Character, Prop, ArtDirection } from "../../types";
+import { ScriptData, Shot, Scene, Character, Prop, ArtDirection, QualityCheck, ShotQualityAssessment } from "../../types";
 import { addRenderLogWithTokens } from '../renderLogService';
 import { parseDurationToSeconds } from '../durationParser';
 import {
@@ -468,6 +468,437 @@ export const parseScriptToData = async (
 // 分镜生成
 // ============================================
 
+interface GenerateShotListOptions {
+  abortSignal?: AbortSignal;
+  previousScriptData?: ScriptData | null;
+  previousShots?: Shot[];
+  reuseUnchangedScenes?: boolean;
+  enableQualityCheck?: boolean;
+}
+
+const SCRIPT_STAGE_QUALITY_SCHEMA_VERSION = 2;
+
+const isAbortSignalLike = (value: unknown): value is AbortSignal => {
+  return !!value && typeof value === 'object' && 'aborted' in (value as Record<string, unknown>);
+};
+
+const clampScore = (value: number, min: number, max: number): number => {
+  return Math.max(min, Math.min(max, Math.round(value)));
+};
+
+const normalizeMatchText = (value: string): string => {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const hashText = (value: string): string => {
+  const raw = String(value || '');
+  let hash = 5381;
+  for (let i = 0; i < raw.length; i += 1) {
+    hash = ((hash << 5) + hash) ^ raw.charCodeAt(i);
+  }
+  return `${(hash >>> 0).toString(16)}-${raw.length}`;
+};
+
+const buildSceneReuseSignature = (input: {
+  scene: Scene;
+  actionText: string;
+  shotsPerScene: number;
+  visualStyle: string;
+  language: string;
+  model: string;
+  artDirectionSeed?: string;
+}): string => {
+  const normalizedScene = [
+    normalizeMatchText(input.scene.location),
+    normalizeMatchText(input.scene.time),
+    normalizeMatchText(input.scene.atmosphere),
+  ].join('|');
+  const normalizedAction = normalizeMatchText(input.actionText).slice(0, 1200);
+  const payload = [
+    normalizedScene,
+    hashText(normalizedAction),
+    input.shotsPerScene,
+    normalizeMatchText(input.visualStyle),
+    normalizeMatchText(input.language),
+    normalizeMatchText(input.model),
+    hashText(normalizeMatchText(input.artDirectionSeed || '')),
+  ].join('::');
+  return `scene-${hashText(payload)}`;
+};
+
+const buildAssetIdRemap = <T extends { id: string; name: string }>(
+  fromItems: T[] = [],
+  toItems: T[] = []
+): Map<string, string> => {
+  const result = new Map<string, string>();
+  const toIdSet = new Set(toItems.map(item => String(item.id)));
+  const toByName = new Map<string, string>();
+  for (const item of toItems) {
+    const key = normalizeMatchText(item.name);
+    if (key && !toByName.has(key)) {
+      toByName.set(key, String(item.id));
+    }
+  }
+
+  for (const item of fromItems) {
+    const fromId = String(item.id);
+    if (toIdSet.has(fromId)) {
+      result.set(fromId, fromId);
+      continue;
+    }
+    const mappedByName = toByName.get(normalizeMatchText(item.name));
+    if (mappedByName) {
+      result.set(fromId, mappedByName);
+    }
+  }
+  return result;
+};
+
+const remapIds = (
+  ids: unknown,
+  idRemap: Map<string, string>,
+  validIds: Set<string>
+): string[] => {
+  if (!Array.isArray(ids)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of ids) {
+    const sourceId = String(raw);
+    const mapped = idRemap.get(sourceId) || sourceId;
+    if (!validIds.has(mapped) || seen.has(mapped)) continue;
+    seen.add(mapped);
+    result.push(mapped);
+  }
+  return result;
+};
+
+const pickQualityCheck = (
+  key: string,
+  label: string,
+  score: number,
+  weight: number,
+  details: string
+): QualityCheck => ({
+  key,
+  label,
+  score: clampScore(score, 0, 100),
+  weight,
+  passed: score >= 70,
+  details
+});
+
+const getWeightedScore = (checks: QualityCheck[]): number => {
+  const weightedSum = checks.reduce((sum, item) => sum + item.score * item.weight, 0);
+  const totalWeight = checks.reduce((sum, item) => sum + item.weight, 0) || 1;
+  return clampScore(weightedSum / totalWeight, 0, 100);
+};
+
+const getGrade = (score: number): ShotQualityAssessment['grade'] => {
+  if (score >= 80) return 'pass';
+  if (score >= 60) return 'warning';
+  return 'fail';
+};
+
+const normalizeShotKeyframes = (
+  shot: Shot,
+  shotIndex: number,
+  visualStyle: string
+): Shot['keyframes'] => {
+  const keyframes = Array.isArray(shot.keyframes) ? shot.keyframes : [];
+  const startFrame = keyframes.find(frame => frame?.type === 'start');
+  const endFrame = keyframes.find(frame => frame?.type === 'end');
+  const action = String(shot.actionSummary || '镜头').trim() || '镜头';
+
+  const startPrompt = String(startFrame?.visualPrompt || '').trim() || `${action}，起始状态，${visualStyle}风格`;
+  const endPrompt = String(endFrame?.visualPrompt || '').trim() || `${action}，结束状态，${visualStyle}风格`;
+
+  return [
+    {
+      ...(startFrame || {}),
+      id: String(startFrame?.id || `kf-${shotIndex + 1}-start`),
+      type: 'start',
+      visualPrompt: startPrompt,
+      status: startFrame?.status || 'pending'
+    },
+    {
+      ...(endFrame || {}),
+      id: String(endFrame?.id || `kf-${shotIndex + 1}-end`),
+      type: 'end',
+      visualPrompt: endPrompt,
+      status: endFrame?.status || 'pending'
+    }
+  ];
+};
+
+const assessScriptStageShotQuality = (input: {
+  shot: Shot;
+  previousShotInScene?: Shot;
+  validCharacterIds: Set<string>;
+  validPropIds: Set<string>;
+  visualStyle: string;
+}): ShotQualityAssessment => {
+  const { shot, previousShotInScene, validCharacterIds, validPropIds, visualStyle } = input;
+  const startFrame = shot.keyframes.find(frame => frame.type === 'start');
+  const endFrame = shot.keyframes.find(frame => frame.type === 'end');
+  const normalizedAction = normalizeMatchText(shot.actionSummary || '');
+  const normalizedPrevAction = normalizeMatchText(previousShotInScene?.actionSummary || '');
+
+  const actionScore = normalizedAction.length >= 6 ? 45 : normalizedAction.length > 0 ? 20 : 0;
+  const cameraScore = String(shot.cameraMovement || '').trim() ? 30 : 0;
+  const shotSizeScore = String(shot.shotSize || '').trim() ? 25 : 0;
+  const requiredFieldsScore = actionScore + cameraScore + shotSizeScore;
+  const requiredFieldsCheck = pickQualityCheck(
+    'required-fields',
+    'Required Fields',
+    requiredFieldsScore,
+    30,
+    [
+      '规则：actionSummary 45分 + cameraMovement 30分 + shotSize 25分',
+      `actionSummary: ${normalizedAction ? '已填写' : '缺失'}`,
+      `cameraMovement: ${String(shot.cameraMovement || '').trim() ? '已填写' : '缺失'}`,
+      `shotSize: ${String(shot.shotSize || '').trim() ? '已填写' : '缺失'}`,
+    ].join('\n')
+  );
+
+  const hasStart = !!startFrame;
+  const hasEnd = !!endFrame;
+  const startPromptLength = String(startFrame?.visualPrompt || '').trim().length;
+  const endPromptLength = String(endFrame?.visualPrompt || '').trim().length;
+  const keyframeScore =
+    (hasStart ? 30 : 0) +
+    (hasEnd ? 30 : 0) +
+    (startPromptLength >= 14 ? 20 : startPromptLength > 0 ? 10 : 0) +
+    (endPromptLength >= 14 ? 20 : endPromptLength > 0 ? 10 : 0);
+  const keyframeCheck = pickQualityCheck(
+    'keyframe-structure',
+    'Keyframe Structure',
+    keyframeScore,
+    25,
+    [
+      '规则：首尾关键帧各30分 + 首尾提示词可用性各20分',
+      `start frame: ${hasStart ? '存在' : '缺失'}，提示词长度=${startPromptLength}`,
+      `end frame: ${hasEnd ? '存在' : '缺失'}，提示词长度=${endPromptLength}`,
+    ].join('\n')
+  );
+
+  const invalidCharacterCount = (shot.characters || []).filter(id => !validCharacterIds.has(String(id))).length;
+  const invalidPropCount = (shot.props || []).filter(id => !validPropIds.has(String(id))).length;
+  const totalRefs = (shot.characters?.length || 0) + (shot.props?.length || 0);
+  const referenceBase = totalRefs === 0 ? 82 : 100;
+  const assetScore = Math.max(0, referenceBase - invalidCharacterCount * 45 - invalidPropCount * 30);
+  const assetCheck = pickQualityCheck(
+    'asset-reference',
+    'Asset Reference',
+    assetScore,
+    20,
+    [
+      '规则：非法角色ID每个扣45分，非法道具ID每个扣30分；未绑定资产时按82分。',
+      `角色引用：${shot.characters?.length || 0}，非法=${invalidCharacterCount}`,
+      `道具引用：${shot.props?.length || 0}，非法=${invalidPropCount}`,
+    ].join('\n')
+  );
+
+  let variationScore = 100;
+  if (previousShotInScene) {
+    if (normalizedAction && normalizedAction === normalizedPrevAction) variationScore -= 55;
+    if (normalizeMatchText(shot.cameraMovement || '') === normalizeMatchText(previousShotInScene.cameraMovement || '')) {
+      variationScore -= 20;
+    }
+    if (normalizeMatchText(shot.shotSize || '') === normalizeMatchText(previousShotInScene.shotSize || '')) {
+      variationScore -= 20;
+    }
+  } else {
+    variationScore = 88;
+  }
+  const variationCheck = pickQualityCheck(
+    'scene-variation',
+    'Scene Variation',
+    variationScore,
+    15,
+    [
+      '规则：同场景相邻镜头应避免动作摘要完全重复，并保持景别/运镜节奏变化。',
+      previousShotInScene ? `上一镜头存在，比较后得分=${variationScore}` : '首镜头默认 88 分',
+    ].join('\n')
+  );
+
+  const avgPromptLength = (startPromptLength + endPromptLength) / 2;
+  let promptRichnessScore = 35;
+  if (avgPromptLength >= 60) promptRichnessScore = 100;
+  else if (avgPromptLength >= 35) promptRichnessScore = 82;
+  else if (avgPromptLength >= 20) promptRichnessScore = 65;
+  const combinedPromptText = `${startFrame?.visualPrompt || ''} ${endFrame?.visualPrompt || ''}`.toLowerCase();
+  const styleHint = String(visualStyle || '').toLowerCase();
+  if (styleHint && combinedPromptText.includes(styleHint)) {
+    promptRichnessScore = Math.min(100, promptRichnessScore + 8);
+  }
+  const promptRichnessCheck = pickQualityCheck(
+    'prompt-richness',
+    'Prompt Richness',
+    promptRichnessScore,
+    10,
+    [
+      '规则：关键帧提示词越完整越高分，包含风格关键词可加分。',
+      `start长度=${startPromptLength}，end长度=${endPromptLength}，均值=${Math.round(avgPromptLength)}`,
+      styleHint ? `风格关键词 "${styleHint}" ${combinedPromptText.includes(styleHint) ? '已出现' : '未出现'}` : '未提供风格关键词',
+    ].join('\n')
+  );
+
+  const checks = [requiredFieldsCheck, keyframeCheck, assetCheck, variationCheck, promptRichnessCheck];
+  const score = getWeightedScore(checks);
+  const grade = getGrade(score);
+  const failedLabels = checks.filter(item => !item.passed).map(item => item.label);
+  const summary = failedLabels.length > 0
+    ? `${grade === 'fail' ? '风险较高' : '建议优化'}：${failedLabels.join('、')}`
+    : '结构与一致性检查通过。';
+
+  return {
+    version: SCRIPT_STAGE_QUALITY_SCHEMA_VERSION,
+    score,
+    grade,
+    generatedAt: Date.now(),
+    checks,
+    summary
+  };
+};
+
+const repairShotForScriptStage = (input: {
+  shot: Shot;
+  shotIndex: number;
+  visualStyle: string;
+  usedActionKeys: Set<string>;
+  validCharacterIds: Set<string>;
+  validPropIds: Set<string>;
+  forcePromptRewrite?: boolean;
+}): Shot => {
+  const {
+    shot,
+    shotIndex,
+    visualStyle,
+    usedActionKeys,
+    validCharacterIds,
+    validPropIds,
+    forcePromptRewrite = false
+  } = input;
+  const actionFallback = `镜头 ${shotIndex + 1} 推进`;
+  let actionSummary = String(shot.actionSummary || '').trim() || actionFallback;
+  const normalizedAction = normalizeMatchText(actionSummary);
+  if (normalizedAction && usedActionKeys.has(normalizedAction)) {
+    actionSummary = `${actionSummary}（镜头${shotIndex + 1}）`;
+  }
+  usedActionKeys.add(normalizeMatchText(actionSummary));
+
+  const cameraMovement = String(shot.cameraMovement || '').trim() || 'Static Shot';
+  const shotSize = String(shot.shotSize || '').trim() || 'Medium Shot';
+
+  const characters = Array.from(
+    new Set(
+      (shot.characters || [])
+        .map(id => String(id))
+        .filter(id => validCharacterIds.has(id))
+    )
+  );
+  const props = Array.from(
+    new Set(
+      (shot.props || [])
+        .map(id => String(id))
+        .filter(id => validPropIds.has(id))
+    )
+  );
+
+  const keyframes = normalizeShotKeyframes({ ...shot, actionSummary }, shotIndex, visualStyle);
+  if (forcePromptRewrite || String(keyframes[0]?.visualPrompt || '').trim().length < 12) {
+    keyframes[0].visualPrompt = `${actionSummary}，起始构图，主体清晰，${visualStyle}风格，光影明确`;
+  }
+  if (forcePromptRewrite || String(keyframes[1]?.visualPrompt || '').trim().length < 12) {
+    keyframes[1].visualPrompt = `${actionSummary}，结束构图，动作收束，${visualStyle}风格，镜头节奏完整`;
+  }
+
+  return {
+    ...shot,
+    actionSummary,
+    cameraMovement,
+    shotSize,
+    characters,
+    props,
+    keyframes
+  };
+};
+
+const applyScriptStageQualityPipeline = (
+  shots: Shot[],
+  scriptData: ScriptData,
+  validCharacterIds: Set<string>,
+  validPropIds: Set<string>,
+  visualStyle: string
+): Shot[] => {
+  const previousByScene = new Map<string, Shot>();
+  const usedActionKeysByScene = new Map<string, Set<string>>();
+  const repairedShots = shots.map((shot, index) => {
+    const sceneId = String(shot.sceneId || '');
+    const usedActionKeys = usedActionKeysByScene.get(sceneId) || new Set<string>();
+    if (!usedActionKeysByScene.has(sceneId)) {
+      usedActionKeysByScene.set(sceneId, usedActionKeys);
+    }
+
+    let candidate = repairShotForScriptStage({
+      shot,
+      shotIndex: index,
+      visualStyle,
+      usedActionKeys,
+      validCharacterIds,
+      validPropIds,
+      forcePromptRewrite: false
+    });
+
+    const previousShot = previousByScene.get(sceneId);
+    let assessment = assessScriptStageShotQuality({
+      shot: candidate,
+      previousShotInScene: previousShot,
+      validCharacterIds,
+      validPropIds,
+      visualStyle
+    });
+
+    const requiredFieldsPassed = assessment.checks.find(item => item.key === 'required-fields')?.passed;
+    const keyframePassed = assessment.checks.find(item => item.key === 'keyframe-structure')?.passed;
+    if (assessment.grade === 'fail' || !requiredFieldsPassed || !keyframePassed) {
+      candidate = repairShotForScriptStage({
+        shot: candidate,
+        shotIndex: index,
+        visualStyle,
+        usedActionKeys,
+        validCharacterIds,
+        validPropIds,
+        forcePromptRewrite: true
+      });
+      assessment = assessScriptStageShotQuality({
+        shot: candidate,
+        previousShotInScene: previousShot,
+        validCharacterIds,
+        validPropIds,
+        visualStyle
+      });
+    }
+
+    const withAssessment: Shot = {
+      ...candidate,
+      qualityAssessment: assessment
+    };
+    previousByScene.set(sceneId, withAssessment);
+    return withAssessment;
+  });
+
+  const warnings = repairedShots.filter(shot => shot.qualityAssessment?.grade === 'warning').length;
+  const fails = repairedShots.filter(shot => shot.qualityAssessment?.grade === 'fail').length;
+  logScriptProgress(`分镜质量校验完成：${repairedShots.length}条（warning ${warnings}，fail ${fails}）`);
+
+  return repairedShots;
+};
+
 /**
  * 生成分镜列表
  * 根据剧本数据和目标时长，为每个场景生成适量的分镜头
@@ -475,8 +906,20 @@ export const parseScriptToData = async (
 export const generateShotList = async (
   scriptData: ScriptData,
   model: string = 'gpt-5.1',
-  abortSignal?: AbortSignal
+  abortOrOptions?: AbortSignal | GenerateShotListOptions
 ): Promise<Shot[]> => {
+  const options: GenerateShotListOptions = isAbortSignalLike(abortOrOptions)
+    ? { abortSignal: abortOrOptions }
+    : (abortOrOptions || {});
+  const abortSignal = options.abortSignal;
+  const previousScriptData = options.previousScriptData || null;
+  const previousShots = Array.isArray(options.previousShots) ? options.previousShots : [];
+  const enableQualityCheck = options.enableQualityCheck !== false;
+  const shouldReuseUnchangedScenes =
+    !!options.reuseUnchangedScenes &&
+    !!previousScriptData &&
+    previousShots.length > 0;
+
   console.log('🎬 generateShotList 调用 - 使用模型:', model, '视觉风格:', scriptData.visualStyle);
   logScriptProgress('正在生成分镜列表...');
   const overallStartTime = Date.now();
@@ -536,99 +979,109 @@ export const generateShotList = async (
 
   const validCharacterIds = new Set((scriptData.characters || []).map(c => String(c.id)));
   const validPropIds = new Set((scriptData.props || []).map(p => String(p.id)));
-  const sceneIdOrder = scriptData.scenes.map(scene => String(scene.id));
-  const directParagraphMap = new Map<string, string[]>();
-  (scriptData.storyParagraphs || []).forEach(paragraph => {
-    const key = String(paragraph.sceneRefId || '');
-    if (!directParagraphMap.has(key)) {
-      directParagraphMap.set(key, []);
-    }
-    const text = String(paragraph.text || '').trim();
-    if (text) {
-      directParagraphMap.get(key)!.push(text);
-    }
-  });
+  const characterIdRemap = buildAssetIdRemap(previousScriptData?.characters || [], scriptData.characters || []);
+  const propIdRemap = buildAssetIdRemap(previousScriptData?.props || [], scriptData.props || []);
 
-  const tokenizeForMatch = (value: string): string[] => {
-    const normalized = String(value || '')
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, ' ')
-      .trim();
-    if (!normalized) return [];
-    const segments = normalized.split(/\s+/g).filter(Boolean);
-    const tokens = new Set<string>(segments);
-    for (const segment of segments) {
-      if (/^[\u4e00-\u9fff]+$/u.test(segment) && segment.length > 1) {
-        for (let i = 0; i < segment.length - 1; i += 1) {
-          tokens.add(segment.slice(i, i + 2));
+  const createSceneActionResolver = (data: ScriptData) => {
+    const sceneIdOrder = data.scenes.map(scene => String(scene.id));
+    const directParagraphMap = new Map<string, string[]>();
+    (data.storyParagraphs || []).forEach(paragraph => {
+      const key = String(paragraph.sceneRefId || '');
+      if (!directParagraphMap.has(key)) {
+        directParagraphMap.set(key, []);
+      }
+      const text = String(paragraph.text || '').trim();
+      if (text) {
+        directParagraphMap.get(key)!.push(text);
+      }
+    });
+
+    const tokenizeForMatch = (value: string): string[] => {
+      const normalized = String(value || '')
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, ' ')
+        .trim();
+      if (!normalized) return [];
+      const segments = normalized.split(/\s+/g).filter(Boolean);
+      const tokens = new Set<string>(segments);
+      for (const segment of segments) {
+        if (/^[\u4e00-\u9fff]+$/u.test(segment) && segment.length > 1) {
+          for (let i = 0; i < segment.length - 1; i += 1) {
+            tokens.add(segment.slice(i, i + 2));
+          }
         }
       }
-    }
-    return Array.from(tokens);
-  };
+      return Array.from(tokens);
+    };
 
-  const paragraphSceneScore = (paragraphText: string, scene: Scene): number => {
-    const sceneQuery = `${scene.location} ${scene.time} ${scene.atmosphere}`.trim();
-    const sceneTokens = tokenizeForMatch(sceneQuery);
-    const paraTokens = tokenizeForMatch(paragraphText);
-    if (sceneTokens.length === 0 || paraTokens.length === 0) return 0;
+    const paragraphSceneScore = (paragraphText: string, scene: Scene): number => {
+      const sceneQuery = `${scene.location} ${scene.time} ${scene.atmosphere}`.trim();
+      const sceneTokens = tokenizeForMatch(sceneQuery);
+      const paraTokens = tokenizeForMatch(paragraphText);
+      if (sceneTokens.length === 0 || paraTokens.length === 0) return 0;
 
-    const paraSet = new Set(paraTokens);
-    const overlap = sceneTokens.filter(token => paraSet.has(token)).length;
-    const overlapRatio = overlap / Math.max(1, sceneTokens.length);
-    const containsLocation = paragraphText.includes(scene.location) ? 0.3 : 0;
-    const containsTime = scene.time && paragraphText.includes(scene.time) ? 0.15 : 0;
-    return overlapRatio + containsLocation + containsTime;
-  };
+      const paraSet = new Set(paraTokens);
+      const overlap = sceneTokens.filter(token => paraSet.has(token)).length;
+      const overlapRatio = overlap / Math.max(1, sceneTokens.length);
+      const containsLocation = paragraphText.includes(scene.location) ? 0.3 : 0;
+      const containsTime = scene.time && paragraphText.includes(scene.time) ? 0.15 : 0;
+      return overlapRatio + containsLocation + containsTime;
+    };
 
-  const resolveSceneActionText = (
-    scene: Scene,
-    sceneIndex: number
-  ): { text: string; source: 'direct' | 'semantic' | 'neighbor' | 'global' | 'none' } => {
-    const directParagraphs = (directParagraphMap.get(String(scene.id)) || []).filter(Boolean);
-    if (directParagraphs.length > 0) {
-      return { text: directParagraphs.join('\n'), source: 'direct' };
-    }
-
-    const allParagraphs = (scriptData.storyParagraphs || [])
-      .map(item => String(item.text || '').trim())
-      .filter(Boolean);
-    if (allParagraphs.length === 0) {
-      return { text: '', source: 'none' };
-    }
-
-    const semanticCandidates = allParagraphs
-      .map(text => ({ text, score: paragraphSceneScore(text, scene) }))
-      .filter(entry => entry.score >= 0.18)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3);
-    if (semanticCandidates.length > 0) {
-      return { text: semanticCandidates.map(entry => entry.text).join('\n'), source: 'semantic' };
-    }
-
-    const neighborTexts: string[] = [];
-    for (let i = sceneIndex - 1; i >= 0; i -= 1) {
-      const prevSceneId = sceneIdOrder[i];
-      const texts = (directParagraphMap.get(prevSceneId) || []).filter(Boolean);
-      if (texts.length > 0) {
-        neighborTexts.push(texts.slice(-2).join('\n'));
-        break;
+    return (
+      scene: Scene,
+      sceneIndex: number
+    ): { text: string; source: 'direct' | 'semantic' | 'neighbor' | 'global' | 'none' } => {
+      const directParagraphs = (directParagraphMap.get(String(scene.id)) || []).filter(Boolean);
+      if (directParagraphs.length > 0) {
+        return { text: directParagraphs.join('\n'), source: 'direct' };
       }
-    }
-    for (let i = sceneIndex + 1; i < sceneIdOrder.length; i += 1) {
-      const nextSceneId = sceneIdOrder[i];
-      const texts = (directParagraphMap.get(nextSceneId) || []).filter(Boolean);
-      if (texts.length > 0) {
-        neighborTexts.push(texts.slice(0, 2).join('\n'));
-        break;
-      }
-    }
-    if (neighborTexts.length > 0) {
-      return { text: neighborTexts.join('\n'), source: 'neighbor' };
-    }
 
-    return { text: allParagraphs.slice(0, 2).join('\n'), source: 'global' };
+      const allParagraphs = (data.storyParagraphs || [])
+        .map(item => String(item.text || '').trim())
+        .filter(Boolean);
+      if (allParagraphs.length === 0) {
+        return { text: '', source: 'none' };
+      }
+
+      const semanticCandidates = allParagraphs
+        .map(text => ({ text, score: paragraphSceneScore(text, scene) }))
+        .filter(entry => entry.score >= 0.18)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3);
+      if (semanticCandidates.length > 0) {
+        return { text: semanticCandidates.map(entry => entry.text).join('\n'), source: 'semantic' };
+      }
+
+      const neighborTexts: string[] = [];
+      for (let i = sceneIndex - 1; i >= 0; i -= 1) {
+        const prevSceneId = sceneIdOrder[i];
+        const texts = (directParagraphMap.get(prevSceneId) || []).filter(Boolean);
+        if (texts.length > 0) {
+          neighborTexts.push(texts.slice(-2).join('\n'));
+          break;
+        }
+      }
+      for (let i = sceneIndex + 1; i < sceneIdOrder.length; i += 1) {
+        const nextSceneId = sceneIdOrder[i];
+        const texts = (directParagraphMap.get(nextSceneId) || []).filter(Boolean);
+        if (texts.length > 0) {
+          neighborTexts.push(texts.slice(0, 2).join('\n'));
+          break;
+        }
+      }
+      if (neighborTexts.length > 0) {
+        return { text: neighborTexts.join('\n'), source: 'neighbor' };
+      }
+
+      return { text: allParagraphs.slice(0, 2).join('\n'), source: 'global' };
+    };
   };
+
+  const resolveSceneActionText = createSceneActionResolver(scriptData);
+  const resolvePreviousSceneActionText = previousScriptData
+    ? createSceneActionResolver(previousScriptData)
+    : null;
 
   const createFallbackShotsForScene = (
     scene: Scene,
@@ -693,11 +1146,80 @@ export const generateShotList = async (
       Detail Level: ${artDir.characterDesignRules.detailLevel}
 ` : '';
 
+  const cloneShot = (shot: Shot): Shot => {
+    if (typeof structuredClone === 'function') {
+      return structuredClone(shot);
+    }
+    return JSON.parse(JSON.stringify(shot)) as Shot;
+  };
+
+  const reusableSceneBuckets = new Map<string, Shot[][]>();
+  if (shouldReuseUnchangedScenes && previousScriptData && resolvePreviousSceneActionText) {
+    const previousShotsByScene = new Map<string, Shot[]>();
+    for (const shot of previousShots) {
+      const key = String(shot.sceneId || '');
+      if (!previousShotsByScene.has(key)) {
+        previousShotsByScene.set(key, []);
+      }
+      previousShotsByScene.get(key)!.push(shot);
+    }
+
+    for (let index = 0; index < previousScriptData.scenes.length; index += 1) {
+      const previousScene = previousScriptData.scenes[index];
+      const sceneShots = previousShotsByScene.get(String(previousScene.id)) || [];
+      if (sceneShots.length === 0) continue;
+
+      const previousAction = resolvePreviousSceneActionText(previousScene, index).text;
+      const signature = buildSceneReuseSignature({
+        scene: previousScene,
+        actionText: previousAction,
+        shotsPerScene: sceneShots.length,
+        visualStyle: previousScriptData.visualStyle || visualStyle,
+        language: previousScriptData.language || lang,
+        model: previousScriptData.shotGenerationModel || model,
+        artDirectionSeed: previousScriptData.artDirection?.consistencyAnchors || ''
+      });
+      if (!reusableSceneBuckets.has(signature)) {
+        reusableSceneBuckets.set(signature, []);
+      }
+      reusableSceneBuckets.get(signature)!.push(sceneShots.map(item => cloneShot(item)));
+    }
+
+    if (reusableSceneBuckets.size > 0) {
+      logScriptProgress(`检测到可复用场景签名 ${reusableSceneBuckets.size} 组，生成阶段将优先复用未变场景。`);
+    }
+  }
+
   const processScene = async (scene: Scene, index: number): Promise<Shot[]> => {
     const sceneStartTime = Date.now();
     const shotsPerScene = sceneShotPlan[index] || 1;
     const actionSource = resolveSceneActionText(scene, index);
     const paragraphs = actionSource.text;
+
+    if (shouldReuseUnchangedScenes && reusableSceneBuckets.size > 0) {
+      const signature = buildSceneReuseSignature({
+        scene,
+        actionText: paragraphs,
+        shotsPerScene,
+        visualStyle,
+        language: lang,
+        model,
+        artDirectionSeed: artDir?.consistencyAnchors || ''
+      });
+      const candidateGroup = reusableSceneBuckets.get(signature);
+      if (candidateGroup && candidateGroup.length > 0) {
+        const reused = candidateGroup.shift() || [];
+        const remapped = reused.map((shot) => ({
+          ...shot,
+          sceneId: String(scene.id),
+          characters: remapIds(shot.characters, characterIdRemap, validCharacterIds),
+          props: remapIds(shot.props, propIdRemap, validPropIds),
+          keyframes: normalizeShotKeyframes(shot, index, visualStyle)
+        }));
+        logScriptProgress(`场景「${scene.location}」命中增量复用，跳过AI分镜生成（复用 ${remapped.length} 条）`);
+        return remapped;
+      }
+    }
 
     if (!paragraphs.trim()) {
       console.warn(`⚠️ 场景 ${index + 1} 缺少可用段落，使用兜底分镜填充 ${shotsPerScene} 条`);
@@ -877,25 +1399,34 @@ Requirements:
       }
 
       const result = normalizedShots.map((s: any, shotIndex: number) => {
-        const normalizedCharacters = Array.isArray(s?.characters)
-          ? s.characters.map((id: any) => String(id)).filter((id: string) => validCharacterIds.has(id))
-          : [];
-        const normalizedProps = Array.isArray(s?.props)
-          ? s.props.map((id: any) => String(id)).filter((id: string) => validPropIds.has(id))
-          : [];
-        const keyframes = Array.isArray(s?.keyframes) && s.keyframes.length > 0
-          ? s.keyframes
-          : [
-              { id: `auto-${scene.id}-${shotIndex + 1}-start`, type: 'start', visualPrompt: `${s?.actionSummary || '镜头'} 起始画面` },
-              { id: `auto-${scene.id}-${shotIndex + 1}-end`, type: 'end', visualPrompt: `${s?.actionSummary || '镜头'} 结束画面` }
-            ];
+        const normalizedCharacters = Array.from(
+          new Set(
+            (Array.isArray(s?.characters) ? s.characters : [])
+              .map((id: any) => String(id))
+              .filter((id: string) => validCharacterIds.has(id))
+          )
+        );
+        const normalizedProps = Array.from(
+          new Set(
+            (Array.isArray(s?.props) ? s.props : [])
+              .map((id: any) => String(id))
+              .filter((id: string) => validPropIds.has(id))
+          )
+        );
 
         return {
           ...s,
           sceneId: String(scene.id),
           characters: normalizedCharacters,
           props: normalizedProps,
-          keyframes
+          keyframes: normalizeShotKeyframes(
+            {
+              ...(s as Shot),
+              actionSummary: String(s?.actionSummary || '').trim()
+            },
+            shotIndex,
+            visualStyle
+          )
         };
       });
 
@@ -952,35 +1483,44 @@ Requirements:
     throw new Error('分镜生成失败：AI返回为空（可能是 JSON 结构不匹配或场景内容未被识别）。请打开控制台查看分镜生成日志。');
   }
 
-  return allShots.map((s, idx) => ({
+  const normalizedShots = allShots.map((s, idx) => ({
     ...s,
     id: `shot-${idx + 1}`,
-    characters: Array.isArray(s.characters)
-      ? s.characters.map(id => String(id)).filter(id => validCharacterIds.has(id))
-      : [],
-    props: Array.isArray(s.props)
-      ? s.props.map(id => String(id)).filter(id => validPropIds.has(id))
-      : [],
-    keyframes: Array.isArray(s.keyframes) ? s.keyframes.map((k: any) => ({
-      ...k,
-      id: `kf-${idx + 1}-${k.type === 'end' ? 'end' : 'start'}`,
-      type: k.type === 'end' ? 'end' : 'start',
-      status: 'pending'
-    })) : [
-      {
-        id: `kf-${idx + 1}-start`,
-        type: 'start',
-        visualPrompt: `${s.actionSummary || '镜头'} 起始画面`,
-        status: 'pending'
-      },
-      {
-        id: `kf-${idx + 1}-end`,
-        type: 'end',
-        visualPrompt: `${s.actionSummary || '镜头'} 结束画面`,
-        status: 'pending'
-      }
-    ]
+    characters: Array.from(
+      new Set(
+        (Array.isArray(s.characters) ? s.characters : [])
+          .map(id => String(id))
+          .filter(id => validCharacterIds.has(id))
+      )
+    ),
+    props: Array.from(
+      new Set(
+        (Array.isArray(s.props) ? s.props : [])
+          .map(id => String(id))
+          .filter(id => validPropIds.has(id))
+      )
+    ),
+    keyframes: normalizeShotKeyframes(s, idx, visualStyle)
   }));
+
+  const qualityCheckedShots = enableQualityCheck
+    ? applyScriptStageQualityPipeline(
+        normalizedShots,
+        scriptData,
+        validCharacterIds,
+        validPropIds,
+        visualStyle
+      )
+    : normalizedShots.map(shot => {
+        if (!('qualityAssessment' in shot)) return shot;
+        const { qualityAssessment, ...rest } = shot as Shot & { qualityAssessment?: ShotQualityAssessment };
+        return rest as Shot;
+      });
+  if (!enableQualityCheck) {
+    logScriptProgress('分镜质量校验已关闭，跳过自动打分与修复。');
+  }
+  logScriptProgress(`分镜生成完成，总耗时 ${Math.round((Date.now() - overallStartTime) / 1000)}s`);
+  return qualityCheckedShots;
 };
 
 // ============================================

@@ -25,6 +25,8 @@ interface Props {
   onCustomDurationChange: (value: string) => void;
   onCustomModelChange: (value: string) => void;
   onCustomStyleChange: (value: string) => void;
+  enableQualityCheck: boolean;
+  onToggleQualityCheck: (value: boolean) => void;
   onAnalyze: () => void;
   analyzeButtonLabel?: string;
   canCancelAnalyze?: boolean;
@@ -64,6 +66,8 @@ const ConfigPanel: React.FC<Props> = ({
   onCustomDurationChange,
   onCustomModelChange,
   onCustomStyleChange,
+  enableQualityCheck,
+  onToggleQualityCheck,
   onAnalyze,
   analyzeButtonLabel,
   canCancelAnalyze,
@@ -170,6 +174,25 @@ const ConfigPanel: React.FC<Props> = ({
           customPlaceholder="输入风格（如 水彩、像素、写实）"
           gridCols={2}
         />
+
+        <div className="space-y-2">
+          <label className={STYLES.label}>质量控制</label>
+          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)]/40 px-3 py-2">
+            <input
+              type="checkbox"
+              checked={enableQualityCheck}
+              onChange={(e) => onToggleQualityCheck(e.target.checked)}
+              disabled={isProcessing}
+              className="mt-0.5 h-4 w-4 rounded border-[var(--border-primary)] bg-[var(--bg-primary)] text-[var(--accent-text)]"
+            />
+            <span className="text-xs text-[var(--text-secondary)]">
+              启用分镜质量校验与自动修复（推荐）
+            </span>
+          </label>
+          <p className="text-[10px] text-[var(--text-muted)]">
+            开启后会在分镜生成完成时自动打分并修复坏点（字段缺失、关键帧结构问题、资产ID非法等）。
+          </p>
+        </div>
       </div>
 
       <div className="p-6 border-t border-[var(--border-primary)] bg-[var(--bg-primary)]">

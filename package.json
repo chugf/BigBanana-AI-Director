@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "check:utf8": "node scripts/check-utf8.mjs",
+    "build": "npm run check:utf8 && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

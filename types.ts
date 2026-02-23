@@ -234,6 +234,15 @@ export interface ScriptData {
   scenes: Scene[];
   props: Prop[]; // 道具列表，用于保持多分镜间物品视觉一致性
   storyParagraphs: { id: number; text: string; sceneRefId: string }[];
+  generationMeta?: {
+    // Fingerprint of raw script + language (structure extraction inputs).
+    structureKey?: string;
+    // Fingerprint of structure + style/model/language (visual enrichment inputs).
+    visualsKey?: string;
+    // Fingerprint of visualized script + duration/model (shot generation inputs).
+    shotsKey?: string;
+    generatedAt?: number;
+  };
 }
 
 export interface RenderLog {
