@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
-import { resolveVideoPlaybackSrc } from '../services/videoStorageService';
+import { isOpfsVideoRef, resolveVideoPlaybackSrc } from '../services/videoStorageService';
 
 export const useResolvedVideoUrl = (videoUrl?: string): string | undefined => {
-  const [resolvedUrl, setResolvedUrl] = useState<string | undefined>(videoUrl);
+  const [resolvedUrl, setResolvedUrl] = useState<string | undefined>(() => {
+    if (!videoUrl || isOpfsVideoRef(videoUrl)) return undefined;
+    return videoUrl;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -13,6 +16,14 @@ export const useResolvedVideoUrl = (videoUrl?: string): string | undefined => {
       return () => undefined;
     }
 
+    if (!isOpfsVideoRef(videoUrl)) {
+      setResolvedUrl(videoUrl);
+      return () => undefined;
+    }
+
+    // Avoid binding custom OPFS scheme to <video src> before resolving.
+    setResolvedUrl(undefined);
+
     resolveVideoPlaybackSrc(videoUrl)
       .then(result => {
         if (cancelled) {
@@ -20,12 +31,12 @@ export const useResolvedVideoUrl = (videoUrl?: string): string | undefined => {
           return;
         }
         revoke = result.revoke;
-        setResolvedUrl(result.src || videoUrl);
+        setResolvedUrl(result.src || undefined);
       })
       .catch(error => {
         console.warn('Failed to resolve video playback source.', error);
         if (!cancelled) {
-          setResolvedUrl(videoUrl);
+          setResolvedUrl(undefined);
         }
       });
 
