@@ -13,10 +13,12 @@ interface ShotWorkbenchProps {
   currentVideoModelId: string;
   nextShotHasStartFrame?: boolean; // 下一个镜头是否有首帧
   isAIOptimizing?: boolean;
+  isAIReassessing?: boolean;
   isSplittingShot?: boolean;
   onClose: () => void;
   onPrevious: () => void;
   onNext: () => void;
+  onAIReassessQuality: () => void;
   onEditActionSummary: () => void;
   onGenerateAIAction: () => void;
   onSplitShot: () => void;
@@ -54,10 +56,12 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   currentVideoModelId,
   nextShotHasStartFrame = false,
   isAIOptimizing = false,
+  isAIReassessing = false,
   isSplittingShot = false,
   onClose,
   onPrevious,
   onNext,
+  onAIReassessQuality,
   onEditActionSummary,
   onGenerateAIAction,
   onSplitShot,
@@ -106,6 +110,11 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
     : quality?.grade === 'warning'
       ? 'bg-[var(--warning-bg)] text-[var(--warning-text)] border-[var(--warning-border)]'
       : 'bg-[var(--error-hover-bg)] text-[var(--error-text)] border-[var(--error-border)]';
+  const qualitySourceLabel = quality
+    ? quality.version >= 2
+      ? 'AI评估 V2'
+      : '规则评分 V1'
+    : '';
 
   const checkLabelMap: Record<string, string> = {
     'prompt-readiness': '提示词完整度',
@@ -200,15 +209,34 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
       <div className="flex-1 overflow-y-auto p-6 space-y-8">
         {quality && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <h4 className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">质量评估</h4>
-              <span className={`px-2 py-1 rounded-md text-[10px] font-mono border ${qualityBadgeClass}`}>
-                评分 {quality.score} · {qualityGradeLabel}
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onAIReassessQuality}
+                  disabled={isAIReassessing}
+                  className="px-2 py-1 rounded-md text-[10px] font-semibold border border-[var(--accent-border)] text-[var(--accent-text)] hover:bg-[var(--accent-bg)] disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1"
+                  title="使用大模型重新评估当前镜头质量"
+                >
+                  {isAIReassessing ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3 h-3" />
+                  )}
+                  {isAIReassessing ? '评估中...' : 'AI重评估'}
+                </button>
+                <span className={`px-2 py-1 rounded-md text-[10px] font-mono border ${qualityBadgeClass}`}>
+                  评分 {quality.score} · {qualityGradeLabel}
+                </span>
+              </div>
             </div>
             <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] p-3 space-y-2">
               <p className="text-xs text-[var(--text-secondary)]">{qualitySummary}</p>
-              <p className="text-[10px] text-[var(--text-muted)]">注：这里显示的是总分与等级，不是“警告条数”。点击每项右侧 ? 可查看评分依据。</p>
+              <p className="text-[10px] text-[var(--text-muted)]">
+                来源：{qualitySourceLabel} · 评分时间：{new Date(quality.generatedAt).toLocaleString()}
+              </p>
+              <p className="text-[10px] text-[var(--text-muted)]">注：这里显示的是总分和等级，不是“warning条数”。点击每项右侧 ? 可查看评分依据。</p>
               <div className="space-y-1.5">
                 {quality.checks.map((check) => (
                   <div key={check.key} className="space-y-1">

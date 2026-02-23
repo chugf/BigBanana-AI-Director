@@ -34,6 +34,7 @@ import { getUserAspectRatio, setUserAspectRatio, getModelById, getActiveImageMod
 import { persistVideoReference } from '../../services/videoStorageService';
 import { runKeyframePreflight, runVideoPreflight, formatLintIssues } from '../../services/promptLintService';
 import { assessShotQuality, getProjectAverageQualityScore } from '../../services/qualityAssessmentService';
+import { assessShotQualityWithLLM } from '../../services/qualityAssessmentV2Service';
 import { updatePromptWithVersion } from '../../services/promptVersionService';
 
 interface Props {
@@ -49,6 +50,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
   const [batchProgress, setBatchProgress] = useState<{current: number, total: number, message: string} | null>(null);
   const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
   const [isAIGenerating, setIsAIGenerating] = useState(false);
+  const [isAIReassessing, setIsAIReassessing] = useState(false);
   const [useAIEnhancement, setUseAIEnhancement] = useState(false); // 是否使用AI增强提示词
   const [isSplittingShot, setIsSplittingShot] = useState(false); // 是否正在拆分镜头
   const [showNineGrid, setShowNineGrid] = useState(false); // 是否显示九宫格预览弹窗
@@ -289,6 +291,32 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
           : shot
       )
     }));
+  };
+
+  const handleAIReassessQuality = async () => {
+    if (!activeShot) return;
+    const targetShotId = activeShot.id;
+    setIsAIReassessing(true);
+
+    try {
+      const assessment = await assessShotQualityWithLLM(activeShot, project.scriptData);
+      updateProject((prevProject: ProjectState) => ({
+        ...prevProject,
+        shots: prevProject.shots.map((shot) =>
+          shot.id === targetShotId
+            ? { ...shot, qualityAssessment: assessment }
+            : shot
+        )
+      }));
+
+      const sourceLabel = assessment.version >= 2 ? 'AI V2' : 'Rule V1 Fallback';
+      showAlert(`质量评分已更新（${sourceLabel}）：${assessment.score} 分`, { type: 'success' });
+    } catch (error: any) {
+      if (onApiKeyError && onApiKeyError(error)) return;
+      showAlert(`AI重评估失败：${formatUserFriendlyError(error, '请稍后重试。')}`, { type: 'error' });
+    } finally {
+      setIsAIReassessing(false);
+    }
   };
 
   /**
@@ -1420,10 +1448,12 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
             currentVideoModelId={activeShot.videoModel || DEFAULTS.videoModel}
             nextShotHasStartFrame={!!project.shots[activeShotIndex + 1]?.keyframes?.find(k => k.type === 'start')?.imageUrl}
             isAIOptimizing={isAIGenerating}
+            isAIReassessing={isAIReassessing}
             isSplittingShot={isSplittingShot}
             onClose={() => setActiveShotId(null)}
             onPrevious={() => setActiveShotId(project.shots[activeShotIndex - 1].id)}
             onNext={() => setActiveShotId(project.shots[activeShotIndex + 1].id)}
+            onAIReassessQuality={handleAIReassessQuality}
             onEditActionSummary={() => setEditModal({ type: 'action', value: activeShot.actionSummary })}
             onGenerateAIAction={handleGenerateAIAction}
             onSplitShot={() => handleSplitShot(activeShot)}
