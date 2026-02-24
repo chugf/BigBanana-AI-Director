@@ -83,6 +83,51 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     return JSON.parse(JSON.stringify(data)) as ScriptData;
   };
 
+  const dedupeByKey = <T,>(items: T[], getKey: (item: T) => string): T[] => {
+    const map = new Map<string, T>();
+    items.forEach(item => map.set(getKey(item), item));
+    return Array.from(map.values());
+  };
+
+  const rebuildAssetRefsFromScriptData = (
+    scriptData: ScriptData
+  ): Pick<ProjectState, 'characterRefs' | 'sceneRefs' | 'propRefs'> => {
+    const characterRefs = dedupeByKey(
+      (scriptData.characters || [])
+        .filter(char => !!char.libraryId)
+        .map(char => ({
+          characterId: char.libraryId as string,
+          syncedVersion: char.libraryVersion || 1,
+          syncStatus: 'synced' as const,
+        })),
+      ref => ref.characterId
+    );
+
+    const sceneRefs = dedupeByKey(
+      (scriptData.scenes || [])
+        .filter(scene => !!scene.libraryId)
+        .map(scene => ({
+          sceneId: scene.libraryId as string,
+          syncedVersion: scene.libraryVersion || 1,
+          syncStatus: 'synced' as const,
+        })),
+      ref => ref.sceneId
+    );
+
+    const propRefs = dedupeByKey(
+      (scriptData.props || [])
+        .filter(prop => !!prop.libraryId)
+        .map(prop => ({
+          propId: prop.libraryId as string,
+          syncedVersion: prop.libraryVersion || 1,
+          syncStatus: 'synced' as const,
+        })),
+      ref => ref.propId
+    );
+
+    return { characterRefs, sceneRefs, propRefs };
+  };
+
   const attachGenerationMeta = (
     source: ScriptData,
     patch: Partial<NonNullable<ScriptData['generationMeta']>>
@@ -606,7 +651,6 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
                 title: workingScriptData!.title
               });
               updateProject({
-                scriptData: workingScriptData!,
                 isParsingScript: false,
                 scriptGenerationCheckpoint: null
               });
@@ -620,12 +664,13 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
         }
       }
 
+      const rebuiltRefs = rebuildAssetRefsFromScriptData(workingScriptData!);
       updateProject({
         scriptData: workingScriptData!,
         shots,
-        characterRefs: [],
-        sceneRefs: [],
-        propRefs: [],
+        characterRefs: rebuiltRefs.characterRefs,
+        sceneRefs: rebuiltRefs.sceneRefs,
+        propRefs: rebuiltRefs.propRefs,
         isParsingScript: false,
         title: workingScriptData!.title,
         scriptGenerationCheckpoint: null
@@ -680,13 +725,14 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
   const handleAssetMatchCancel = () => {
     if (!pendingParseResult) return;
     const { scriptData, shots, title } = pendingParseResult;
+    const rebuiltRefs = rebuildAssetRefsFromScriptData(scriptData);
 
     updateProject({
       scriptData,
       shots,
-      characterRefs: [],
-      sceneRefs: [],
-      propRefs: [],
+      characterRefs: rebuiltRefs.characterRefs,
+      sceneRefs: rebuiltRefs.sceneRefs,
+      propRefs: rebuiltRefs.propRefs,
       isParsingScript: false,
       title,
       scriptGenerationCheckpoint: null,
