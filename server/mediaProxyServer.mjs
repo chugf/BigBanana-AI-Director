@@ -168,7 +168,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === '/api/media-proxy' || pathname === '/__bb_proxy_media') {
+    if (pathname === '/api/media-proxy') {
       await handleProxyRequest(req, res, requestUrl);
       return;
     }
@@ -184,4 +184,3 @@ server.listen(PORT, HOST, () => {
     `[media-proxy] listening on http://${HOST}:${PORT} | allowed hosts: ${allowedHostSuffixes.join(', ')}`
   );
 });
-

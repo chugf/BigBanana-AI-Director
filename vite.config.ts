@@ -74,7 +74,6 @@ const createDevMediaProxyPlugin = (): Plugin => ({
     };
 
     server.middlewares.use('/api/media-proxy', handler);
-    server.middlewares.use('/__bb_proxy_media', handler);
   },
 });
 
