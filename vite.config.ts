@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react';
 const createDevMediaProxyPlugin = (): Plugin => ({
   name: 'dev-media-proxy',
   configureServer(server) {
-    server.middlewares.use('/__bb_proxy_media', async (req, res) => {
+    const handler = async (req: any, res: any) => {
       try {
         const requestUrl = new URL(req.url || '', 'http://localhost');
         const target = requestUrl.searchParams.get('url');
@@ -71,7 +71,10 @@ const createDevMediaProxyPlugin = (): Plugin => ({
           })
         );
       }
-    });
+    };
+
+    server.middlewares.use('/api/media-proxy', handler);
+    server.middlewares.use('/__bb_proxy_media', handler);
   },
 });
 
