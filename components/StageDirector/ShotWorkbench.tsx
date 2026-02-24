@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -138,6 +138,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   const [expandedCheckKey, setExpandedCheckKey] = useState<string | null>(null);
   const [isAdvancedMode, setIsAdvancedMode] = useState(false);
   const [expandedSection, setExpandedSection] = useState<SectionKey>('context');
+  const lastAutoExpandedShotRef = useRef<string | null>(null);
 
   useEffect(() => {
     setLocalVideoModelId(currentVideoModelId);
@@ -205,6 +206,11 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   const isVideoGenerating = shot.interval?.status === 'generating';
 
   useEffect(() => {
+    if (lastAutoExpandedShotRef.current === shot.id) {
+      return;
+    }
+    lastAutoExpandedShotRef.current = shot.id;
+
     if (!hasActionSummary) {
       setExpandedSection('narrative');
       return;
