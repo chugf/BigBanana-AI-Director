@@ -4,6 +4,7 @@
 
 import { Scene } from '../../types';
 import { parseDurationToSeconds } from '../../services/durationParser';
+import { SCRIPT_HARD_LIMIT } from './constants';
 
 /**
  * 获取最终选择的值（处理自定义选项）
@@ -47,8 +48,16 @@ export const validateConfig = (config: {
   model: string;
   visualStyle: string;
 }): { valid: boolean; error: string | null } => {
-  if (!config.script.trim()) {
+  const scriptText = config.script || '';
+
+  if (!scriptText.trim()) {
     return { valid: false, error: '请输入剧本内容。' };
+  }
+  if (scriptText.length > SCRIPT_HARD_LIMIT) {
+    return {
+      valid: false,
+      error: `当前剧本长度 ${scriptText.length} 字符，已超过上限 ${SCRIPT_HARD_LIMIT}。请拆分为多集后再生成分镜。`
+    };
   }
   if (!config.duration) {
     return { valid: false, error: '请选择目标时长。' };

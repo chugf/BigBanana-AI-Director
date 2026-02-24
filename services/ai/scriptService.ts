@@ -1528,12 +1528,72 @@ Requirements:
 // 剧本续写/改写
 // ============================================
 
+interface ContinueScriptOptions {
+  maxAppendChars?: number;
+  maxTotalChars?: number;
+}
+
+interface RewriteScriptOptions {
+  maxOutputChars?: number;
+}
+
+const toPositiveInteger = (value?: number): number | undefined => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const normalized = Math.floor(value);
+  return normalized > 0 ? normalized : undefined;
+};
+
+const trimByCharLimit = (text: string, maxChars?: number): string => {
+  if (!maxChars) return text;
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars);
+};
+
+const resolveContinueLimits = (
+  existingScript: string,
+  options?: ContinueScriptOptions
+): {
+  existingLength: number;
+  maxAppendChars: number;
+  maxTotalChars?: number;
+} => {
+  const existingLength = existingScript.length;
+  const safeMaxTotal = toPositiveInteger(options?.maxTotalChars);
+  const totalBudget = safeMaxTotal !== undefined
+    ? Math.max(0, safeMaxTotal - existingLength)
+    : undefined;
+  const requestedAppend = toPositiveInteger(options?.maxAppendChars);
+  const defaultAppend = Math.max(240, Math.floor(existingLength * 0.5));
+  const candidateAppend = requestedAppend ?? defaultAppend;
+  const maxAppendChars = totalBudget !== undefined
+    ? Math.max(0, Math.min(candidateAppend, totalBudget))
+    : candidateAppend;
+
+  return {
+    existingLength,
+    maxAppendChars,
+    maxTotalChars: safeMaxTotal
+  };
+};
+
 /**
  * AI续写功能 - 基于已有剧本内容续写后续情节
  */
-export const continueScript = async (existingScript: string, language: string = '中文', model: string = 'gpt-5.1'): Promise<string> => {
+export const continueScript = async (
+  existingScript: string,
+  language: string = '中文',
+  model: string = 'gpt-5.1',
+  options?: ContinueScriptOptions
+): Promise<string> => {
   console.log('✍️ continueScript 调用 - 使用模型:', model);
   const startTime = Date.now();
+  const limits = resolveContinueLimits(existingScript, options);
+
+  if (limits.maxAppendChars <= 0) {
+    throw new Error(
+      `当前剧本已达到长度上限（${limits.maxTotalChars ?? limits.existingLength} 字符），请拆分为多集或精简后再续写。`
+    );
+  }
 
   const prompt = `
 你是一位资深剧本创作者。请在充分理解下方已有剧本内容的基础上，续写后续情节。
@@ -1542,10 +1602,12 @@ export const continueScript = async (existingScript: string, language: string = 
 1. 严格保持原剧本的风格、语气、人物性格和叙事节奏，确保无明显风格断层。
 2. 情节发展需自然流畅，逻辑严密，因果关系合理，避免突兀转折。
 3. 有效增加戏剧冲突和情感张力，使故事更具吸引力和张力。
-4. 续写内容应为原有剧本长度的30%-50%，字数适中，避免过短或过长。
+4. 续写内容建议控制在原有剧本长度的30%-50%，但必须小于等于 ${limits.maxAppendChars} 字符。
 5. 保持剧本的原有格式，包括场景描述、人物对白、舞台指示等，确保格式一致。
 6. 输出语言为：${language}，用词准确、表达流畅。
 7. 仅输出续写剧本内容，不添加任何说明、前缀或后缀。
+8. 若剧情信息量过大，请优先保留关键冲突并简洁推进，不要冗长铺陈。
+9. 当前已有剧本长度为 ${limits.existingLength} 字符。${limits.maxTotalChars ? `续写后总长度不得超过 ${limits.maxTotalChars} 字符。` : ''}
 
 已有剧本内容：
 ${existingScript}
@@ -1555,6 +1617,10 @@ ${existingScript}
 
   try {
     const result = await retryOperation(() => chatCompletion(prompt, model, 0.8, 4096));
+    const trimmedResult = trimByCharLimit(result, limits.maxAppendChars);
+    if (trimmedResult.length < result.length) {
+      console.warn(`⚠️ continueScript 输出超限，已自动截断到 ${limits.maxAppendChars} 字符`);
+    }
     const duration = Date.now() - startTime;
 
     await addRenderLogWithTokens({
@@ -1567,7 +1633,7 @@ ${existingScript}
       prompt: existingScript.substring(0, 200) + '...'
     });
 
-    return result;
+    return trimmedResult;
   } catch (error) {
     console.error('❌ 续写失败:', error);
     throw error;
@@ -1581,10 +1647,18 @@ export const continueScriptStream = async (
   existingScript: string,
   language: string = '中文',
   model: string = 'gpt-5.1',
-  onDelta?: (delta: string) => void
+  onDelta?: (delta: string) => void,
+  options?: ContinueScriptOptions
 ): Promise<string> => {
   console.log('✍️ continueScriptStream 调用 - 使用模型:', model);
   const startTime = Date.now();
+  const limits = resolveContinueLimits(existingScript, options);
+
+  if (limits.maxAppendChars <= 0) {
+    throw new Error(
+      `当前剧本已达到长度上限（${limits.maxTotalChars ?? limits.existingLength} 字符），请拆分为多集或精简后再续写。`
+    );
+  }
 
   const prompt = `
 你是一位资深剧本创作者。请在充分理解下方已有剧本内容的基础上，续写后续情节。
@@ -1593,10 +1667,12 @@ export const continueScriptStream = async (
 1. 严格保持原剧本的风格、语气、人物性格和叙事节奏，确保无明显风格断层。
 2. 情节发展需自然流畅，逻辑严密，因果关系合理，避免突兀转折。
 3. 有效增加戏剧冲突和情感张力，使故事更具吸引力和张力。
-4. 续写内容应为原有剧本长度的30%-50%，字数适中，避免过短或过长。
+4. 续写内容建议控制在原有剧本长度的30%-50%，但必须小于等于 ${limits.maxAppendChars} 字符。
 5. 保持剧本的原有格式，包括场景描述、人物对白、舞台指示等，确保格式一致。
 6. 输出语言为：${language}，用词准确、表达流畅。
 7. 仅输出续写剧本内容，不添加任何说明、前缀或后缀。
+8. 若剧情信息量过大，请优先保留关键冲突并简洁推进，不要冗长铺陈。
+9. 当前已有剧本长度为 ${limits.existingLength} 字符。${limits.maxTotalChars ? `续写后总长度不得超过 ${limits.maxTotalChars} 字符。` : ''}
 
 已有剧本内容：
 ${existingScript}
@@ -1605,7 +1681,23 @@ ${existingScript}
 `;
 
   try {
-    const result = await retryOperation(() => chatCompletionStream(prompt, model, 0.8, undefined, 600000, onDelta));
+    let streamedLength = 0;
+    const guardedOnDelta = onDelta
+      ? (delta: string) => {
+          const remaining = limits.maxAppendChars - streamedLength;
+          if (remaining <= 0) return;
+          const safeDelta = delta.slice(0, remaining);
+          if (!safeDelta) return;
+          streamedLength += safeDelta.length;
+          onDelta(safeDelta);
+        }
+      : undefined;
+
+    const rawResult = await retryOperation(() => chatCompletionStream(prompt, model, 0.8, undefined, 600000, guardedOnDelta));
+    const result = trimByCharLimit(rawResult, limits.maxAppendChars);
+    if (result.length < rawResult.length) {
+      console.warn(`⚠️ continueScriptStream 输出超限，已自动截断到 ${limits.maxAppendChars} 字符`);
+    }
     const duration = Date.now() - startTime;
 
     await addRenderLogWithTokens({
@@ -1628,9 +1720,15 @@ ${existingScript}
 /**
  * AI改写功能 - 对整个剧本进行改写
  */
-export const rewriteScript = async (originalScript: string, language: string = '中文', model: string = 'gpt-5.1'): Promise<string> => {
+export const rewriteScript = async (
+  originalScript: string,
+  language: string = '中文',
+  model: string = 'gpt-5.1',
+  options?: RewriteScriptOptions
+): Promise<string> => {
   console.log('🔄 rewriteScript 调用 - 使用模型:', model);
   const startTime = Date.now();
+  const maxOutputChars = toPositiveInteger(options?.maxOutputChars);
 
   const prompt = `
 你是一位顶级剧本编剧顾问，擅长提升剧本的结构、情感和戏剧张力。请对下方提供的剧本进行系统性、创造性改写，目标是使剧本在连贯性、流畅性和戏剧冲突等方面显著提升。
@@ -1644,9 +1742,10 @@ export const rewriteScript = async (originalScript: string, language: string = '
 5. 强化戏剧冲突，突出人物之间的矛盾与情感张力，增加情节的吸引力和感染力。
 6. 深化人物内心活动和情感描写，提升剧本的情感深度。
 7. 优化整体节奏，合理分配高潮与缓和段落，避免情节拖沓或推进过快。
-8. 保持或适度增加剧本内容长度，确保内容充实但不过度冗长。
+8. 保持或适度增加剧本内容长度，确保内容充实但不过度冗长。${maxOutputChars ? `改写后完整剧本必须小于等于 ${maxOutputChars} 字符。` : ''}
 9. 严格遵循剧本格式规范，包括场景标注、人物台词、舞台指示等。
 10. 输出语言为：${language}，确保语言风格与剧本类型相符。
+11. 如果内容复杂，请通过精炼表达保证质量，但不得超过字数上限。
 
 原始剧本内容如下：
 ${originalScript}
@@ -1655,7 +1754,11 @@ ${originalScript}
 `;
 
   try {
-    const result = await retryOperation(() => chatCompletion(prompt, model, 0.7, 8192));
+    const rawResult = await retryOperation(() => chatCompletion(prompt, model, 0.7, 8192));
+    const result = trimByCharLimit(rawResult, maxOutputChars);
+    if (result.length < rawResult.length && maxOutputChars) {
+      console.warn(`⚠️ rewriteScript 输出超限，已自动截断到 ${maxOutputChars} 字符`);
+    }
     const duration = Date.now() - startTime;
 
     await addRenderLogWithTokens({
@@ -1682,10 +1785,12 @@ export const rewriteScriptStream = async (
   originalScript: string,
   language: string = '中文',
   model: string = 'gpt-5.1',
-  onDelta?: (delta: string) => void
+  onDelta?: (delta: string) => void,
+  options?: RewriteScriptOptions
 ): Promise<string> => {
   console.log('🔄 rewriteScriptStream 调用 - 使用模型:', model);
   const startTime = Date.now();
+  const maxOutputChars = toPositiveInteger(options?.maxOutputChars);
 
   const prompt = `
 你是一位顶级剧本编剧顾问，擅长提升剧本的结构、情感和戏剧张力。请对下方提供的剧本进行系统性、创造性改写，目标是使剧本在连贯性、流畅性和戏剧冲突等方面显著提升。
@@ -1699,9 +1804,10 @@ export const rewriteScriptStream = async (
 5. 强化戏剧冲突，突出人物之间的矛盾与情感张力，增加情节的吸引力和感染力。
 6. 深化人物内心活动和情感描写，提升剧本的情感深度。
 7. 优化整体节奏，合理分配高潮与缓和段落，避免情节拖沓或推进过快。
-8. 保持或适度增加剧本内容长度，确保内容充实但不过度冗长。
+8. 保持或适度增加剧本内容长度，确保内容充实但不过度冗长。${maxOutputChars ? `改写后完整剧本必须小于等于 ${maxOutputChars} 字符。` : ''}
 9. 严格遵循剧本格式规范，包括场景标注、人物台词、舞台指示等。
 10. 输出语言为：${language}，确保语言风格与剧本类型相符。
+11. 如果内容复杂，请通过精炼表达保证质量，但不得超过字数上限。
 
 原始剧本内容如下：
 ${originalScript}
@@ -1710,7 +1816,27 @@ ${originalScript}
 `;
 
   try {
-    const result = await retryOperation(() => chatCompletionStream(prompt, model, 0.7, undefined, 600000, onDelta));
+    let streamedLength = 0;
+    const guardedOnDelta = onDelta
+      ? (delta: string) => {
+          if (!maxOutputChars) {
+            onDelta(delta);
+            return;
+          }
+          const remaining = maxOutputChars - streamedLength;
+          if (remaining <= 0) return;
+          const safeDelta = delta.slice(0, remaining);
+          if (!safeDelta) return;
+          streamedLength += safeDelta.length;
+          onDelta(safeDelta);
+        }
+      : undefined;
+
+    const rawResult = await retryOperation(() => chatCompletionStream(prompt, model, 0.7, undefined, 600000, guardedOnDelta));
+    const result = trimByCharLimit(rawResult, maxOutputChars);
+    if (result.length < rawResult.length && maxOutputChars) {
+      console.warn(`⚠️ rewriteScriptStream 输出超限，已自动截断到 ${maxOutputChars} 字符`);
+    }
     const duration = Date.now() - startTime;
 
     await addRenderLogWithTokens({

@@ -21,6 +21,7 @@ import { Shot, ProjectState, AspectRatio, VideoDuration, NineGridData, NineGridP
 import SceneContext from './SceneContext';
 import KeyframeEditor from './KeyframeEditor';
 import VideoGenerator from './VideoGenerator';
+import { resolveVideoModelRouting } from './utils';
 
 interface ShotWorkbenchProps {
   shot: Shot;
@@ -125,8 +126,8 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
     setLocalVideoModelId(currentVideoModelId);
   }, [currentVideoModelId]);
 
-  const normalizedModelId = localVideoModelId.trim().toLowerCase();
-  const showEndFrame = normalizedModelId.startsWith('veo');
+  const modelRouting = resolveVideoModelRouting(localVideoModelId || currentVideoModelId || 'sora-2');
+  const showEndFrame = modelRouting.supportsEndFrame;
   const hasStartFrame = !!startKf?.imageUrl;
   const hasEndFrame = !!endKf?.imageUrl;
   const keyframeReady = hasStartFrame && (!showEndFrame || hasEndFrame);

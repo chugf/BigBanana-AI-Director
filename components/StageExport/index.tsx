@@ -1,7 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Film } from 'lucide-react';
 import { ProjectState } from '../../types';
-import { downloadMasterVideo, downloadSourceAssets } from '../../services/exportService';
+import {
+  downloadMasterVideo,
+  downloadSourceAssets,
+  MasterExportMode,
+  MasterVideoQuality,
+} from '../../services/exportService';
 import { exportProjectData } from '../../services/storageService';
 import { STYLES } from './constants';
 import {
@@ -38,6 +43,8 @@ const StageExport: React.FC<Props> = ({ project }) => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadPhase, setDownloadPhase] = useState('');
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [exportMode, setExportMode] = useState<MasterExportMode>('master-video');
+  const [exportQuality, setExportQuality] = useState<MasterVideoQuality>('balanced');
 
   // Source Assets Download state
   const [isDownloadingAssets, setIsDownloadingAssets] = useState(false);
@@ -114,7 +121,10 @@ const StageExport: React.FC<Props> = ({ project }) => {
 
   // Handle master video download
   const handleDownloadMaster = async () => {
-    if (isDownloading || progress < 100) return;
+    const canDownloadMaster = progress === 100;
+    const canDownloadSegments = completedShots.length > 0;
+    const canDownloadByMode = exportMode === 'segments-zip' ? canDownloadSegments : canDownloadMaster;
+    if (isDownloading || !canDownloadByMode) return;
     
     setIsDownloading(true);
     setDownloadProgress(0);
@@ -123,6 +133,9 @@ const StageExport: React.FC<Props> = ({ project }) => {
       await downloadMasterVideo(project, (phase, prog) => {
         setDownloadPhase(phase);
         setDownloadProgress(prog);
+      }, {
+        mode: exportMode,
+        quality: exportQuality,
       });
       
       setTimeout(() => {
@@ -227,6 +240,10 @@ const StageExport: React.FC<Props> = ({ project }) => {
                 phase: downloadPhase,
                 progress: downloadProgress
               }}
+              exportMode={exportMode}
+              exportQuality={exportQuality}
+              onExportModeChange={setExportMode}
+              onExportQualityChange={setExportQuality}
               onPreview={openVideoPlayer}
               onDownloadMaster={handleDownloadMaster}
             />

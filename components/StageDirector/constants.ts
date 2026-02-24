@@ -50,7 +50,8 @@ export const VIDEO_PROMPT_TEMPLATES = {
 - 运动：确保动作流畅自然，避免突兀的跳跃或不连续
 - 视觉风格：电影质感，全程保持一致的光照和色调
 - 细节：保持角色外观和场景环境的全程一致性
-- 语言：配音和字幕使用中文`,
+- 音频：可使用中文配音/旁白
+- 文字限制：禁止字幕和任何画面文字（包括片头片尾字卡、屏幕UI文字）`,
     
     english: `Generate a video based on the provided reference image.
 
@@ -63,7 +64,8 @@ Technical Requirements:
 - Motion: Ensure smooth and natural movement, avoid abrupt jumps or discontinuities
 - Visual Style: Cinematic quality with consistent lighting and color tone throughout
 - Details: Maintain character appearance and scene environment consistency throughout
-- Language: Use {language} for voiceover and subtitles`
+- Audio: Voiceover/narration in {language} is allowed
+- Text constraints: No subtitles and no on-screen text (including title cards and UI text overlays)`
   },
   
   // 九宫格分镜模式的视频提示词（异步模型专用，精简版，避免超过8192字符限制）
@@ -80,7 +82,7 @@ Technical Requirements:
 
 视频从面板1全屏画面开始，按1→9顺序切换视角，形成蒙太奇剪辑。
 每个视角约{secondsPerPanel}秒，镜头运动：{cameraMovement}
-保持角色外观一致，电影质感，中文配音。`,
+保持角色外观一致，电影质感。可中文配音/旁白，但禁止字幕与任何画面文字。`,
 
     english: `⚠️ HIGHEST PRIORITY: The reference image is a 3x3 storyboard grid — NEVER show it in the video! The first frame MUST be the full-screen scene from Panel 1.
 ⛔ FORBIDDEN: Do NOT show the grid image, grid lines, thumbnail collection, or multi-panel layout in ANY frame.
@@ -93,7 +95,8 @@ Storyboard shot sequence (reference grid, left-to-right, top-to-bottom):
 
 Start video with Panel 1 full-screen, transition through 1→9 as a montage.
 ~{secondsPerPanel}s per angle. Camera: {cameraMovement}
-Maintain character consistency, cinematic quality. Language: {language}.`
+Maintain character consistency, cinematic quality.
+Voiceover in {language} is allowed, but no subtitles or any on-screen text.`
   },
 
   veo: {
@@ -101,7 +104,8 @@ Maintain character consistency, cinematic quality. Language: {language}.`
 视觉风格锚点：{visualStyle}
 
 镜头运动：{cameraMovement}
-配音语言：使用{language}配音`
+音频：可使用{language}配音/旁白
+文字限制：禁止字幕和任何画面文字`
   }
 };
 

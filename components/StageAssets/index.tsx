@@ -955,11 +955,40 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       if (!prop) return;
 
       let prompt = '';
+      let negativePrompt = prop.negativePrompt || '';
       if (prop.visualPrompt) {
         prompt = prop.visualPrompt;
       } else {
-        // Auto-generate prop prompt when missing.
-        prompt = `A detailed product shot of "${prop.name}". ${prop.description || ''}. Category: ${prop.category}. High quality, studio lighting, clean background, detailed texture and material rendering.`;
+        const prompts = await generateVisualPrompts(
+          'prop',
+          prop,
+          genre,
+          shotPromptModel,
+          visualStyle,
+          language,
+          scriptSnapshot.artDirection
+        );
+        prompt = prompts.visualPrompt;
+        negativePrompt = prompts.negativePrompt || negativePrompt;
+
+        // 保存 AI 生成的道具提示词和负面词，保证与角色/场景一致走统一链路
+        updateProject(prev => {
+          if (!prev.scriptData) return prev;
+          const newData = cloneScriptData(prev.scriptData);
+          const p = (newData.props || []).find(item => compareIds(item.id, propId));
+          if (p) {
+            p.promptVersions = updatePromptWithVersion(
+              p.visualPrompt,
+              prompts.visualPrompt,
+              p.promptVersions,
+              'ai-generated',
+              'Auto-generated prop prompt'
+            );
+            p.visualPrompt = prompts.visualPrompt;
+            p.negativePrompt = prompts.negativePrompt;
+          }
+          return { ...prev, scriptData: newData };
+        });
       }
 
       // Prop image: enforce object-only shot without human figures.
@@ -971,7 +1000,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         aspectRatio,
         false,
         false,
-        prop.negativePrompt || '',
+        negativePrompt,
         { referencePackType: 'prop' }
       );
 
@@ -992,6 +1021,9 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
               'Auto-generated prop prompt'
             );
             updated.visualPrompt = prompt;
+          }
+          if (!updated.negativePrompt && negativePrompt) {
+            updated.negativePrompt = negativePrompt;
           }
         }
         return { ...prev, scriptData: updatedData };

@@ -20,6 +20,7 @@ import {
   getActiveVideoModel,
   getActiveImageModel,
 } from '../modelRegistry';
+import { fetchMediaWithCorsFallback } from '../mediaFetchService';
 
 // ============================================
 // Script progress callback
@@ -526,7 +527,7 @@ export const verifyApiKey = async (key: string): Promise<{ success: boolean; mes
 /** Convert a remote video URL to data URL base64 */
 export const convertVideoUrlToBase64 = async (url: string): Promise<string> => {
   try {
-    const response = await fetch(url);
+    const response = await fetchMediaWithCorsFallback(url);
     if (!response.ok) {
       throw new Error(`Failed to fetch video: HTTP ${response.status}`);
     }

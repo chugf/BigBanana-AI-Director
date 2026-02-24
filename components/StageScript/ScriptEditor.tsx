@@ -4,6 +4,8 @@ import { STYLES } from './constants';
 
 interface Props {
   script: string;
+  scriptSoftLimit: number;
+  scriptHardLimit: number;
   onChange: (value: string) => void;
   onContinue: () => void;
   onRewrite: () => void;
@@ -21,6 +23,8 @@ interface Props {
 
 const ScriptEditor: React.FC<Props> = ({
   script,
+  scriptSoftLimit,
+  scriptHardLimit,
   onChange,
   onContinue,
   onRewrite,
@@ -43,6 +47,27 @@ const ScriptEditor: React.FC<Props> = ({
   const selectedPreview = selectedCount > 220
     ? `${selectedText.slice(0, 220)}...`
     : selectedText;
+  const scriptLengthStatus: 'normal' | 'warning' | 'error' =
+    stats.characters > scriptHardLimit
+      ? 'error'
+      : stats.characters > scriptSoftLimit
+        ? 'warning'
+        : 'normal';
+  const scriptLimitHint = scriptLengthStatus === 'error'
+    ? `超出上限 ${stats.characters}/${scriptHardLimit}，请拆分为多集`
+    : scriptLengthStatus === 'warning'
+      ? `接近上限 ${stats.characters}/${scriptHardLimit}（建议单集 ≤ ${scriptSoftLimit}）`
+      : `建议单集长度 ≤ ${scriptSoftLimit} 字符`;
+  const scriptLimitTextClass = scriptLengthStatus === 'error'
+    ? 'text-rose-300'
+    : scriptLengthStatus === 'warning'
+      ? 'text-amber-300'
+      : 'text-[var(--text-muted)]';
+  const scriptLimitDotClass = scriptLengthStatus === 'error'
+    ? 'bg-rose-300'
+    : scriptLengthStatus === 'warning'
+      ? 'bg-amber-300'
+      : 'bg-[var(--border-primary)]';
 
   const isBusy = isContinuing || isRewriting;
   const isBaseDisabled = isBusy || !script.trim();
@@ -183,12 +208,18 @@ const ScriptEditor: React.FC<Props> = ({
       </div>
 
       {/* Status Footer */}
-      <div className="h-8 border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 flex items-center justify-end gap-4 text-[10px] text-[var(--text-muted)] font-mono select-none">
-        <span>{stats.characters} 字符</span>
-        <span>{stats.lines} 行</span>
-        <div className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-[var(--border-primary)]"></div>
-          {lastModified ? '已自动保存' : '准备就绪'}
+      <div className="h-8 border-t border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 flex items-center justify-between gap-4 text-[10px] font-mono select-none">
+        <div className={`flex items-center gap-1.5 ${scriptLimitTextClass}`}>
+          <div className={`w-1.5 h-1.5 rounded-full ${scriptLimitDotClass}`}></div>
+          <span>{scriptLimitHint}</span>
+        </div>
+        <div className="flex items-center gap-4 text-[var(--text-muted)]">
+          <span>{stats.characters} 字符</span>
+          <span>{stats.lines} 行</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-[var(--border-primary)]"></div>
+            {lastModified ? '已自动保存' : '准备就绪'}
+          </div>
         </div>
       </div>
     </div>

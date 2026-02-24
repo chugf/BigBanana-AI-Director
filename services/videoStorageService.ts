@@ -1,4 +1,5 @@
 import { ProjectState, Shot } from '../types';
+import { fetchMediaWithCorsFallback } from './mediaFetchService';
 
 const VIDEO_DIRECTORY_NAME = 'videos';
 const OPFS_VIDEO_PREFIX = 'opfs://video/';
@@ -122,7 +123,7 @@ const blobToOpfsRef = async (blob: Blob, options?: PersistVideoOptions): Promise
 };
 
 const fetchBlobFromUrl = async (url: string): Promise<Blob> => {
-  const response = await fetch(url);
+  const response = await fetchMediaWithCorsFallback(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch media: HTTP ${response.status}`);
   }

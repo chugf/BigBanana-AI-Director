@@ -16,7 +16,7 @@ import {
   logScriptProgress,
 } from '../../services/aiService';
 import { getFinalValue, validateConfig } from './utils';
-import { DEFAULTS } from './constants';
+import { DEFAULTS, SCRIPT_SOFT_LIMIT, SCRIPT_HARD_LIMIT } from './constants';
 import ConfigPanel from './ConfigPanel';
 import ScriptEditor from './ScriptEditor';
 import SceneBreakdown from './SceneBreakdown';
@@ -434,6 +434,9 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
 
     if (!validation.valid) {
       setError(validation.error);
+      if (localScript.length > SCRIPT_HARD_LIMIT && validation.error) {
+        showAlert(validation.error, { type: 'warning' });
+      }
       return;
     }
 
@@ -744,8 +747,11 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
 
   const handleContinueScript = async () => {
     const finalModel = getFinalValue(localModel, customModelInput);
+    const baseScript = localScript;
+    const separator = baseScript.trim() ? '\n\n' : '';
+    const continueBudget = SCRIPT_HARD_LIMIT - baseScript.length - separator.length;
     
-    if (!localScript.trim()) {
+    if (!baseScript.trim()) {
       setError("请先输入一些剧本内容作为基础。");
       return;
     }
@@ -753,36 +759,75 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       setError("请选择或输入模型名称。");
       return;
     }
+    if (continueBudget <= 0) {
+      const message = `当前剧本已达到单集上限 ${SCRIPT_HARD_LIMIT} 字符，无法继续续写，请先拆分为多集。`;
+      setError(message);
+      showAlert(message, { type: 'warning' });
+      return;
+    }
 
     setIsContinuing(true);
     setProcessingMessage('AI续写中...');
     setProcessingLogs([]);
     setError(null);
-    const baseScript = localScript;
     let streamed = '';
+    let wasTruncated = false;
     try {
       const continuedContent = await continueScriptStream(
         baseScript,
         localLanguage,
         finalModel,
         (delta) => {
-          streamed += delta;
-          const newScript = baseScript + '\n\n' + streamed;
+          const remaining = continueBudget - streamed.length;
+          if (remaining <= 0) {
+            wasTruncated = true;
+            return;
+          }
+          const safeDelta = delta.slice(0, remaining);
+          if (!safeDelta) {
+            wasTruncated = true;
+            return;
+          }
+          streamed += safeDelta;
+          const newScript = `${baseScript}${separator}${streamed}`;
           setLocalScript(newScript);
           updateProject({ rawScript: newScript });
+        },
+        {
+          maxAppendChars: continueBudget,
+          maxTotalChars: SCRIPT_HARD_LIMIT
         }
       );
       if (continuedContent) {
-        const newScript = baseScript + '\n\n' + continuedContent;
+        const safeContent = continuedContent.slice(0, continueBudget);
+        if (safeContent.length < continuedContent.length) {
+          wasTruncated = true;
+        }
+        const newScript = `${baseScript}${separator}${safeContent}`;
         setLocalScript(newScript);
         updateProject({ rawScript: newScript });
+      }
+      if (wasTruncated) {
+        showAlert(`续写内容已按单集上限自动截断（最大总长 ${SCRIPT_HARD_LIMIT} 字符）。`, { type: 'warning' });
       }
     } catch (err: any) {
       console.error(err);
       setError(`AI续写失败: ${err.message || "连接失败"}`);
       try {
-        const continuedContent = await continueScript(baseScript, localLanguage, finalModel);
-        const newScript = baseScript + '\n\n' + continuedContent;
+        const continuedContent = await continueScript(
+          baseScript,
+          localLanguage,
+          finalModel,
+          {
+            maxAppendChars: continueBudget,
+            maxTotalChars: SCRIPT_HARD_LIMIT
+          }
+        );
+        const safeContent = continuedContent.slice(0, continueBudget);
+        if (safeContent.length < continuedContent.length) {
+          showAlert(`续写内容已按单集上限自动截断（最大总长 ${SCRIPT_HARD_LIMIT} 字符）。`, { type: 'warning' });
+        }
+        const newScript = `${baseScript}${separator}${safeContent}`;
         setLocalScript(newScript);
         updateProject({ rawScript: newScript });
       } catch (fallbackErr: any) {
@@ -796,8 +841,9 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
 
   const handleRewriteScript = async () => {
     const finalModel = getFinalValue(localModel, customModelInput);
+    const baseScript = localScript;
     
-    if (!localScript.trim()) {
+    if (!baseScript.trim()) {
       setError("请先输入剧本内容。");
       return;
     }
@@ -810,8 +856,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     setProcessingMessage('AI改写中...');
     setProcessingLogs([]);
     setError(null);
-    const baseScript = localScript;
     let streamed = '';
+    let wasTruncated = false;
     try {
       const rewrittenContent = await rewriteScriptStream(
         baseScript,
@@ -819,10 +865,17 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
         finalModel,
         (delta) => {
           streamed += delta;
-          setLocalScript(streamed);
+          const safeStreamed = streamed.slice(0, SCRIPT_HARD_LIMIT);
+          if (safeStreamed.length < streamed.length) {
+            wasTruncated = true;
+          }
+          setLocalScript(safeStreamed);
+        },
+        {
+          maxOutputChars: SCRIPT_HARD_LIMIT
         }
       );
-      const finalContent = (rewrittenContent || streamed).trim();
+      const finalContent = (rewrittenContent || streamed).trim().slice(0, SCRIPT_HARD_LIMIT);
       if (!finalContent) {
         throw new Error('AI 未返回改写内容');
       }
@@ -831,18 +884,32 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       }
       setLocalScript(finalContent);
       updateProject({ rawScript: finalContent });
+      if (wasTruncated || rewrittenContent.length > SCRIPT_HARD_LIMIT) {
+        showAlert(`改写结果已按单集上限自动截断（最大 ${SCRIPT_HARD_LIMIT} 字符）。`, { type: 'warning' });
+      }
     } catch (streamErr: any) {
       console.error(streamErr);
       try {
-        const rewrittenContent = await rewriteScript(baseScript, localLanguage, finalModel);
-        if (!rewrittenContent.trim()) {
+        const rewrittenContent = await rewriteScript(
+          baseScript,
+          localLanguage,
+          finalModel,
+          {
+            maxOutputChars: SCRIPT_HARD_LIMIT
+          }
+        );
+        const safeRewrittenContent = rewrittenContent.trim().slice(0, SCRIPT_HARD_LIMIT);
+        if (!safeRewrittenContent.trim()) {
           throw new Error('AI 未返回改写内容');
         }
-        if (rewrittenContent !== baseScript) {
+        if (safeRewrittenContent !== baseScript) {
           setLastRewriteSnapshot(baseScript);
         }
-        setLocalScript(rewrittenContent);
-        updateProject({ rawScript: rewrittenContent });
+        if (safeRewrittenContent.length < rewrittenContent.length) {
+          showAlert(`改写结果已按单集上限自动截断（最大 ${SCRIPT_HARD_LIMIT} 字符）。`, { type: 'warning' });
+        }
+        setLocalScript(safeRewrittenContent);
+        updateProject({ rawScript: safeRewrittenContent });
       } catch (fallbackErr: any) {
         console.error(fallbackErr);
         setLocalScript(baseScript);
@@ -1347,6 +1414,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
           />
           <ScriptEditor
             script={localScript}
+            scriptSoftLimit={SCRIPT_SOFT_LIMIT}
+            scriptHardLimit={SCRIPT_HARD_LIMIT}
             onChange={setLocalScript}
             onContinue={handleContinueScript}
             onRewrite={handleRewriteScript}
