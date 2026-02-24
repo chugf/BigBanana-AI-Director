@@ -205,6 +205,10 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   const isVideoGenerating = shot.interval?.status === 'generating';
 
   useEffect(() => {
+    if (!hasActionSummary) {
+      setExpandedSection('narrative');
+      return;
+    }
     if (!keyframeReady) {
       setExpandedSection('keyframe');
       return;
@@ -214,7 +218,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
       return;
     }
     setExpandedSection('quality');
-  }, [shot.id]);
+  }, [shot.id, hasActionSummary, keyframeReady, hasVideo]);
 
   useEffect(() => {
     setExpandedCheckKey(null);
@@ -270,8 +274,8 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   const steps = useMemo(
     () => [
       { key: 'context' as const, label: '1 资产绑定', done: !!scene && activeCharacters.length > 0 },
-      { key: 'keyframe' as const, label: effectiveVideoInputMode === 'storyboard-grid' ? '2 网格分镜' : '2 关键帧', done: keyframeReady },
-      { key: 'narrative' as const, label: '3 动作台词', done: hasActionSummary },
+      { key: 'narrative' as const, label: '2 动作台词', done: hasActionSummary },
+      { key: 'keyframe' as const, label: effectiveVideoInputMode === 'storyboard-grid' ? '3 网格分镜' : '3 关键帧', done: keyframeReady },
       { key: 'video' as const, label: '4 视频生成', done: hasVideo },
     ],
     [scene, activeCharacters.length, keyframeReady, hasActionSummary, hasVideo, effectiveVideoInputMode]
@@ -296,6 +300,15 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   };
 
   const primaryAction = useMemo(() => {
+    if (!hasActionSummary) {
+      return {
+        label: '下一步：完善动作与台词',
+        hint: '关键帧与网格分镜依赖动作描述，建议先补齐叙事内容。',
+        disabled: false,
+        onClick: () => setExpandedSection('narrative'),
+      };
+    }
+
     if (effectiveVideoInputMode === 'storyboard-grid' && !hasStartFrame) {
       return {
         label: '下一步：生成网格分镜',
@@ -357,6 +370,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
       },
     };
   }, [
+    hasActionSummary,
     effectiveVideoInputMode,
     hasStartFrame,
     isAdvancedMode,
@@ -598,13 +612,55 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
         </section>
 
         <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] overflow-hidden">
+          {renderSectionHeader('narrative', '动作与台词', '先明确叙事动作，再进入分镜与关键帧', steps[1]?.done)}
+          {expandedSection === 'narrative' && (
+            <div className="border-t border-[var(--border-primary)] p-4 space-y-3">
+              <div className="flex items-center gap-2 border-b border-[var(--border-primary)] pb-2">
+                <Film className="w-4 h-4 text-[var(--text-tertiary)]" />
+                <h4 className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Narrative</h4>
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    onClick={onGenerateAIAction}
+                    disabled={isAIOptimizing}
+                    className="p-1 text-[var(--accent-text)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="AI生成动作建议"
+                  >
+                    {isAIOptimizing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                  </button>
+                  <button
+                    onClick={onEditActionSummary}
+                    className="p-1 text-[var(--warning-text)] hover:text-[var(--text-primary)] transition-colors"
+                    title="编辑动作文本"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-3 max-h-[220px] overflow-y-auto custom-scrollbar">
+                <div className="bg-[var(--bg-base)] p-4 rounded-lg border border-[var(--border-primary)]">
+                  <p className="text-[var(--text-secondary)] text-sm leading-relaxed">{shot.actionSummary || '暂无动作描述。'}</p>
+                </div>
+                {shot.dialogue && (
+                  <div className="bg-[var(--bg-base)] p-4 rounded-lg border border-[var(--border-primary)] flex gap-3">
+                    <MessageSquare className="w-4 h-4 text-[var(--text-muted)] mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-[var(--text-tertiary)] text-xs italic leading-relaxed">"{shot.dialogue}"</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] overflow-hidden">
           {renderSectionHeader(
             'keyframe',
             effectiveVideoInputMode === 'storyboard-grid' ? '网格分镜' : '关键帧制作',
             effectiveVideoInputMode === 'storyboard-grid'
               ? '网格分镜与首尾帧二选一，当前为网格模式'
               : '完成首帧/尾帧后再进入视频',
-            steps[1]?.done
+            steps[2]?.done
           )}
           {expandedSection === 'keyframe' && (
             <div className="border-t border-[var(--border-primary)] p-3 space-y-3">
@@ -757,48 +813,6 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
                   )}
                 </div>
               )}
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] overflow-hidden">
-          {renderSectionHeader('narrative', '动作与台词', '保持叙事动作清晰并可执行', steps[2]?.done)}
-          {expandedSection === 'narrative' && (
-            <div className="border-t border-[var(--border-primary)] p-4 space-y-3">
-              <div className="flex items-center gap-2 border-b border-[var(--border-primary)] pb-2">
-                <Film className="w-4 h-4 text-[var(--text-tertiary)]" />
-                <h4 className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Narrative</h4>
-                <div className="ml-auto flex items-center gap-1">
-                  <button
-                    onClick={onGenerateAIAction}
-                    disabled={isAIOptimizing}
-                    className="p-1 text-[var(--accent-text)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="AI生成动作建议"
-                  >
-                    {isAIOptimizing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                  </button>
-                  <button
-                    onClick={onEditActionSummary}
-                    className="p-1 text-[var(--warning-text)] hover:text-[var(--text-primary)] transition-colors"
-                    title="编辑动作文本"
-                  >
-                    <Edit2 className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-3 max-h-[220px] overflow-y-auto custom-scrollbar">
-                <div className="bg-[var(--bg-base)] p-4 rounded-lg border border-[var(--border-primary)]">
-                  <p className="text-[var(--text-secondary)] text-sm leading-relaxed">{shot.actionSummary || '暂无动作描述。'}</p>
-                </div>
-                {shot.dialogue && (
-                  <div className="bg-[var(--bg-base)] p-4 rounded-lg border border-[var(--border-primary)] flex gap-3">
-                    <MessageSquare className="w-4 h-4 text-[var(--text-muted)] mt-0.5" />
-                    <div className="flex-1">
-                      <p className="text-[var(--text-tertiary)] text-xs italic leading-relaxed">"{shot.dialogue}"</p>
-                    </div>
-                  </div>
-                )}
-              </div>
             </div>
           )}
         </section>
