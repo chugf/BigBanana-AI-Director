@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: bigbanana-web
     ports:
-      - "80:80"
+      - "3005:80"
     depends_on:
       - media-proxy
     restart: unless-stopped
@@ -25,4 +25,3 @@ services:
     expose:
       - "8787"
     restart: unless-stopped
-
