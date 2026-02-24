@@ -85,3 +85,8 @@ export {
   generateNineGridPanels,
   generateNineGridImage,
 } from './shotService';
+
+// Prompt compression service
+export {
+  compressPromptWithLLM,
+} from './promptCompressionService';

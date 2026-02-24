@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { LayoutGrid, Sparkles, Loader2, AlertCircle, Edit2, Film, Video as VideoIcon } from 'lucide-react';
 import { ProjectState, Shot, Keyframe, AspectRatio, VideoDuration, NineGridPanel, NineGridData } from '../../types';
-import { generateImage, generateVideo, generateActionSuggestion, optimizeKeyframePrompt, optimizeBothKeyframes, enhanceKeyframePrompt, splitShotIntoSubShots, generateNineGridPanels, generateNineGridImage, getNegativePrompt } from '../../services/aiService';
+import { generateImage, generateVideo, generateActionSuggestion, optimizeKeyframePrompt, optimizeBothKeyframes, enhanceKeyframePrompt, splitShotIntoSubShots, generateNineGridPanels, generateNineGridImage, getNegativePrompt, compressPromptWithLLM } from '../../services/aiService';
 import { 
   getRefImagesForShot, 
   getPropsInfoForShot,
@@ -547,7 +547,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       setToastMessage(`能力路由：${modelName} 当前只使用首帧，已自动忽略尾帧输入。`);
     }
 
-    const videoPrompt = buildVideoPrompt(
+    let videoPrompt = buildVideoPrompt(
       shot.actionSummary,
       shot.cameraMovement,
       selectedModel,
@@ -560,6 +560,23 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         hasEndFrame: !!routedFrames.endImage,
       }
     );
+
+    const videoPromptLength = Array.from(videoPrompt).length;
+    if (videoPromptLength > 5000) {
+      const compressionResult = await compressPromptWithLLM({
+        text: videoPrompt,
+        maxChars: 4920,
+        mode: 'video',
+        timeoutMs: 45000,
+      });
+      if (compressionResult.compressed) {
+        videoPrompt = compressionResult.text;
+        setToastMessage(
+          `Video prompt compressed by ${compressionResult.model}: ` +
+          `${compressionResult.originalLength} -> ${compressionResult.finalLength} chars`
+        );
+      }
+    }
 
     const selectedModelConfig = (getModelById(selectedModelInput) || getModelById(selectedModel)) as any;
     const preflightResult = runVideoPreflight({

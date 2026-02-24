@@ -21,6 +21,7 @@ import {
   getNegativePrompt,
   getSceneNegativePrompt,
 } from './promptConstants';
+import { compressPromptWithLLM } from './promptCompressionService';
 
 // ============================================
 // 美术指导文档生成
@@ -640,11 +641,15 @@ const compactNegativePromptTerms = (
 
 const compactPromptToMaxChars = (
   input: string,
-  maxChars: number
+  maxChars: number,
+  options?: {
+    skipBoundaryTruncation?: boolean;
+  }
 ): { text: string; wasCompacted: boolean; wasTruncated: boolean; originalLength: number; finalLength: number } => {
   const original = String(input || '');
   let text = normalizePromptWhitespace(original);
   let wasCompacted = text !== original;
+  const skipBoundaryTruncation = !!options?.skipBoundaryTruncation;
 
   const getLength = () => Array.from(text).length;
 
@@ -687,6 +692,17 @@ const compactPromptToMaxChars = (
   }
 
   text = normalizePromptWhitespace(text);
+
+  if (skipBoundaryTruncation) {
+    const finalLength = Array.from(text).length;
+    return {
+      text,
+      wasCompacted,
+      wasTruncated: false,
+      originalLength: Array.from(original).length,
+      finalLength,
+    };
+  }
 
   const bounded = truncatePromptAtBoundary(text, maxChars);
   return {
@@ -845,12 +861,34 @@ ${consistencyRules.join('\n')}`;
 NEGATIVE PROMPT (strictly avoid): ${compactNegativePrompt}`;
     }
 
-    const promptLimitResult = compactPromptToMaxChars(finalPrompt, MAX_IMAGE_PROMPT_CHARS);
-    if (promptLimitResult.wasCompacted) {
+    const deterministicCompaction = compactPromptToMaxChars(finalPrompt, MAX_IMAGE_PROMPT_CHARS, {
+      skipBoundaryTruncation: true,
+    });
+    if (deterministicCompaction.wasCompacted) {
       console.info(
-        `[ImagePrompt] Prompt compacted ${promptLimitResult.originalLength} -> ${promptLimitResult.finalLength} chars.`
+        `[ImagePrompt] Prompt compacted ${deterministicCompaction.originalLength} -> ${deterministicCompaction.finalLength} chars.`
       );
     }
+    finalPrompt = deterministicCompaction.text;
+
+    const deterministicLength = Array.from(finalPrompt).length;
+    if (deterministicLength > MAX_IMAGE_PROMPT_CHARS) {
+      const llmCompressionResult = await compressPromptWithLLM({
+        text: finalPrompt,
+        maxChars: MAX_IMAGE_PROMPT_CHARS - 80,
+        mode: 'image',
+        timeoutMs: 45000,
+      });
+      if (llmCompressionResult.compressed) {
+        finalPrompt = llmCompressionResult.text;
+        console.info(
+          `[ImagePrompt] LLM compressed (${llmCompressionResult.model}) ` +
+          `${llmCompressionResult.originalLength} -> ${llmCompressionResult.finalLength} chars.`
+        );
+      }
+    }
+
+    const promptLimitResult = compactPromptToMaxChars(finalPrompt, MAX_IMAGE_PROMPT_CHARS);
     if (promptLimitResult.wasTruncated) {
       console.warn(
         `[ImagePrompt] Prompt exceeded ${MAX_IMAGE_PROMPT_CHARS} chars ` +
