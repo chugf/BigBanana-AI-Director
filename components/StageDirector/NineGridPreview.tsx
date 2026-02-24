@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Loader2, RefreshCw, Check, Grid3x3, AlertCircle, Image as ImageIcon, Crop, Edit2, Save, ArrowRight, Wand2, ImagePlus } from 'lucide-react';
 import { NineGridData, NineGridPanel, AspectRatio } from '../../types';
-import { NINE_GRID } from './constants';
+import { resolveStoryboardGridLayout } from './constants';
 
 interface NineGridPreviewProps {
   isOpen: boolean;
@@ -57,6 +57,10 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
   const isCompleted = nineGrid?.status === 'completed' && nineGrid?.imageUrl;
   // 兼容旧的 generating 状态
   const isGenerating = nineGrid?.status === 'generating_panels' || nineGrid?.status === 'generating_image' || (nineGrid?.status as string) === 'generating';
+  const gridLayout = resolveStoryboardGridLayout(nineGrid?.layout?.panelCount, nineGrid?.panels?.length);
+  const gridName = gridLayout.label;
+  const panelCount = gridLayout.panelCount;
+  const activePanels = nineGrid?.panels?.slice(0, panelCount) || [];
 
   const handlePanelClick = (index: number) => {
     if (isPanelsReady) {
@@ -68,8 +72,8 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
   };
 
   const handleConfirmSelect = () => {
-    if (selectedPanel !== null && nineGrid?.panels?.[selectedPanel]) {
-      onSelectPanel(nineGrid.panels[selectedPanel]);
+    if (selectedPanel !== null && activePanels[selectedPanel]) {
+      onSelectPanel(activePanels[selectedPanel]);
       setSelectedPanel(null);
     }
   };
@@ -82,8 +86,8 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
   };
 
   const handleConfirmAndGenerate = () => {
-    if (nineGrid?.panels && nineGrid.panels.length === 9) {
-      onConfirmPanels(nineGrid.panels);
+    if (activePanels.length === panelCount) {
+      onConfirmPanels(activePanels);
     }
   };
 
@@ -101,7 +105,7 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
           <div className="flex items-center gap-3">
             <Grid3x3 className="w-4 h-4 text-[var(--accent-text)]" />
             <h3 className="text-sm font-bold text-[var(--text-primary)]">
-              九宫格分镜预览
+              {gridName}分镜预览
             </h3>
             {isPanelsReady && (
               <span className="text-[10px] text-[var(--warning-text)] font-bold uppercase tracking-wider bg-[var(--warning-bg)] px-2 py-0.5 rounded border border-[var(--warning-border)]">
@@ -119,7 +123,7 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
               <button
                 onClick={onRegenerateImage}
                 className="px-3 py-1.5 bg-[var(--accent-bg)] hover:bg-[var(--accent-hover-bg)] text-[var(--accent-text)] border border-[var(--accent-border)] rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors flex items-center gap-1.5"
-                title="保留镜头描述，仅重新生成九宫格图片"
+                title={`保留镜头描述，仅重新生成${gridName}图片`}
               >
                 <ImagePlus className="w-3 h-3" />
                 重新生成图片
@@ -154,7 +158,7 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
                 正在生成镜头描述...
               </h4>
               <p className="text-sm text-[var(--text-tertiary)]">
-                AI正在将镜头拆分为9个不同视角，请耐心等待
+                AI正在将镜头拆分为{panelCount}个不同视角，请耐心等待
               </p>
             </div>
           )}
@@ -164,15 +168,15 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
             <div className="flex flex-col items-center justify-center py-20">
               <Loader2 className="w-12 h-12 text-[var(--accent)] animate-spin mb-6" />
               <h4 className="text-lg font-bold text-[var(--text-primary)] mb-2">
-                正在生成九宫格图片...
+                正在生成{gridName}图片...
               </h4>
               <p className="text-sm text-[var(--text-tertiary)]">
                 根据确认的镜头描述生成预览图，请耐心等待
               </p>
               {/* 显示已确认的面板列表 */}
-              {nineGrid?.panels && nineGrid.panels.length > 0 && (
+              {activePanels.length > 0 && (
                 <div className="mt-6 w-full max-w-lg space-y-1.5 px-6">
-                  {nineGrid.panels.map((panel, idx) => (
+                  {activePanels.map((panel, idx) => (
                     <div key={idx} className="flex items-center gap-2 p-2 bg-[var(--bg-surface)] rounded-lg border border-[var(--border-primary)]">
                       <span className="w-5 h-5 rounded-full bg-[var(--accent)] text-white flex items-center justify-center text-[9px] font-bold shrink-0">
                         {idx + 1}
@@ -198,8 +202,8 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
                 生成失败
               </h4>
               <p className="text-sm text-[var(--text-tertiary)] mb-6">
-                {nineGrid?.panels && nineGrid.panels.length > 0 
-                  ? '九宫格图片生成失败，您可以重新确认生成或修改描述后重试'
+                {activePanels.length > 0
+                  ? `${gridName}图片生成失败，您可以重新确认生成或修改描述后重试`
                   : '镜头描述生成失败，请重试'
                 }
               </p>
@@ -212,7 +216,7 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
                   重新生成描述
                 </button>
                 {/* 如果面板描述已有，允许直接重试图片生成 */}
-                {nineGrid?.panels && nineGrid.panels.length === 9 && (
+                {activePanels.length === panelCount && (
                   <button
                     onClick={handleConfirmAndGenerate}
                     className="px-4 py-2 bg-[var(--accent-bg)] hover:bg-[var(--accent-hover-bg)] text-[var(--accent-text)] border border-[var(--accent-border)] rounded-lg text-xs font-bold uppercase tracking-wider transition-colors flex items-center gap-2"
@@ -226,14 +230,14 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
           )}
 
           {/* Panels Ready State - 用户审核和编辑面板描述 */}
-          {isPanelsReady && nineGrid?.panels && (
+          {isPanelsReady && activePanels.length > 0 && (
             <div className="p-6 space-y-4">
               {/* 提示信息 */}
               <div className="flex items-start gap-3 p-4 bg-[var(--warning-bg)] border border-[var(--warning-border)] rounded-lg">
                 <Wand2 className="w-5 h-5 text-[var(--warning-text)] shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm font-bold text-[var(--warning-text)] mb-1">
-                    AI已生成9个镜头描述，请检查后确认
+                    AI已生成{panelCount}个镜头描述，请检查后确认
                   </p>
                   <p className="text-xs text-[var(--text-tertiary)]">
                     点击任意镜头可编辑其景别、机位角度和描述内容。确认无误后点击「确认并生成图片」按钮。
@@ -243,7 +247,7 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
 
               {/* 面板列表 - 可编辑 */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {nineGrid.panels.map((panel, idx) => (
+                {activePanels.map((panel, idx) => (
                   <div
                     key={idx}
                     className={`relative p-3 rounded-lg border-2 transition-all duration-200 ${
@@ -347,7 +351,7 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
               {/* 确认生成按钮 */}
               <div className="flex items-center justify-between pt-4 border-t border-[var(--border-primary)]">
                 <p className="text-[10px] text-[var(--text-muted)] max-w-[400px]">
-                  确认9个镜头描述无误后，将根据这些描述生成一张3x3九宫格分镜预览图
+                  确认{panelCount}个镜头描述无误后，将根据这些描述生成一张{gridLayout.cols}x{gridLayout.rows}{gridName}分镜预览图
                 </p>
                 <div className="flex items-center gap-2">
                   <button
@@ -379,12 +383,18 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
                     <img
                       src={nineGrid.imageUrl}
                       className="w-full h-auto block"
-                      alt="九宫格分镜预览"
+                      alt={`${gridName}分镜预览`}
                     />
                     
-                    {/* Overlay Grid - 3x3 clickable areas, 完全覆盖图片 */}
-                    <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
-                      {Array.from({ length: 9 }).map((_, idx) => (
+                    {/* Overlay Grid - dynamic clickable areas, 完全覆盖图片 */}
+                    <div
+                      className="absolute inset-0 grid"
+                      style={{
+                        gridTemplateColumns: `repeat(${gridLayout.cols}, minmax(0, 1fr))`,
+                        gridTemplateRows: `repeat(${gridLayout.rows}, minmax(0, 1fr))`,
+                      }}
+                    >
+                      {Array.from({ length: panelCount }).map((_, idx) => (
                         <div
                           key={idx}
                           className={`relative border transition-all duration-200 cursor-pointer group/cell ${
@@ -419,10 +429,10 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
                           )}
 
                           {/* Hover tooltip */}
-                          {hoveredPanel === idx && nineGrid.panels[idx] && (
+                          {hoveredPanel === idx && activePanels[idx] && (
                             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-6">
                               <p className="text-white text-[9px] font-bold">
-                                {nineGrid.panels[idx].shotSize} / {nineGrid.panels[idx].cameraAngle}
+                                {activePanels[idx].shotSize} / {activePanels[idx].cameraAngle}
                               </p>
                             </div>
                           )}
@@ -435,10 +445,10 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
                 {/* Right: Panel descriptions list */}
                 <div className={`${aspectRatio === '9:16' ? 'flex-1 min-w-0' : 'w-64 shrink-0'} space-y-2`}>
                   <h4 className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest pb-1 border-b border-[var(--border-primary)]">
-                    视角列表
+                    视角列表 ({panelCount})
                   </h4>
                   <div className="space-y-1.5 max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
-                    {nineGrid.panels.map((panel, idx) => (
+                    {activePanels.map((panel, idx) => (
                       <div
                         key={idx}
                         className={`p-2.5 rounded-lg border cursor-pointer transition-all duration-150 ${
@@ -477,8 +487,8 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
               <div className="flex items-center justify-between pt-3 border-t border-[var(--border-primary)]">
                 <p className="text-[10px] text-[var(--text-muted)] max-w-[280px]">
                   {selectedPanel !== null 
-                    ? `已选择面板 ${selectedPanel + 1}: ${nineGrid.panels[selectedPanel]?.shotSize} / ${nineGrid.panels[selectedPanel]?.cameraAngle}`
-                    : '可直接使用整张九宫格图作为首帧，或点击选择某个格子裁剪使用'
+                    ? `已选择面板 ${selectedPanel + 1}: ${activePanels[selectedPanel]?.shotSize} / ${activePanels[selectedPanel]?.cameraAngle}`
+                    : `可直接使用整张${gridName}图作为首帧，或点击选择某个格子裁剪使用`
                   }
                 </p>
                 <div className="flex items-center gap-2">
@@ -513,11 +523,11 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
             <div className="flex flex-col items-center justify-center py-20">
               <Grid3x3 className="w-12 h-12 text-[var(--text-muted)] mb-6 opacity-40" />
               <h4 className="text-lg font-bold text-[var(--text-primary)] mb-2">
-                九宫格分镜预览
+                网格分镜预览
               </h4>
               <p className="text-sm text-[var(--text-tertiary)] mb-6 text-center max-w-md">
-                AI将自动将当前镜头拆分为9个不同的摄影视角，<br/>
-                生成一张3x3网格预览图，帮助你选择最佳构图方案
+                AI将自动将当前镜头拆分为多视角，<br/>
+                生成网格分镜预览图，帮助你选择最佳构图方案
               </p>
               <button
                 onClick={onRegenerate}

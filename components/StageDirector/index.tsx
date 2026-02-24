@@ -1,6 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { LayoutGrid, Sparkles, Loader2, AlertCircle, Edit2, Film, Video as VideoIcon } from 'lucide-react';
-import { ProjectState, Shot, Keyframe, AspectRatio, VideoDuration, NineGridPanel, NineGridData } from '../../types';
+import {
+  ProjectState,
+  Shot,
+  Keyframe,
+  AspectRatio,
+  VideoDuration,
+  NineGridPanel,
+  NineGridData,
+  StoryboardGridPanelCount,
+} from '../../types';
 import { generateImage, generateVideo, generateActionSuggestion, optimizeKeyframePrompt, optimizeBothKeyframes, enhanceKeyframePrompt, splitShotIntoSubShots, generateNineGridPanels, generateNineGridImage, getNegativePrompt, compressPromptWithLLM } from '../../services/aiService';
 import { 
   getRefImagesForShot, 
@@ -22,7 +31,7 @@ import {
   resolveVideoModelRouting,
   routeVideoFrameInputs
 } from './utils';
-import { DEFAULTS } from './constants';
+import { DEFAULTS, resolveStoryboardGridLayout } from './constants';
 import EditModal from './EditModal';
 import ShotCard from './ShotCard';
 import ShotWorkbench from './ShotWorkbench';
@@ -81,6 +90,13 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     const model = getModelById(modelId || DEFAULTS.videoModel) as any;
     const duration = model?.params?.defaultDuration;
     return typeof duration === 'number' && Number.isFinite(duration) ? duration : 8;
+  };
+
+  const getRecommendedVideoInputMode = (modelId: string): 'keyframes' | 'storyboard-grid' => {
+    const routing = resolveVideoModelRouting(modelId);
+    return routing.family === 'sora' || routing.family === 'doubao-task'
+      ? 'storyboard-grid'
+      : 'keyframes';
   };
 
   const applyShotQuality = (shot: Shot, scriptData: ProjectState['scriptData']): Shot => ({
@@ -530,21 +546,34 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     const projectLanguage = project.language || project.scriptData?.language || '中文';
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
     
-    // 检测是否为九宫格分镜模式：首帧图片就是九宫格整图时触发
-    const isNineGridMode = (shot.nineGrid?.status === 'completed' 
-        && shot.nineGrid?.imageUrl 
-        && sKf?.imageUrl === shot.nineGrid.imageUrl);
+    const videoInputMode = shot.videoInputMode || getRecommendedVideoInputMode(selectedModel);
+    // 检测是否为网格分镜模式：必须显式选择网格模式 + 首帧使用整张网格图
+    const isNineGridMode = (
+      videoInputMode === 'storyboard-grid' &&
+      shot.nineGrid?.status === 'completed' &&
+      shot.nineGrid?.imageUrl &&
+      sKf?.imageUrl === shot.nineGrid.imageUrl
+    );
     
-    const routedFrames = routeVideoFrameInputs(selectedModel, sKf?.imageUrl, eKf?.imageUrl);
+    const routedFrames = routeVideoFrameInputs(
+      selectedModel,
+      sKf?.imageUrl,
+      eKf?.imageUrl,
+      videoInputMode
+    );
     const routedEndKeyframeId = routedFrames.endImage ? (eKf?.id || '') : '';
 
     if (routedFrames.ignoredEndFrame) {
-      const modelName = selectedModelRouting.family === 'sora'
-        ? 'Sora'
-        : selectedModelRouting.family === 'doubao-task'
-          ? 'Doubao Task'
-          : selectedModel;
-      setToastMessage(`能力路由：${modelName} 当前只使用首帧，已自动忽略尾帧输入。`);
+      if (videoInputMode === 'storyboard-grid' && !!eKf?.imageUrl) {
+        setToastMessage('网格分镜模式已启用：视频生成将只使用首帧，尾帧输入已自动忽略。');
+      } else {
+        const modelName = selectedModelRouting.family === 'sora'
+          ? 'Sora'
+          : selectedModelRouting.family === 'doubao-task'
+            ? 'Doubao Task'
+            : selectedModel;
+        setToastMessage(`能力路由：${modelName} 当前只使用首帧，已自动忽略尾帧输入。`);
+      }
     }
 
     let videoPrompt = (shot.interval?.videoPrompt || '').trim();
@@ -585,7 +614,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     const preflightResult = runVideoPreflight({
       prompt: videoPrompt,
       hasStartFrame: !!sKf?.imageUrl,
-      hasEndFrame: !!eKf?.imageUrl,
+      hasEndFrame: !!routedFrames.endImage,
       modelId: selectedModel,
       supportsEndFrame: selectedModelRouting.supportsEndFrame,
       aspectRatio,
@@ -1118,10 +1147,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
 
   /**
    * 九宫格分镜预览 - 第一步：生成镜头描述
-   * 使用 AI 将镜头拆分为 9 个不同视角的文字描述，等待用户确认/编辑后再生成图片
+   * 使用 AI 将镜头拆分为网格视角描述（4/6/9），等待用户确认/编辑后再生成图片
    */
-  const handleGenerateNineGrid = async (shot: Shot) => {
+  const handleGenerateNineGrid = async (shot: Shot, panelCount?: StoryboardGridPanelCount) => {
     if (!shot) return;
+    const layout = resolveStoryboardGridLayout(panelCount ?? shot.nineGrid?.layout?.panelCount);
     
     // 1. 获取场景信息
     const scene = project.scriptData?.scenes.find(s => String(s.id) === String(shot.sceneId));
@@ -1148,12 +1178,17 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       ...s,
       nineGrid: {
         panels: [],
+        layout: {
+          panelCount: layout.panelCount,
+          rows: layout.rows,
+          cols: layout.cols,
+        },
         status: 'generating_panels' as const
       }
     }));
     
     try {
-      // 4. 调用 AI 拆分镜头为 9 个视角（仅文字描述，不生成图片）
+      // 4. 调用 AI 拆分镜头为网格视角（仅文字描述，不生成图片）
       const panels = await generateNineGridPanels(
         shot.actionSummary,
         shot.cameraMovement,
@@ -1164,7 +1199,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         },
         characterNames,
         visualStyle,
-        shotGenerationModel
+        shotGenerationModel,
+        layout.panelCount
       );
       
       // 5. 更新状态为 panels_ready，等待用户确认
@@ -1172,18 +1208,28 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         ...s,
         nineGrid: {
           panels,
+          layout: {
+            panelCount: layout.panelCount,
+            rows: layout.rows,
+            cols: layout.cols,
+          },
           status: 'panels_ready' as const
         }
       }));
       
-      showAlert('9个镜头描述已生成，请检查并编辑后确认生成图片', { type: 'success' });
+      showAlert(`${layout.panelCount}个镜头描述已生成，请检查并编辑后确认生成图片`, { type: 'success' });
       
     } catch (e: any) {
-      console.error('九宫格镜头描述生成失败:', e);
+      console.error('网格镜头描述生成失败:', e);
       updateShot(shot.id, (s) => ({
         ...s,
         nineGrid: {
           panels: s.nineGrid?.panels || [],
+          layout: s.nineGrid?.layout || {
+            panelCount: layout.panelCount,
+            rows: layout.rows,
+            cols: layout.cols,
+          },
           status: 'failed' as const
         }
       }));
@@ -1203,6 +1249,10 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
   const handleConfirmNineGridPanels = async (shotId: string, confirmedPanels: NineGridPanel[]) => {
     const shot = getShotById(shotId);
     if (!shot) return;
+    const layout = resolveStoryboardGridLayout(
+      shot.nineGrid?.layout?.panelCount,
+      confirmedPanels.length
+    );
 
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
 
@@ -1211,6 +1261,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       ...s,
       nineGrid: {
         panels: confirmedPanels,
+        layout: {
+          panelCount: layout.panelCount,
+          rows: layout.rows,
+          cols: layout.cols,
+        },
         status: 'generating_image' as const
       }
     }));
@@ -1228,7 +1283,10 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         refResult.images,
         visualStyle,
         keyframeAspectRatio,
-        { hasTurnaround: refResult.hasTurnaround }
+        {
+          hasTurnaround: refResult.hasTurnaround,
+          panelCount: layout.panelCount,
+        }
       );
 
       // 4. 更新状态为完成
@@ -1236,26 +1294,36 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         ...s,
         nineGrid: {
           panels: confirmedPanels,
+          layout: {
+            panelCount: layout.panelCount,
+            rows: layout.rows,
+            cols: layout.cols,
+          },
           imageUrl,
-          prompt: `Nine Grid Storyboard - ${shot.actionSummary}`,
+          prompt: `${layout.label} Storyboard - ${shot.actionSummary}`,
           status: 'completed' as const
         }
       }));
 
-      showAlert('九宫格分镜图片生成完成！', { type: 'success' });
+      showAlert(`${layout.label}分镜图片生成完成！`, { type: 'success' });
 
     } catch (e: any) {
-      console.error('九宫格图片生成失败:', e);
+      console.error('网格分镜图片生成失败:', e);
       updateShot(shotId, (s) => ({
         ...s,
         nineGrid: {
           panels: confirmedPanels,
+          layout: {
+            panelCount: layout.panelCount,
+            rows: layout.rows,
+            cols: layout.cols,
+          },
           status: 'failed' as const
         }
       }));
 
       if (onApiKeyError && onApiKeyError(e)) return;
-      showAlert(`九宫格图片生成失败: ${formatUserFriendlyError(e, '图片生成失败，请稍后重试。')}`, { type: 'error' });
+      showAlert(`网格图片生成失败: ${formatUserFriendlyError(e, '图片生成失败，请稍后重试。')}`, { type: 'error' });
     }
   };
 
@@ -1264,7 +1332,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
    * 当用户对文案满意但图片效果不好时使用
    */
   const handleRegenerateNineGridImage = async () => {
-    if (!activeShot || !activeShot.nineGrid?.panels || activeShot.nineGrid.panels.length !== 9) return;
+    if (!activeShot || !activeShot.nineGrid?.panels || activeShot.nineGrid.panels.length === 0) return;
     
     // 直接使用已有的面板描述重新生成图片
     await handleConfirmNineGridPanels(activeShot.id, activeShot.nineGrid.panels);
@@ -1306,7 +1374,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       activeShot.actionSummary,
       visualStyle,
       activeShot.cameraMovement,
-      shotPropsInfo
+      shotPropsInfo,
+      activeShot.nineGrid?.layout
     );
     
     const existingKf = activeShot.keyframes?.find(k => k.type === 'start');
@@ -1314,7 +1383,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     
     try {
       // 2. 从九宫格图片中裁剪出选中的面板
-      const croppedImageUrl = await cropPanelFromNineGrid(activeShot.nineGrid.imageUrl, panel.index);
+      const croppedImageUrl = await cropPanelFromNineGrid(
+        activeShot.nineGrid.imageUrl,
+        panel.index,
+        activeShot.nineGrid?.layout
+      );
       
       // 3. 将裁剪后的图片直接设为首帧（九宫格与首帧是替代关系）
       updateShot(activeShot.id, (s) => {
@@ -1342,7 +1415,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     
     const existingKf = activeShot.keyframes?.find(k => k.type === 'start');
     const kfId = existingKf?.id || generateId(`kf-${activeShot.id}-start`);
-    const prompt = `九宫格分镜全图 - ${activeShot.actionSummary}`;
+    const layout = resolveStoryboardGridLayout(
+      activeShot.nineGrid?.layout?.panelCount,
+      activeShot.nineGrid?.panels?.length
+    );
+    const prompt = `${layout.label}分镜全图 - ${activeShot.actionSummary}`;
     
     updateShot(activeShot.id, (s) => {
       return updateKeyframeInShot(
@@ -1353,7 +1430,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     });
     
     setShowNineGrid(false);
-    showAlert('已将九宫格整图设为首帧', { type: 'success' });
+    showAlert('已将网格整图设为首帧', { type: 'success' });
   };
 
   // 空状态
@@ -1531,6 +1608,13 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
                 videoModel: modelId as any
               }));
             }}
+            videoInputMode={activeShot.videoInputMode}
+            onVideoInputModeChange={(mode) =>
+              updateShot(activeShot.id, (s) => ({
+                ...s,
+                videoInputMode: mode,
+              }))
+            }
             onEditVideoPrompt={() => {
               // 如果videoPrompt不存在，动态生成一个
               let promptValue = activeShot.interval?.videoPrompt;
@@ -1546,11 +1630,20 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
                   8;
                 const startKf = activeShot.keyframes?.find(k => k.type === 'start');
                 const endKf = activeShot.keyframes?.find(k => k.type === 'end');
-                const routedFrames = routeVideoFrameInputs(selectedModel, startKf?.imageUrl, endKf?.imageUrl);
-                // 首帧等于九宫格图时触发九宫格分镜模式
-                const isNineGridMode = (activeShot.nineGrid?.status === 'completed'
-                    && activeShot.nineGrid?.imageUrl
-                    && startKf?.imageUrl === activeShot.nineGrid.imageUrl);
+                const videoInputMode = activeShot.videoInputMode || getRecommendedVideoInputMode(selectedModel);
+                const routedFrames = routeVideoFrameInputs(
+                  selectedModel,
+                  startKf?.imageUrl,
+                  endKf?.imageUrl,
+                  videoInputMode
+                );
+                // 首帧等于九宫格图 + 已选择网格模式时触发网格分镜提示词
+                const isNineGridMode = (
+                  videoInputMode === 'storyboard-grid' &&
+                  activeShot.nineGrid?.status === 'completed' &&
+                  activeShot.nineGrid?.imageUrl &&
+                  startKf?.imageUrl === activeShot.nineGrid.imageUrl
+                );
                 promptValue = buildVideoPrompt(
                   activeShot.actionSummary,
                   activeShot.cameraMovement,
@@ -1571,7 +1664,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
               });
             }}
             onImageClick={(url, title) => setPreviewImage({ url, title })}
-            onGenerateNineGrid={() => handleGenerateNineGrid(activeShot)}
+            onGenerateNineGrid={(panelCount) => handleGenerateNineGrid(activeShot, panelCount)}
             nineGrid={activeShot.nineGrid}
             onSelectNineGridPanel={handleSelectNineGridPanel}
             onShowNineGrid={() => setShowNineGrid(true)}
@@ -1587,7 +1680,15 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
           onClose={() => setShowNineGrid(false)}
           onSelectPanel={handleSelectNineGridPanel}
           onUseWholeImage={handleUseWholeNineGridAsFrame}
-          onRegenerate={() => handleGenerateNineGrid(activeShot)}
+          onRegenerate={() =>
+            handleGenerateNineGrid(
+              activeShot,
+              resolveStoryboardGridLayout(
+                activeShot.nineGrid?.layout?.panelCount,
+                activeShot.nineGrid?.panels?.length
+              ).panelCount
+            )
+          }
           onRegenerateImage={handleRegenerateNineGridImage}
           onConfirmPanels={(panels) => handleConfirmNineGridPanels(activeShot.id, panels)}
           onUpdatePanel={handleUpdateNineGridPanel}

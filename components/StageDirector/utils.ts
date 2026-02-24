@@ -1,5 +1,10 @@
 import { Shot, ProjectState, Keyframe, NineGridPanel, NineGridData } from '../../types';
-import { VISUAL_STYLE_PROMPTS, VIDEO_PROMPT_TEMPLATES, NINE_GRID } from './constants';
+import {
+  VISUAL_STYLE_PROMPTS,
+  VIDEO_PROMPT_TEMPLATES,
+  getStoryboardPositionLabel,
+  resolveStoryboardGridLayout,
+} from './constants';
 import { getCameraMovementCompositionGuide } from './cameraMovementGuides';
 import { enhanceKeyframePrompt } from '../../services/aiService';
 
@@ -111,7 +116,8 @@ export const resolveVideoModelRouting = (videoModel: string): VideoModelRouting 
 export const routeVideoFrameInputs = (
   videoModel: string,
   startImage?: string,
-  endImage?: string
+  endImage?: string,
+  videoInputMode: 'keyframes' | 'storyboard-grid' = 'keyframes'
 ): {
   startImage?: string;
   endImage?: string;
@@ -120,7 +126,8 @@ export const routeVideoFrameInputs = (
 } => {
   const routing = resolveVideoModelRouting(videoModel);
   const routedStartImage = startImage;
-  const shouldIgnoreEndFrame = !!endImage && !routing.supportsEndFrame;
+  const shouldIgnoreEndFrame =
+    !!endImage && (!routing.supportsEndFrame || videoInputMode === 'storyboard-grid');
   const routedEndImage = shouldIgnoreEndFrame ? undefined : endImage;
 
   return {
@@ -453,11 +460,15 @@ export const buildVideoPrompt = (
     return fitVideoPromptLength(`${prompt}${endFrameConstraint}${ignoredEndFrameNote}`);
   };
 
-  // 九宫格分镜模式：按总预算动态压缩每个 panel 描述，保留顺序与镜头意图
+  // 网格分镜模式：按总预算动态压缩每个 panel 描述，保留顺序与镜头意图
   if (nineGrid && nineGrid.panels.length > 0 && routing.prefersNineGridStoryboard) {
+    const layout = resolveStoryboardGridLayout(nineGrid.layout?.panelCount, nineGrid.panels.length);
+    const panelCount = Math.max(1, Math.min(layout.panelCount, nineGrid.panels.length));
+    const orderedPanels = nineGrid.panels.slice(0, panelCount);
+    const gridLayoutText = `${layout.cols}x${layout.rows}`;
     const totalDuration = Math.max(1, videoDuration || 8);
     // Keep per-panel pacing compatible with very short durations (e.g. 4s) without exceeding total duration.
-    const secondsPerPanel = Math.max(0.2, Math.floor((totalDuration / 9) * 100) / 100);
+    const secondsPerPanel = Math.max(0.2, Math.floor((totalDuration / panelCount) * 100) / 100);
     
     const templateGroup = VIDEO_PROMPT_TEMPLATES.sora2NineGrid;
     
@@ -465,16 +476,20 @@ export const buildVideoPrompt = (
     const promptWithoutPanels = template
       .replace('{actionSummary}', compactActionSummary)
       .replace('{panelDescriptions}', '')
+      .replace(/\{gridLayout\}/g, gridLayoutText)
+      .replace(/\{panelCount\}/g, String(panelCount))
       .replace(/\{secondsPerPanel\}/g, String(secondsPerPanel))
       .replace('{cameraMovement}', compactCameraMovement)
       .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', language);
     const panelBudget = Math.max(900, MAX_VIDEO_PROMPT_CHARS - Array.from(promptWithoutPanels).length - 180);
-    const panelDescriptions = buildNineGridPanelDescriptionsWithBudget(nineGrid.panels, panelBudget);
+    const panelDescriptions = buildNineGridPanelDescriptionsWithBudget(orderedPanels, panelBudget);
     
     const routedPrompt = template
       .replace('{actionSummary}', compactActionSummary)
       .replace('{panelDescriptions}', panelDescriptions)
+      .replace(/\{gridLayout\}/g, gridLayoutText)
+      .replace(/\{panelCount\}/g, String(panelCount))
       .replace(/\{secondsPerPanel\}/g, String(secondsPerPanel))
       .replace('{cameraMovement}', compactCameraMovement)
       .replace('{visualStyle}', visualStyleAnchor)
@@ -722,9 +737,15 @@ export const buildPromptFromNineGridPanel = (
   actionSummary: string,
   visualStyle: string,
   cameraMovement: string,
-  propsInfo?: { name: string; description: string; hasImage: boolean }[]
+  propsInfo?: { name: string; description: string; hasImage: boolean }[],
+  layout?: NineGridData['layout']
 ): string => {
   const stylePrompt = VISUAL_STYLE_PROMPTS[visualStyle] || visualStyle;
+  const sourceLabel = getStoryboardPositionLabel(
+    panel.index,
+    layout?.panelCount,
+    layout?.panelCount
+  );
   
   // 角色一致性要求
   const characterConsistencyGuide = `【角色一致性要求】CHARACTER CONSISTENCY REQUIREMENTS - CRITICAL
@@ -771,7 +792,7 @@ ${sections.join('\n\n')}`;
   return `${panel.description}${KEYFRAME_META_SPLITTER}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【来源】九宫格分镜预览 - ${NINE_GRID.positionLabels[panel.index]}
+【来源】网格分镜预览 - ${sourceLabel}
 【景别】${panel.shotSize}
 【机位角度】${panel.cameraAngle}
 【原始动作】${actionSummary}
@@ -789,20 +810,28 @@ ${characterConsistencyGuide}${propConsistencyGuide}`;
 };
 
 /**
- * 从九宫格图片中裁剪出指定面板的图片
- * 将 3x3 网格中的某一格裁剪为独立的 base64 图片
- * @param nineGridImageUrl - 九宫格整图 (base64)
- * @param panelIndex - 面板索引 (0-8)
+ * 从网格分镜图中裁剪出指定面板的图片
+ * 支持 2x2 / 3x2 / 3x3 网格布局
+ * @param nineGridImageUrl - 网格整图 (base64)
+ * @param panelIndex - 面板索引 (0-(panelCount-1))
+ * @param layout - 网格布局（可选，默认按 3x3 兼容）
  * @returns 裁剪后的 base64 图片
  */
 export const cropPanelFromNineGrid = (
   nineGridImageUrl: string,
-  panelIndex: number
+  panelIndex: number,
+  layout?: NineGridData['layout']
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       try {
+        const resolvedLayout = resolveStoryboardGridLayout(layout?.panelCount, layout?.panelCount);
+        if (panelIndex < 0 || panelIndex >= resolvedLayout.panelCount) {
+          reject(new Error(`面板索引越界: ${panelIndex}`));
+          return;
+        }
+
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) {
@@ -810,12 +839,12 @@ export const cropPanelFromNineGrid = (
           return;
         }
         
-        // 计算裁剪区域：3x3 网格
-        const col = panelIndex % 3;        // 列 (0, 1, 2)
-        const row = Math.floor(panelIndex / 3); // 行 (0, 1, 2)
+        // 计算裁剪区域：动态网格（2x2 / 3x2 / 3x3）
+        const col = panelIndex % resolvedLayout.cols;
+        const row = Math.floor(panelIndex / resolvedLayout.cols);
         
-        const panelWidth = img.width / 3;
-        const panelHeight = img.height / 3;
+        const panelWidth = img.width / resolvedLayout.cols;
+        const panelHeight = img.height / resolvedLayout.rows;
         
         const sx = col * panelWidth;
         const sy = row * panelHeight;
@@ -841,7 +870,7 @@ export const cropPanelFromNineGrid = (
       }
     };
     img.onerror = () => {
-      reject(new Error('九宫格图片加载失败'));
+      reject(new Error('网格分镜图片加载失败'));
     };
     img.src = nineGridImageUrl;
   });

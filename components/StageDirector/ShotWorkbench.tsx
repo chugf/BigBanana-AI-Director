@@ -17,11 +17,24 @@ import {
   ChevronUp,
   SlidersHorizontal,
 } from 'lucide-react';
-import { Shot, ProjectState, AspectRatio, VideoDuration, NineGridData, NineGridPanel } from '../../types';
+import {
+  Shot,
+  ProjectState,
+  AspectRatio,
+  VideoDuration,
+  NineGridData,
+  NineGridPanel,
+  StoryboardGridPanelCount,
+} from '../../types';
 import SceneContext from './SceneContext';
 import KeyframeEditor from './KeyframeEditor';
 import VideoGenerator from './VideoGenerator';
 import { resolveVideoModelRouting } from './utils';
+import { getModelById } from '../../services/modelRegistry';
+import {
+  STORYBOARD_GRID_LAYOUTS,
+  resolveStoryboardGridLayout,
+} from './constants';
 
 interface ShotWorkbenchProps {
   shot: Shot;
@@ -59,7 +72,9 @@ interface ShotWorkbenchProps {
   onEditVideoPrompt: () => void;
   onVideoModelChange: (modelId: string) => void;
   onImageClick: (url: string, title: string) => void;
-  onGenerateNineGrid: () => void;
+  videoInputMode?: 'keyframes' | 'storyboard-grid';
+  onVideoInputModeChange: (mode: 'keyframes' | 'storyboard-grid') => void;
+  onGenerateNineGrid: (panelCount?: StoryboardGridPanelCount) => void;
   nineGrid?: NineGridData;
   onSelectNineGridPanel: (panel: NineGridPanel) => void;
   onShowNineGrid: () => void;
@@ -103,6 +118,8 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   onEditVideoPrompt,
   onVideoModelChange,
   onImageClick,
+  videoInputMode,
+  onVideoInputModeChange,
   onGenerateNineGrid,
   nineGrid,
   onSelectNineGridPanel,
@@ -127,16 +144,68 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   }, [currentVideoModelId]);
 
   const modelRouting = resolveVideoModelRouting(localVideoModelId || currentVideoModelId || 'sora-2');
+  const recommendedInputMode: 'keyframes' | 'storyboard-grid' =
+    modelRouting.family === 'sora' || modelRouting.family === 'doubao-task'
+      ? 'storyboard-grid'
+      : 'keyframes';
+  const effectiveVideoInputMode = videoInputMode || recommendedInputMode;
+  const resolveStoredGridPanelCount = (): StoryboardGridPanelCount | null => {
+    const fromLayout = nineGrid?.layout?.panelCount;
+    if (fromLayout === 4 || fromLayout === 6 || fromLayout === 9) {
+      return fromLayout;
+    }
+
+    const panelLength = nineGrid?.panels?.length;
+    if (panelLength === 4 || panelLength === 6 || panelLength === 9) {
+      return panelLength;
+    }
+
+    return null;
+  };
+  const resolveDefaultGridPanelCount = (): StoryboardGridPanelCount => {
+    const intervalDuration = Number(shot.interval?.duration);
+    if (Number.isFinite(intervalDuration) && intervalDuration === 8) {
+      return 6;
+    }
+
+    const modelId = localVideoModelId || currentVideoModelId || shot.videoModel || 'sora-2';
+    const model = getModelById(modelId) as any;
+    const modelDefaultDuration = Number(model?.params?.defaultDuration);
+    if (Number.isFinite(modelDefaultDuration) && modelDefaultDuration === 8) {
+      return 6;
+    }
+
+    return 9;
+  };
+  const resolvePreferredGridPanelCount = (): StoryboardGridPanelCount =>
+    resolveStoredGridPanelCount() ?? resolveDefaultGridPanelCount();
+  const [selectedGridPanelCount, setSelectedGridPanelCount] = useState<StoryboardGridPanelCount>(() =>
+    resolvePreferredGridPanelCount()
+  );
+  const selectedGridLayout = resolveStoryboardGridLayout(selectedGridPanelCount);
+  const existingGridLayout = resolveStoryboardGridLayout(
+    nineGrid?.layout?.panelCount,
+    nineGrid?.panels?.length
+  );
+  const hasSameGridLayout =
+    !!nineGrid?.panels?.length && existingGridLayout.panelCount === selectedGridLayout.panelCount;
+
+  useEffect(() => {
+    setSelectedGridPanelCount(resolvePreferredGridPanelCount());
+  }, [shot.id, nineGrid?.layout?.panelCount, nineGrid?.panels?.length]);
+
   const showEndFrame = modelRouting.supportsEndFrame;
   const hasStartFrame = !!startKf?.imageUrl;
   const hasEndFrame = !!endKf?.imageUrl;
-  const keyframeReady = hasStartFrame && (!showEndFrame || hasEndFrame);
+  const keyframeReady = effectiveVideoInputMode === 'storyboard-grid'
+    ? hasStartFrame
+    : hasStartFrame && (!showEndFrame || hasEndFrame);
   const hasActionSummary = (shot.actionSummary || '').trim().length > 0;
   const hasVideo = !!shot.interval?.videoUrl;
   const isVideoGenerating = shot.interval?.status === 'generating';
 
   useEffect(() => {
-    if (!hasStartFrame || (showEndFrame && !hasEndFrame)) {
+    if (!keyframeReady) {
       setExpandedSection('keyframe');
       return;
     }
@@ -150,6 +219,12 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   useEffect(() => {
     setExpandedCheckKey(null);
   }, [shot.id]);
+
+  useEffect(() => {
+    if (effectiveVideoInputMode === 'storyboard-grid') {
+      setIsAdvancedMode(true);
+    }
+  }, [effectiveVideoInputMode]);
 
   const qualityGradeLabel = quality?.grade === 'pass' ? '通过' : quality?.grade === 'warning' ? '需优化' : '高风险';
   const qualityBadgeClass =
@@ -195,15 +270,50 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   const steps = useMemo(
     () => [
       { key: 'context' as const, label: '1 资产绑定', done: !!scene && activeCharacters.length > 0 },
-      { key: 'keyframe' as const, label: '2 关键帧', done: keyframeReady },
+      { key: 'keyframe' as const, label: effectiveVideoInputMode === 'storyboard-grid' ? '2 网格分镜' : '2 关键帧', done: keyframeReady },
       { key: 'narrative' as const, label: '3 动作台词', done: hasActionSummary },
       { key: 'video' as const, label: '4 视频生成', done: hasVideo },
     ],
-    [scene, activeCharacters.length, keyframeReady, hasActionSummary, hasVideo]
+    [scene, activeCharacters.length, keyframeReady, hasActionSummary, hasVideo, effectiveVideoInputMode]
   );
   const completedSteps = steps.filter((item) => item.done).length;
+  const recommendationText =
+    modelRouting.family === 'sora' || modelRouting.family === 'doubao-task'
+      ? '当前模型推荐网格分镜'
+      : modelRouting.family === 'veo-sync'
+        ? '当前模型推荐首尾帧'
+        : '当前模型支持网格分镜与首尾帧';
+  const isGridGenerating = nineGrid?.status === 'generating_panels' || nineGrid?.status === 'generating_image';
+  const openOrGenerateGridStoryboard = () => {
+    if (
+      hasSameGridLayout &&
+      (nineGrid?.status === 'completed' || nineGrid?.status === 'panels_ready' || nineGrid?.status === 'generating_image')
+    ) {
+      onShowNineGrid();
+      return;
+    }
+    onGenerateNineGrid(selectedGridPanelCount);
+  };
 
   const primaryAction = useMemo(() => {
+    if (effectiveVideoInputMode === 'storyboard-grid' && !hasStartFrame) {
+      return {
+        label: '下一步：生成网格分镜',
+        hint: isAdvancedMode
+          ? `先生成${selectedGridLayout.label}并选定首帧，再进入视频生成。`
+          : '网格分镜属于高级功能，请先切换到“高级”。',
+        disabled: isGridGenerating,
+        onClick: () => {
+          setExpandedSection('keyframe');
+          if (!isAdvancedMode) {
+            setIsAdvancedMode(true);
+            return;
+          }
+          openOrGenerateGridStoryboard();
+        },
+      };
+    }
+
     if (!hasStartFrame) {
       return {
         label: '下一步：生成首帧',
@@ -216,7 +326,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
       };
     }
 
-    if (showEndFrame && !hasEndFrame) {
+    if (effectiveVideoInputMode === 'keyframes' && showEndFrame && !hasEndFrame) {
       return {
         label: '下一步：生成尾帧',
         hint: '补齐首尾关键帧后，再做视频会更稳定。',
@@ -247,7 +357,13 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
       },
     };
   }, [
+    effectiveVideoInputMode,
     hasStartFrame,
+    isAdvancedMode,
+    selectedGridLayout.label,
+    selectedGridPanelCount,
+    isGridGenerating,
+    openOrGenerateGridStoryboard,
     startKf?.status,
     showEndFrame,
     hasEndFrame,
@@ -328,7 +444,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
               type="button"
               className={`px-2 py-1 text-[10px] font-medium ${isAdvancedMode ? 'text-[var(--text-primary)] bg-[var(--bg-hover)]' : 'text-[var(--text-tertiary)]'}`}
               onClick={() => setIsAdvancedMode(true)}
-              title="显示九宫格和拆镜等高级工具"
+              title="显示网格分镜和拆镜等高级工具"
             >
               高级
             </button>
@@ -449,7 +565,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
           </div>
           {!isAdvancedMode && (
             <p className="text-[10px] text-[var(--text-muted)]">
-              当前为新手模式。需要拆镜/九宫格时，可切换到顶部“高级”。
+              当前为新手模式。需要拆镜/网格分镜时，可切换到顶部“高级”。
             </p>
           )}
         </section>
@@ -482,27 +598,165 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
         </section>
 
         <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] overflow-hidden">
-          {renderSectionHeader('keyframe', '关键帧制作', '完成首帧/尾帧后再进入视频', steps[1]?.done)}
+          {renderSectionHeader(
+            'keyframe',
+            effectiveVideoInputMode === 'storyboard-grid' ? '网格分镜' : '关键帧制作',
+            effectiveVideoInputMode === 'storyboard-grid'
+              ? '网格分镜与首尾帧二选一，当前为网格模式'
+              : '完成首帧/尾帧后再进入视频',
+            steps[1]?.done
+          )}
           {expandedSection === 'keyframe' && (
-            <div className="border-t border-[var(--border-primary)] p-3">
-              <KeyframeEditor
-                startKeyframe={startKf}
-                endKeyframe={endKf}
-                showEndFrame={showEndFrame}
-                canCopyPrevious={shotIndex > 0}
-                canCopyNext={shotIndex < totalShots - 1 && nextShotHasStartFrame}
-                isAIOptimizing={isAIOptimizing}
-                useAIEnhancement={useAIEnhancement}
-                onToggleAIEnhancement={onToggleAIEnhancement}
-                onGenerateKeyframe={onGenerateKeyframe}
-                onUploadKeyframe={onUploadKeyframe}
-                onEditPrompt={onEditKeyframePrompt}
-                onOptimizeWithAI={onOptimizeKeyframeWithAI}
-                onOptimizeBothWithAI={onOptimizeBothKeyframes}
-                onCopyPrevious={onCopyPreviousEndFrame}
-                onCopyNext={onCopyNextStartFrame}
-                onImageClick={onImageClick}
-              />
+            <div className="border-t border-[var(--border-primary)] p-3 space-y-3">
+              <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-base)]/40 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)]">
+                    镜头驱动模式（2 选 1）
+                  </p>
+                  <span className="text-[9px] text-[var(--accent-text)] bg-[var(--accent-bg)] border border-[var(--accent-border)] px-2 py-0.5 rounded">
+                    {recommendationText}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onVideoInputModeChange('keyframes')}
+                    className={`px-2 py-2 rounded border text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                      effectiveVideoInputMode === 'keyframes'
+                        ? 'border-[var(--accent-border)] bg-[var(--accent-bg)] text-[var(--accent-text)]'
+                        : 'border-[var(--border-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    首尾帧
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onVideoInputModeChange('storyboard-grid');
+                      if (!isAdvancedMode) setIsAdvancedMode(true);
+                    }}
+                    className={`px-2 py-2 rounded border text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                      effectiveVideoInputMode === 'storyboard-grid'
+                        ? 'border-[var(--accent-border)] bg-[var(--accent-bg)] text-[var(--accent-text)]'
+                        : 'border-[var(--border-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    网格分镜
+                  </button>
+                </div>
+                <p className="text-[10px] text-[var(--text-muted)]">
+                  网格分镜与首尾帧互斥：切换为网格模式后，视频将自动忽略尾帧输入。
+                </p>
+              </div>
+
+              {effectiveVideoInputMode === 'keyframes' ? (
+                <KeyframeEditor
+                  startKeyframe={startKf}
+                  endKeyframe={endKf}
+                  showEndFrame={showEndFrame}
+                  canCopyPrevious={shotIndex > 0}
+                  canCopyNext={shotIndex < totalShots - 1 && nextShotHasStartFrame}
+                  isAIOptimizing={isAIOptimizing}
+                  useAIEnhancement={useAIEnhancement}
+                  onToggleAIEnhancement={onToggleAIEnhancement}
+                  onGenerateKeyframe={onGenerateKeyframe}
+                  onUploadKeyframe={onUploadKeyframe}
+                  onEditPrompt={onEditKeyframePrompt}
+                  onOptimizeWithAI={onOptimizeKeyframeWithAI}
+                  onOptimizeBothWithAI={onOptimizeBothKeyframes}
+                  onCopyPrevious={onCopyPreviousEndFrame}
+                  onCopyNext={onCopyNextStartFrame}
+                  onImageClick={onImageClick}
+                />
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    {([4, 6, 9] as const).map((count) => {
+                      const layout = STORYBOARD_GRID_LAYOUTS[count];
+                      return (
+                        <button
+                          key={count}
+                          type="button"
+                          onClick={() => setSelectedGridPanelCount(count)}
+                          className={`px-2 py-1.5 rounded border text-[10px] font-semibold transition-colors ${
+                            selectedGridPanelCount === count
+                              ? 'border-[var(--accent-border)] bg-[var(--accent-bg)] text-[var(--accent-text)]'
+                              : 'border-[var(--border-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+                          }`}
+                        >
+                          {layout.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-[var(--text-muted)]">
+                    小优化：8 秒镜头默认推荐六宫格，减少切镜频率。
+                  </p>
+
+                  <button
+                    onClick={openOrGenerateGridStoryboard}
+                    disabled={isGridGenerating}
+                    className={`w-full py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 border ${
+                      isGridGenerating
+                        ? 'bg-[var(--bg-base)] text-[var(--text-muted)] border-[var(--border-primary)] cursor-wait'
+                        : nineGrid?.status === 'completed' && hasSameGridLayout
+                          ? 'bg-[var(--success-bg)] text-[var(--success-text)] border-[var(--success-border)]'
+                          : nineGrid?.status === 'panels_ready' && hasSameGridLayout
+                            ? 'bg-[var(--warning-bg)] text-[var(--warning-text)] border-[var(--warning-border)]'
+                            : 'bg-[var(--bg-base)] text-[var(--text-tertiary)] border-[var(--border-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {nineGrid?.status === 'generating_panels' ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>分镜描述生成中...</span>
+                      </>
+                    ) : nineGrid?.status === 'generating_image' ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>{selectedGridLayout.label}出图中...</span>
+                      </>
+                    ) : nineGrid?.status === 'completed' && hasSameGridLayout ? (
+                      <>
+                        <Grid3x3 className="w-3.5 h-3.5" />
+                        <span>查看{selectedGridLayout.label}分镜</span>
+                      </>
+                    ) : nineGrid?.status === 'panels_ready' && hasSameGridLayout ? (
+                      <>
+                        <Grid3x3 className="w-3.5 h-3.5" />
+                        <span>确认{selectedGridLayout.label}分镜</span>
+                      </>
+                    ) : (
+                      <>
+                        <Grid3x3 className="w-3.5 h-3.5" />
+                        <span>生成{selectedGridLayout.label}分镜</span>
+                      </>
+                    )}
+                  </button>
+
+                  {!hasSameGridLayout && nineGrid?.panels?.length ? (
+                    <p className="text-[10px] text-[var(--text-muted)]">
+                      当前已有 {existingGridLayout.label} 结果，点击上方按钮将重新生成 {selectedGridLayout.label}。
+                    </p>
+                  ) : null}
+
+                  {nineGrid?.status === 'completed' && nineGrid.imageUrl && hasSameGridLayout && (
+                    <div
+                      className="relative bg-[var(--bg-base)] rounded-lg border border-[var(--border-primary)] overflow-hidden cursor-pointer group"
+                      onClick={onShowNineGrid}
+                    >
+                      <img
+                        src={nineGrid.imageUrl}
+                        className="w-full h-auto block transition-transform duration-300 group-hover:scale-105"
+                        alt={`${selectedGridLayout.label}分镜预览`}
+                      />
+                      <div className="absolute inset-0 bg-[var(--bg-base)]/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                        <span className="text-[var(--text-primary)] text-xs font-mono">点击查看并选择镜头</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -570,7 +824,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
 
         {isAdvancedMode && (
           <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] overflow-hidden">
-            {renderSectionHeader('advanced', '高级工具', '拆镜与九宫格 storyboard', undefined)}
+            {renderSectionHeader('advanced', '高级工具', '镜头拆分与实验能力', undefined)}
             {expandedSection === 'advanced' && (
               <div className="border-t border-[var(--border-primary)] p-4 space-y-3">
                 <button
@@ -581,71 +835,6 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
                   {isSplittingShot ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Scissors className="w-3.5 h-3.5" />}
                   {isSplittingShot ? '拆镜中...' : 'AI拆分镜头'}
                 </button>
-
-                {localVideoModelId !== 'veo' && (
-                  <div className="space-y-2">
-                    <button
-                      onClick={
-                        nineGrid?.status === 'completed' || nineGrid?.status === 'panels_ready' || nineGrid?.status === 'generating_image'
-                          ? onShowNineGrid
-                          : onGenerateNineGrid
-                      }
-                      disabled={nineGrid?.status === 'generating_panels' || nineGrid?.status === 'generating_image'}
-                      className={`w-full py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 border ${
-                        nineGrid?.status === 'generating_panels' || nineGrid?.status === 'generating_image'
-                          ? 'bg-[var(--bg-base)] text-[var(--text-muted)] border-[var(--border-primary)] cursor-wait'
-                          : nineGrid?.status === 'completed'
-                            ? 'bg-[var(--success-bg)] text-[var(--success-text)] border-[var(--success-border)]'
-                            : nineGrid?.status === 'panels_ready'
-                              ? 'bg-[var(--warning-bg)] text-[var(--warning-text)] border-[var(--warning-border)]'
-                              : 'bg-[var(--bg-base)] text-[var(--text-tertiary)] border-[var(--border-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      {nineGrid?.status === 'generating_panels' ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>分镜描述生成中...</span>
-                        </>
-                      ) : nineGrid?.status === 'generating_image' ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>九宫格出图中...</span>
-                        </>
-                      ) : nineGrid?.status === 'completed' ? (
-                        <>
-                          <Grid3x3 className="w-3.5 h-3.5" />
-                          <span>查看九宫格分镜</span>
-                        </>
-                      ) : nineGrid?.status === 'panels_ready' ? (
-                        <>
-                          <Grid3x3 className="w-3.5 h-3.5" />
-                          <span>确认九宫格分镜</span>
-                        </>
-                      ) : (
-                        <>
-                          <Grid3x3 className="w-3.5 h-3.5" />
-                          <span>生成九宫格分镜</span>
-                        </>
-                      )}
-                    </button>
-
-                    {nineGrid?.status === 'completed' && nineGrid.imageUrl && (
-                      <div
-                        className="relative bg-[var(--bg-base)] rounded-lg border border-[var(--border-primary)] overflow-hidden cursor-pointer group"
-                        onClick={onShowNineGrid}
-                      >
-                        <img
-                          src={nineGrid.imageUrl}
-                          className="w-full h-auto block transition-transform duration-300 group-hover:scale-105"
-                          alt="九宫格分镜预览"
-                        />
-                        <div className="absolute inset-0 bg-[var(--bg-base)]/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                          <span className="text-[var(--text-primary)] text-xs font-mono">点击查看并选择镜头</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             )}
           </section>

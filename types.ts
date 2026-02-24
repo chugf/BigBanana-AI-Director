@@ -149,10 +149,24 @@ export interface VideoInterval {
 }
 
 /**
+ * 分镜网格面板数量（导演工作台）
+ */
+export type StoryboardGridPanelCount = 4 | 6 | 9;
+
+/**
+ * 分镜网格布局元信息
+ */
+export interface StoryboardGridLayoutMeta {
+  panelCount: StoryboardGridPanelCount;
+  rows: number;
+  cols: number;
+}
+
+/**
  * 九宫格分镜预览 - 单个面板数据
  */
 export interface NineGridPanel {
-  index: number;           // 0-8, 九宫格位置索引
+  index: number;           // 0-(panelCount-1), 网格位置索引
   shotSize: string;        // 景别：特写/近景/中景/全景/远景 等
   cameraAngle: string;     // 机位角度：俯拍/仰拍/平视/斜拍 等
   description: string;     // 该格子的视觉描述
@@ -162,13 +176,14 @@ export interface NineGridPanel {
  * 九宫格分镜预览数据
  */
 export interface NineGridData {
-  panels: NineGridPanel[];  // 9个格子的描述数据
-  imageUrl?: string;        // 生成的九宫格图片 (base64)
+  panels: NineGridPanel[];  // 网格格子的描述数据
+  layout?: StoryboardGridLayoutMeta; // 当前网格布局（4/6/9）
+  imageUrl?: string;        // 生成的网格图片 (base64)
   prompt?: string;          // 生成时使用的完整提示词
   status: 'pending' | 'generating_panels' | 'panels_ready' | 'generating_image' | 'completed' | 'failed';
-  // generating_panels: AI正在生成9个镜头描述
+  // generating_panels: AI正在生成网格镜头描述
   // panels_ready: 镜头描述已生成，等待用户确认/编辑后再生成图片
-  // generating_image: 用户已确认，正在生成九宫格图片
+  // generating_image: 用户已确认，正在生成网格图片
 }
 
 export interface Shot {
@@ -185,6 +200,7 @@ export interface Shot {
   interval?: VideoInterval;
   qualityAssessment?: ShotQualityAssessment;
   videoModel?: 'veo' | 'sora-2' | 'veo_3_1-fast' | 'veo_3_1-fast-4K' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait' | 'doubao-seedance-1-5-pro-251215' | 'doubao-seedance-2-0-260128'; // Video generation model selection
+  videoInputMode?: 'keyframes' | 'storyboard-grid'; // 视频驱动方式：首尾帧 / 网格分镜（互斥）
   nineGrid?: NineGridData; // 可选的九宫格分镜预览数据（高级功能）
 }
 

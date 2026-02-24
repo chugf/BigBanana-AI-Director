@@ -3,7 +3,7 @@
  * 包含关键帧优化、动作生成、镜头拆分、九宫格分镜等功能
  */
 
-import { AspectRatio, NineGridPanel } from "../../types";
+import { AspectRatio, NineGridPanel, StoryboardGridPanelCount } from "../../types";
 import { addRenderLogWithTokens } from '../renderLogService';
 import {
   retryOperation,
@@ -16,6 +16,7 @@ import { generateImage } from './visualService';
 import {
   NINE_GRID_SPLIT_PROMPT,
   NINE_GRID_IMAGE_PROMPT_TEMPLATE,
+  resolveStoryboardGridLayout,
 } from './storyboardPromptTemplates';
 
 const countEnglishWords = (text: string): number => {
@@ -636,7 +637,7 @@ ${frameType === 'start'
 // ============================================
 
 /**
- * 使用 Chat 模型将镜头动作拆分为 9 个不同的摄影视角
+ * 使用 Chat 模型将镜头动作拆分为网格分镜（4/6/9）
  */
 export const generateNineGridPanels = async (
   actionSummary: string,
@@ -644,13 +645,22 @@ export const generateNineGridPanels = async (
   sceneInfo: { location: string; time: string; atmosphere: string },
   characterNames: string[],
   visualStyle: string,
-  model?: string
+  model?: string,
+  panelCount: StoryboardGridPanelCount = 9
 ): Promise<NineGridPanel[]> => {
   const startTime = Date.now();
-  console.log('🎬 九宫格分镜 - 开始AI拆分视角...');
+  const layout = resolveStoryboardGridLayout(panelCount);
+  const gridLayout = `${layout.cols}x${layout.rows}`;
+  console.log(`🎬 ${layout.label}分镜 - 开始AI拆分视角...`);
 
   const resolvedModel = model || getActiveChatModel()?.id || 'gpt-5.2';
+  const systemPrompt = NINE_GRID_SPLIT_PROMPT.system
+    .replace(/{panelCount}/g, String(layout.panelCount))
+    .replace(/{gridLayout}/g, gridLayout);
   const userPrompt = NINE_GRID_SPLIT_PROMPT.user
+    .replace(/{panelCount}/g, String(layout.panelCount))
+    .replace(/{lastIndex}/g, String(layout.panelCount - 1))
+    .replace(/{gridLayout}/g, gridLayout)
     .replace('{actionSummary}', actionSummary)
     .replace('{cameraMovement}', cameraMovement)
     .replace('{location}', sceneInfo.location)
@@ -659,15 +669,15 @@ export const generateNineGridPanels = async (
     .replace('{characters}', characterNames.length > 0 ? characterNames.join('、') : '无特定角色')
     .replace('{visualStyle}', visualStyle);
 
-  const fullPrompt = `${NINE_GRID_SPLIT_PROMPT.system}\n\n${userPrompt}`;
+  const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
   const parsePanels = (responseText: string): NineGridPanel[] => {
     const cleaned = cleanJsonString(responseText);
     const parsed = JSON.parse(cleaned);
     const rawPanels = Array.isArray(parsed?.panels) ? parsed.panels : [];
 
-    if (rawPanels.length !== 9) {
-      throw new Error(`AI返回的panel数量为 ${rawPanels.length}，必须为 9`);
+    if (rawPanels.length !== layout.panelCount) {
+      throw new Error(`AI返回的panel数量为 ${rawPanels.length}，必须为 ${layout.panelCount}`);
     }
 
     const normalizedPanels = rawPanels.map((p: any, idx: number) => ({
@@ -702,12 +712,12 @@ export const generateNineGridPanels = async (
     try {
       panels = parsePanels(responseText);
     } catch (parseError: any) {
-      console.warn('⚠️ 九宫格首次解析不符合规范，尝试自动纠偏重试:', parseError.message);
+      console.warn(`⚠️ ${layout.label}首次解析不符合规范，尝试自动纠偏重试:`, parseError.message);
       const repairPrompt = `${fullPrompt}
 
 你上一次输出不符合要求（原因：${parseError.message}）。
 请严格重新输出 JSON 对象，且必须满足：
-1) "panels" 恰好 9 个（index 0-8，按从左到右、从上到下）
+1) "panels" 恰好 ${layout.panelCount} 个（index 0-${layout.panelCount - 1}，按从左到右、从上到下）
 2) 每个 panel 必须包含非空的 shotSize、cameraAngle、description
 3) description 使用英文单句，严格控制在 10-30 词
 4) 只输出 JSON，不要任何解释文字`;
@@ -716,16 +726,16 @@ export const generateNineGridPanels = async (
       panels = parsePanels(repairedText);
     }
 
-    console.log(`✅ 九宫格分镜 - AI拆分完成，耗时: ${duration}ms`);
+    console.log(`✅ ${layout.label}分镜 - AI拆分完成，耗时: ${duration}ms`);
     return panels;
   } catch (error: any) {
-    console.error('❌ 九宫格分镜 - AI拆分失败:', error);
-    throw new Error(`九宫格视角拆分失败: ${error.message}`);
+    console.error(`❌ ${layout.label}分镜 - AI拆分失败:`, error);
+    throw new Error(`${layout.label}视角拆分失败: ${error.message}`);
   }
 };
 
 /**
- * 使用图像模型生成九宫格分镜图片
+ * 使用图像模型生成网格分镜图片（4/6/9）
  */
 export const generateNineGridImage = async (
   panels: NineGridPanel[],
@@ -734,36 +744,38 @@ export const generateNineGridImage = async (
   aspectRatio: AspectRatio = '16:9',
   options?: {
     hasTurnaround?: boolean;
+    panelCount?: StoryboardGridPanelCount;
   }
 ): Promise<string> => {
   const startTime = Date.now();
-  console.log('🎬 九宫格分镜 - 开始生成九宫格图片...');
+  const layout = resolveStoryboardGridLayout(options?.panelCount || panels.length);
+  const gridLayout = `${layout.cols}x${layout.rows}`;
+  console.log(`🎬 ${layout.label}分镜 - 开始生成网格图片...`);
 
   const stylePrompt = getStylePrompt(visualStyle);
 
-  if (panels.length !== 9) {
-    throw new Error(`九宫格图片生成前校验失败：panels 数量为 ${panels.length}，必须为 9`);
+  if (panels.length !== layout.panelCount) {
+    throw new Error(`网格图片生成前校验失败：panels 数量为 ${panels.length}，必须为 ${layout.panelCount}`);
   }
-
-  const positionLabels = [
-    'Top-Left', 'Top-Center', 'Top-Right',
-    'Middle-Left', 'Center', 'Middle-Right',
-    'Bottom-Left', 'Bottom-Center', 'Bottom-Right'
-  ];
 
   const panelDescriptions = panels.map((panel, idx) =>
     NINE_GRID_IMAGE_PROMPT_TEMPLATE.panelTemplate
       .replace('{index}', String(idx + 1))
-      .replace('{position}', positionLabels[idx])
+      .replace('{position}', layout.positionLabels[idx] || `Panel-${idx + 1}`)
       .replace('{shotSize}', panel.shotSize)
       .replace('{cameraAngle}', panel.cameraAngle)
       .replace('{description}', panel.description)
   ).join('\n');
 
-  const nineGridPrompt = `${NINE_GRID_IMAGE_PROMPT_TEMPLATE.prefix.replace('{visualStyle}', stylePrompt)}
+  const nineGridPrompt = `${NINE_GRID_IMAGE_PROMPT_TEMPLATE.prefix
+    .replace(/{gridLayout}/g, gridLayout)
+    .replace(/{panelCount}/g, String(layout.panelCount))
+    .replace('{visualStyle}', stylePrompt)}
 ${panelDescriptions}
 
-${NINE_GRID_IMAGE_PROMPT_TEMPLATE.suffix}`;
+${NINE_GRID_IMAGE_PROMPT_TEMPLATE.suffix
+  .replace(/{gridLayout}/g, gridLayout)
+  .replace(/{panelCount}/g, String(layout.panelCount))}`;
 
   try {
     const imageUrl = await generateImage(
@@ -777,10 +789,10 @@ ${NINE_GRID_IMAGE_PROMPT_TEMPLATE.suffix}`;
     );
     const duration = Date.now() - startTime;
 
-    console.log(`✅ 九宫格分镜 - 图片生成完成，耗时: ${duration}ms`);
+    console.log(`✅ ${layout.label}分镜 - 图片生成完成，耗时: ${duration}ms`);
     return imageUrl;
   } catch (error: any) {
-    console.error('❌ 九宫格分镜 - 图片生成失败:', error);
-    throw new Error(`九宫格图片生成失败: ${error.message}`);
+    console.error(`❌ ${layout.label}分镜 - 图片生成失败:`, error);
+    throw new Error(`${layout.label}图片生成失败: ${error.message}`);
   }
 };

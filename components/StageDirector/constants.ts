@@ -1,4 +1,5 @@
 import { VISUAL_STYLE_PROMPTS as AI_VISUAL_STYLE_PROMPTS } from '../../services/ai/promptConstants';
+import type { StoryboardGridLayoutMeta, StoryboardGridPanelCount } from '../../types';
 import {
   NINE_GRID_SPLIT_PROMPT as SHARED_NINE_GRID_SPLIT_PROMPT,
   NINE_GRID_IMAGE_PROMPT_TEMPLATE as SHARED_NINE_GRID_IMAGE_PROMPT_TEMPLATE,
@@ -68,23 +69,23 @@ Technical Requirements:
 - Text constraints: No subtitles and no on-screen text (including title cards and UI text overlays)`
   },
   
-  // 九宫格分镜模式的视频提示词（异步模型专用，精简版，避免超过8192字符限制）
-  // 保留9个面板的景别/角度顺序，但description截断控制总长度
+  // 网格分镜模式的视频提示词（异步模型专用，精简版，避免超过8192字符限制）
+  // 保留面板顺序与镜头意图，但 description 会按预算压缩
   sora2NineGrid: {
-    chinese: `⚠️ 最高优先级指令：参考图是3x3九宫格分镜板，严禁在视频中展示！视频第一帧必须是面板1的全屏场景画面。
-⛔ 绝对禁止：不要在视频任何帧展示九宫格原图、网格画面、缩略图集或多画面拼贴。
+    chinese: `⚠️ 最高优先级指令：参考图是{gridLayout}网格分镜板（共{panelCount}格），严禁在视频中展示！视频第一帧必须是面板1的全屏场景画面。
+⛔ 绝对禁止：不要在视频任何帧展示网格原图、网格线、缩略图集或多画面拼贴。
 
 动作描述：{actionSummary}
 视觉风格锚点：{visualStyle}
 
-九宫格镜头顺序（参考图从左到右、从上到下）：
+网格镜头顺序（参考图从左到右、从上到下）：
 {panelDescriptions}
 
-视频从面板1全屏画面开始，按1→9顺序切换视角，形成蒙太奇剪辑。
+视频从面板1全屏画面开始，按1→{panelCount}顺序切换视角，形成蒙太奇剪辑。
 每个视角约{secondsPerPanel}秒，镜头运动：{cameraMovement}
 保持角色外观一致，电影质感。可中文配音/旁白，但禁止字幕与任何画面文字。`,
 
-    english: `⚠️ HIGHEST PRIORITY: The reference image is a 3x3 storyboard grid — NEVER show it in the video! The first frame MUST be the full-screen scene from Panel 1.
+    english: `⚠️ HIGHEST PRIORITY: The reference image is a {gridLayout} storyboard grid ({panelCount} panels) — NEVER show it in the video! The first frame MUST be the full-screen scene from Panel 1.
 ⛔ FORBIDDEN: Do NOT show the grid image, grid lines, thumbnail collection, or multi-panel layout in ANY frame.
 
 Action: {actionSummary}
@@ -93,7 +94,7 @@ Visual Style Anchor: {visualStyle}
 Storyboard shot sequence (reference grid, left-to-right, top-to-bottom):
 {panelDescriptions}
 
-Start video with Panel 1 full-screen, transition through 1→9 as a montage.
+Start video with Panel 1 full-screen, transition through 1→{panelCount} as a montage.
 ~{secondsPerPanel}s per angle. Camera: {cameraMovement}
 Maintain character consistency, cinematic quality.
 Voiceover in {language} is allowed, but no subtitles or any on-screen text.`
@@ -119,18 +120,85 @@ export const DEFAULTS = {
 // 九宫格分镜预览相关常量（高级功能）
 // ============================================
 
+export const STORYBOARD_GRID_LAYOUTS: Record<
+  StoryboardGridPanelCount,
+  StoryboardGridLayoutMeta & { label: string; shortLabel: string; positionLabels: string[] }
+> = {
+  4: {
+    panelCount: 4,
+    rows: 2,
+    cols: 2,
+    label: '四宫格',
+    shortLabel: '4格',
+    positionLabels: [
+      '左上 (Top-Left)',
+      '右上 (Top-Right)',
+      '左下 (Bottom-Left)',
+      '右下 (Bottom-Right)',
+    ],
+  },
+  6: {
+    panelCount: 6,
+    rows: 2,
+    cols: 3,
+    label: '六宫格',
+    shortLabel: '6格',
+    positionLabels: [
+      '左上 (Top-Left)',
+      '中上 (Top-Center)',
+      '右上 (Top-Right)',
+      '左下 (Bottom-Left)',
+      '中下 (Bottom-Center)',
+      '右下 (Bottom-Right)',
+    ],
+  },
+  9: {
+    panelCount: 9,
+    rows: 3,
+    cols: 3,
+    label: '九宫格',
+    shortLabel: '9格',
+    positionLabels: [
+      '左上 (Top-Left)',
+      '中上 (Top-Center)',
+      '右上 (Top-Right)',
+      '左中 (Middle-Left)',
+      '正中 (Center)',
+      '右中 (Middle-Right)',
+      '左下 (Bottom-Left)',
+      '中下 (Bottom-Center)',
+      '右下 (Bottom-Right)',
+    ],
+  },
+};
+
+export const DEFAULT_STORYBOARD_PANEL_COUNT: StoryboardGridPanelCount = 9;
+
+export const resolveStoryboardGridLayout = (
+  panelCount?: number,
+  fallbackPanelLength?: number
+) => {
+  const candidate = panelCount ?? fallbackPanelLength;
+  if (candidate === 4 || candidate === 6 || candidate === 9) {
+    return STORYBOARD_GRID_LAYOUTS[candidate];
+  }
+  return STORYBOARD_GRID_LAYOUTS[DEFAULT_STORYBOARD_PANEL_COUNT];
+};
+
+export const getStoryboardPositionLabel = (
+  panelIndex: number,
+  panelCount?: number,
+  fallbackPanelLength?: number
+): string => {
+  const layout = resolveStoryboardGridLayout(panelCount, fallbackPanelLength);
+  return layout.positionLabels[panelIndex] || `面板 ${panelIndex + 1}`;
+};
+
 export const NINE_GRID = {
-  panelCount: 9,
   // 典型景别列表
   defaultShotSizes: ['远景', '全景', '中全景', '中景', '中近景', '近景', '特写', '大特写', '极端特写'],
   // 典型机位角度列表
   defaultCameraAngles: ['俯拍', '平视', '仰拍', '侧面', '正面', '背面', '斜拍', '鸟瞰', '低角度'],
-  // 九宫格位置标签
-  positionLabels: [
-    '左上 (Top-Left)', '中上 (Top-Center)', '右上 (Top-Right)',
-    '左中 (Middle-Left)', '正中 (Center)', '右中 (Middle-Right)',
-    '左下 (Bottom-Left)', '中下 (Bottom-Center)', '右下 (Bottom-Right)'
-  ],
 };
 
 // 九宫格 AI 拆分提示词模板（共享，Chat 模型使用）
