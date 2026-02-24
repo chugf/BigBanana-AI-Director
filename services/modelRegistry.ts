@@ -119,6 +119,8 @@ export const loadRegistry = (): ModelRegistryState => {
           parsed.models[existingIndex] = {
             ...bm,
             isEnabled: existing.isEnabled,
+            // Keep user-configured model-level API key for built-in models.
+            apiKey: existing.apiKey?.trim() || undefined,
             params: mergedParams as any,
           };
         }
