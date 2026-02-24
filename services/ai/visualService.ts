@@ -1068,7 +1068,8 @@ export const generateCharacterTurnaroundPanels = async (
   visualStyle: string,
   artDirection?: ArtDirection,
   language: string = '中文',
-  model: string = 'gpt-5.2'
+  model: string = 'gpt-5.2',
+  abortSignal?: AbortSignal
 ): Promise<CharacterTurnaroundPanel[]> => {
   console.log(`🎭 generateCharacterTurnaroundPanels - 为角色 ${character.name} 生成九宫格造型视角`);
   logScriptProgress(`正在为角色「${character.name}」生成九宫格造型视角描述...`);
@@ -1176,7 +1177,12 @@ Rewrite and output JSON again with these strict rules:
 2) each panel must include non-empty viewAngle, shotSize, description
 3) each description must be ONE English sentence, 10-30 words
 4) output JSON only, no explanation`;
-      const repairedText = await retryOperation(() => chatCompletion(repairPrompt, model, 0.3, 4096, 'json_object'));
+      const repairedText = await retryOperation(
+        () => chatCompletion(repairPrompt, model, 0.3, 4096, 'json_object', 600000, abortSignal),
+        3,
+        2000,
+        abortSignal
+      );
       parsed = JSON.parse(cleanJsonString(repairedText));
       panels = buildPanels(parsed);
       validationError = validatePanels(panels);

@@ -547,19 +547,22 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       setToastMessage(`能力路由：${modelName} 当前只使用首帧，已自动忽略尾帧输入。`);
     }
 
-    let videoPrompt = buildVideoPrompt(
-      shot.actionSummary,
-      shot.cameraMovement,
-      selectedModel,
-      projectLanguage,
-      visualStyle,
-      isNineGridMode ? shot.nineGrid : undefined,
-      duration,
-      {
-        hasStartFrame: !!routedFrames.startImage,
-        hasEndFrame: !!routedFrames.endImage,
-      }
-    );
+    let videoPrompt = (shot.interval?.videoPrompt || '').trim();
+    if (!videoPrompt) {
+      videoPrompt = buildVideoPrompt(
+        shot.actionSummary,
+        shot.cameraMovement,
+        selectedModel,
+        projectLanguage,
+        visualStyle,
+        isNineGridMode ? shot.nineGrid : undefined,
+        duration,
+        {
+          hasStartFrame: !!routedFrames.startImage,
+          hasEndFrame: !!routedFrames.endImage,
+        }
+      );
+    }
 
     const videoPromptLength = Array.from(videoPrompt).length;
     if (videoPromptLength > 5000) {
@@ -826,7 +829,24 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
               'manual-edit',
               'Manual video prompt edit'
             ),
-          } : undefined
+          } : {
+            id: generateId(`int-${s.id}`),
+            startKeyframeId: s.keyframes?.find((kf) => kf.type === 'start')?.id || '',
+            endKeyframeId: s.keyframes?.find((kf) => kf.type === 'end')?.id || '',
+            duration:
+              Number(s.interval?.duration) ||
+              getModelDefaultDuration(s.videoModel || DEFAULTS.videoModel),
+            motionStrength: s.interval?.motionStrength ?? 5,
+            videoPrompt: editModal.value,
+            promptVersions: updatePromptWithVersion(
+              undefined,
+              editModal.value,
+              undefined,
+              'manual-edit',
+              'Manual video prompt edit'
+            ),
+            status: s.interval?.status || 'pending',
+          }
         }));
         break;
     }
