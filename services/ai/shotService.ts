@@ -36,7 +36,7 @@ export const optimizeBothKeyframes = async (
   sceneInfo: { location: string; time: string; atmosphere: string },
   characterInfo: string[],
   visualStyle: string,
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.2'
 ): Promise<{ startPrompt: string; endPrompt: string }> => {
   console.log('🎨 optimizeBothKeyframes 调用 - 同时优化起始帧和结束帧 - 使用模型:', model);
   const startTime = Date.now();
@@ -186,7 +186,7 @@ export const optimizeKeyframePrompt = async (
   sceneInfo: { location: string; time: string; atmosphere: string },
   characterInfo: string[],
   visualStyle: string,
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.2'
 ): Promise<string> => {
   console.log(`🎨 optimizeKeyframePrompt 调用 - ${frameType === 'start' ? '起始帧' : '结束帧'} - 使用模型:`, model);
   const startTime = Date.now();
@@ -318,7 +318,7 @@ export const generateActionSuggestion = async (
   startFramePrompt: string,
   endFramePrompt: string,
   cameraMovement: string,
-  model: string = 'gpt-5.1',
+  model: string = 'gpt-5.2',
   targetDurationSeconds: number = 8
 ): Promise<string> => {
   console.log('🎬 generateActionSuggestion 调用 - 使用模型:', model);
@@ -400,7 +400,7 @@ export const splitShotIntoSubShots = async (
   sceneInfo: { location: string; time: string; atmosphere: string },
   characterNames: string[],
   visualStyle: string,
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.2'
 ): Promise<{ subShots: any[] }> => {
   console.log('✂️ splitShotIntoSubShots 调用 - 使用模型:', model);
   const startTime = Date.now();
@@ -582,7 +582,7 @@ export const enhanceKeyframePrompt = async (
   visualStyle: string,
   cameraMovement: string,
   frameType: 'start' | 'end',
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.2'
 ): Promise<string> => {
   console.log(`🎨 enhanceKeyframePrompt 调用 - ${frameType === 'start' ? '起始帧' : '结束帧'} - 使用模型:`, model);
   const startTime = Date.now();
@@ -649,7 +649,7 @@ export const generateNineGridPanels = async (
   const startTime = Date.now();
   console.log('🎬 九宫格分镜 - 开始AI拆分视角...');
 
-  const resolvedModel = model || getActiveChatModel()?.id || 'gpt-5.1';
+  const resolvedModel = model || getActiveChatModel()?.id || 'gpt-5.2';
   const userPrompt = NINE_GRID_SPLIT_PROMPT.user
     .replace('{actionSummary}', actionSummary)
     .replace('{cameraMovement}', cameraMovement)

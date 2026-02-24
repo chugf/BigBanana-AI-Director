@@ -30,7 +30,7 @@ const DEFAULT_PROVIDER: ModelProvider = {
 const DEFAULT_CONFIG: ModelConfig = {
   chatModel: {
     providerId: 'antsk',
-    modelName: 'gpt-5.1',
+    modelName: 'gpt-5.2',
     endpoint: '/v1/chat/completions'
   },
   imageModel: {
@@ -386,9 +386,9 @@ export const resetToDefault = (): void => {
  * 预定义的对话模型列表
  */
 export const AVAILABLE_CHAT_MODELS = [
-  { name: 'GPT-5.1', value: 'gpt-5.1', description: '最新版本，推荐使用' },
+  { name: 'GPT-5.2', value: 'gpt-5.2', description: '最新版本，推荐使用' },
+  { name: 'GPT-5.1', value: 'gpt-5.1', description: '稳定版本' },
   { name: 'GPT-4.1', value: 'gpt-41', description: '稳定版本' },
-  { name: 'GPT-5.2', value: 'gpt-5.2', description: '实验版本' },
 ];
 
 /**

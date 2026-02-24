@@ -329,6 +329,100 @@ export const buildKeyframePromptWithAI = async (
  * @param nineGrid - 可选，如果首帧来自九宫格整图，则使用九宫格分镜模式的视频提示词
  * @param videoDuration - 视频总时长（秒），用于计算九宫格模式下每个面板的停留时间
  */
+const MAX_VIDEO_PROMPT_CHARS = 5000;
+
+const normalizePromptField = (input: string): string =>
+  String(input || '')
+    .replace(/\r/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const compactPromptField = (
+  input: string,
+  maxChars: number,
+  maxWords: number
+): string => {
+  const normalized = normalizePromptField(input);
+  if (!normalized) return '';
+
+  let candidate = normalized;
+  const words = candidate.split(/\s+/).filter(Boolean);
+  if (words.length > maxWords) {
+    candidate = words.slice(0, maxWords).join(' ');
+  }
+
+  const chars = Array.from(candidate);
+  if (chars.length > maxChars) {
+    candidate = chars.slice(0, maxChars).join('');
+  }
+
+  candidate = candidate.replace(/[,\s;:.!?]+$/g, '');
+  return candidate.length < normalized.length ? `${candidate}...` : candidate;
+};
+
+const buildNineGridPanelDescriptionsWithBudget = (
+  panels: NineGridPanel[],
+  budgetChars: number
+): string => {
+  if (!panels.length) return '';
+
+  const prefixes = panels.map((panel, idx) => {
+    const shotSize = normalizePromptField(panel.shotSize) || 'shot';
+    const cameraAngle = normalizePromptField(panel.cameraAngle) || 'angle';
+    return `${idx + 1}. ${shotSize}/${cameraAngle} - `;
+  });
+
+  const overhead = prefixes.reduce((sum, prefix) => sum + Array.from(prefix).length, 0) + Math.max(0, panels.length - 1);
+  const availableForDescriptions = Math.max(9 * 28, budgetChars - overhead);
+  const perPanelChars = Math.max(28, Math.floor(availableForDescriptions / panels.length));
+  const perPanelWords = Math.max(8, Math.min(24, Math.floor(perPanelChars / 5)));
+
+  return panels
+    .map((panel, idx) => {
+      const description = compactPromptField(panel.description, perPanelChars, perPanelWords);
+      return `${prefixes[idx]}${description || 'subject action and composition continuity.'}`;
+    })
+    .join('\n');
+};
+
+const fitVideoPromptLength = (input: string, maxChars: number = MAX_VIDEO_PROMPT_CHARS): string => {
+  let prompt = String(input || '')
+    .replace(/\r/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  const length = () => Array.from(prompt).length;
+  if (length() <= maxChars) return prompt;
+
+  prompt = prompt
+    .split('\n')
+    .map((line) => {
+      if (Array.from(line).length <= 220) return line;
+      return compactPromptField(line, 200, 42);
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  if (length() <= maxChars) return prompt;
+
+  const chars = Array.from(prompt);
+  const hardCut = chars.slice(0, maxChars).join('');
+  const breakpoints = ['\n\n', '\n', '. ', '; '];
+  let best = -1;
+  breakpoints.forEach((marker) => {
+    const idx = hardCut.lastIndexOf(marker);
+    if (idx > best) best = idx;
+  });
+
+  if (best > Math.floor(maxChars * 0.6)) {
+    return hardCut.slice(0, best).trimEnd();
+  }
+
+  return hardCut.trimEnd();
+};
+
 export const buildVideoPrompt = (
   actionSummary: string,
   cameraMovement: string,
@@ -341,7 +435,9 @@ export const buildVideoPrompt = (
 ): string => {
   const isChinese = language === '中文' || language === 'Chinese';
   const stylePrompt = VISUAL_STYLE_PROMPTS[visualStyle] || visualStyle;
-  const visualStyleAnchor = `${visualStyle} (${stylePrompt})`;
+  const visualStyleAnchor = compactPromptField(`${visualStyle} (${stylePrompt})`, 220, 40);
+  const compactActionSummary = compactPromptField(actionSummary, 900, 160);
+  const compactCameraMovement = compactPromptField(cameraMovement, 220, 48);
   
   const routing = resolveVideoModelRouting(videoModel);
   const hasUsableEndFrame = !!context?.hasEndFrame && routing.supportsEndFrame;
@@ -354,20 +450,11 @@ export const buildVideoPrompt = (
     const ignoredEndFrameNote = hasIgnoredEndFrame
       ? '\n\nCapability routing: this model is start-frame-driven, so end-frame input is ignored automatically.'
       : '';
-    return `${prompt}${endFrameConstraint}${ignoredEndFrameNote}`;
+    return fitVideoPromptLength(`${prompt}${endFrameConstraint}${ignoredEndFrameNote}`);
   };
 
-  // 九宫格分镜模式：有九宫格数据时，使用异步模型专用精简提示词
-  // 保留9个面板的景别/角度顺序，但 description 截断到60字符以内，避免超过 Sora-2 的 8192 字符限制
+  // 九宫格分镜模式：按总预算动态压缩每个 panel 描述，保留顺序与镜头意图
   if (nineGrid && nineGrid.panels.length > 0 && routing.prefersNineGridStoryboard) {
-    const DESC_MAX_LEN = 60;
-    const panelDescriptions = nineGrid.panels.map((p, idx) => {
-      const desc = p.description.length > DESC_MAX_LEN 
-        ? p.description.slice(0, DESC_MAX_LEN) + '...' 
-        : p.description;
-      return `${idx + 1}. ${p.shotSize}/${p.cameraAngle} - ${desc}`;
-    }).join('\n');
-    
     const totalDuration = Math.max(1, videoDuration || 8);
     // Keep per-panel pacing compatible with very short durations (e.g. 4s) without exceeding total duration.
     const secondsPerPanel = Math.max(0.2, Math.floor((totalDuration / 9) * 100) / 100);
@@ -375,12 +462,21 @@ export const buildVideoPrompt = (
     const templateGroup = VIDEO_PROMPT_TEMPLATES.sora2NineGrid;
     
     const template = isChinese ? templateGroup.chinese : templateGroup.english;
+    const promptWithoutPanels = template
+      .replace('{actionSummary}', compactActionSummary)
+      .replace('{panelDescriptions}', '')
+      .replace(/\{secondsPerPanel\}/g, String(secondsPerPanel))
+      .replace('{cameraMovement}', compactCameraMovement)
+      .replace('{visualStyle}', visualStyleAnchor)
+      .replace('{language}', language);
+    const panelBudget = Math.max(900, MAX_VIDEO_PROMPT_CHARS - Array.from(promptWithoutPanels).length - 180);
+    const panelDescriptions = buildNineGridPanelDescriptionsWithBudget(nineGrid.panels, panelBudget);
     
     const routedPrompt = template
-      .replace('{actionSummary}', actionSummary)
+      .replace('{actionSummary}', compactActionSummary)
       .replace('{panelDescriptions}', panelDescriptions)
       .replace(/\{secondsPerPanel\}/g, String(secondsPerPanel))
-      .replace('{cameraMovement}', cameraMovement)
+      .replace('{cameraMovement}', compactCameraMovement)
       .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', language);
     return appendCapabilityNotes(routedPrompt);
@@ -393,8 +489,8 @@ export const buildVideoPrompt = (
       : VIDEO_PROMPT_TEMPLATES.sora2.english;
     
     const routedPrompt = template
-      .replace('{actionSummary}', actionSummary)
-      .replace('{cameraMovement}', cameraMovement)
+      .replace('{actionSummary}', compactActionSummary)
+      .replace('{cameraMovement}', compactCameraMovement)
       .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', language);
     return appendCapabilityNotes(routedPrompt);
@@ -419,8 +515,8 @@ The video must start from the start frame composition and progress naturally to 
     : (veoTemplateGroup?.startOnly || fallbackStartOnly || veoTemplateGroup?.simple);
 
   const routedPrompt = template
-      .replace('{actionSummary}', actionSummary)
-      .replace('{cameraMovement}', cameraMovement)
+      .replace('{actionSummary}', compactActionSummary)
+      .replace('{cameraMovement}', compactCameraMovement)
       .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', isChinese ? '中文' : language);
   return appendCapabilityNotes(routedPrompt);

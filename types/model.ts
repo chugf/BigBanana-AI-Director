@@ -419,7 +419,7 @@ export const ALL_BUILTIN_MODELS: ModelDefinition[] = [
  * 默认激活模型
  */
 export const DEFAULT_ACTIVE_MODELS: ActiveModels = {
-  chat: 'gpt-5.1',
+  chat: 'gpt-5.2',
   image: 'gemini-3-pro-image-preview',
   video: 'sora-2',
 };

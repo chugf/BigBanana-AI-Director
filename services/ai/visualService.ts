@@ -38,7 +38,7 @@ export const generateArtDirection = async (
   scenes: { location: string; time: string; atmosphere: string }[],
   visualStyle: string,
   language: string = '中文',
-  model: string = 'gpt-5.1',
+  model: string = 'gpt-5.2',
   abortSignal?: AbortSignal
 ): Promise<ArtDirection> => {
   console.log('🎨 generateArtDirection 调用 - 生成全局美术指导文档');
@@ -155,7 +155,7 @@ export const generateAllCharacterPrompts = async (
   genre: string,
   visualStyle: string,
   language: string = '中文',
-  model: string = 'gpt-5.1',
+  model: string = 'gpt-5.2',
   abortSignal?: AbortSignal
 ): Promise<{ visualPrompt: string; negativePrompt: string }[]> => {
   console.log(`🎭 generateAllCharacterPrompts 调用 - 批量生成 ${characters.length} 个角色的视觉提示词`);
@@ -289,7 +289,7 @@ export const generateVisualPrompts = async (
   type: 'character' | 'scene' | 'prop',
   data: Character | Scene | Prop,
   genre: string,
-  model: string = 'gpt-5.1',
+  model: string = 'gpt-5.2',
   visualStyle: string = 'live-action',
   language: string = '中文',
   artDirection?: ArtDirection,
@@ -513,8 +513,75 @@ const buildImageApiError = (status: number, backendMessage?: string): Error => {
 };
 
 const MAX_IMAGE_PROMPT_CHARS = 5000;
+const IMAGE_PROMPT_SOFT_TARGET_CHARS = 4700;
+const MAX_NEGATIVE_PROMPT_TERMS = 64;
 
-const truncatePromptToMaxChars = (
+const normalizePromptWhitespace = (input: string): string =>
+  String(input || '')
+    .replace(/\r/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+const compactTextByWordsAndChars = (
+  input: string,
+  maxWords: number,
+  maxChars: number
+): string => {
+  const normalized = normalizePromptWhitespace(input).replace(/\n/g, ' ');
+  if (!normalized) return '';
+
+  let candidate = normalized;
+  const words = candidate.split(/\s+/).filter(Boolean);
+  if (words.length > maxWords) {
+    candidate = words.slice(0, maxWords).join(' ');
+  }
+
+  const chars = Array.from(candidate);
+  if (chars.length > maxChars) {
+    candidate = chars.slice(0, maxChars).join('');
+  }
+
+  candidate = candidate.replace(/[,\s;:.!?]+$/g, '');
+  return candidate.length < normalized.length ? `${candidate}...` : candidate;
+};
+
+const compactPanelDescriptionLines = (
+  input: string,
+  maxWordsPerPanel: number,
+  maxCharsPerPanel: number
+): string => {
+  const panelPattern = /^(\s*Panel\s+\d+[^\-]*-\s*)(.+)$/i;
+  return input
+    .split('\n')
+    .map((line) => {
+      const match = line.match(panelPattern);
+      if (!match) return line;
+      const compacted = compactTextByWordsAndChars(match[2], maxWordsPerPanel, maxCharsPerPanel);
+      return `${match[1]}${compacted}`;
+    })
+    .join('\n');
+};
+
+const dedupePromptLines = (input: string): string => {
+  const seen = new Set<string>();
+  const output: string[] = [];
+
+  input.split('\n').forEach((line) => {
+    const key = line.trim().toLowerCase();
+    if (!key) {
+      output.push(line);
+      return;
+    }
+    if (seen.has(key)) return;
+    seen.add(key);
+    output.push(line);
+  });
+
+  return output.join('\n');
+};
+
+const truncatePromptAtBoundary = (
   input: string,
   maxChars: number
 ): { text: string; wasTruncated: boolean; originalLength: number } => {
@@ -523,10 +590,111 @@ const truncatePromptToMaxChars = (
   if (originalLength <= maxChars) {
     return { text: input, wasTruncated: false, originalLength };
   }
+
+  const hardCut = chars.slice(0, maxChars).join('');
+  const boundaries = ['\n\n', '\n', '. ', '; '];
+  let best = -1;
+
+  boundaries.forEach((marker) => {
+    const idx = hardCut.lastIndexOf(marker);
+    if (idx > best) best = idx;
+  });
+
+  const minUsefulBoundary = Math.floor(maxChars * 0.6);
+  if (best >= minUsefulBoundary) {
+    return {
+      text: hardCut.slice(0, best).trimEnd(),
+      wasTruncated: true,
+      originalLength,
+    };
+  }
+
   return {
-    text: chars.slice(0, maxChars).join(''),
+    text: hardCut.trimEnd(),
     wasTruncated: true,
     originalLength,
+  };
+};
+
+const compactNegativePromptTerms = (
+  input: string,
+  maxTerms: number = MAX_NEGATIVE_PROMPT_TERMS
+): string => {
+  const terms = String(input || '')
+    .split(/[,;\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (terms.length === 0) return '';
+
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const term of terms) {
+    const key = term.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(term);
+    if (deduped.length >= maxTerms) break;
+  }
+  return deduped.join(', ');
+};
+
+const compactPromptToMaxChars = (
+  input: string,
+  maxChars: number
+): { text: string; wasCompacted: boolean; wasTruncated: boolean; originalLength: number; finalLength: number } => {
+  const original = String(input || '');
+  let text = normalizePromptWhitespace(original);
+  let wasCompacted = text !== original;
+
+  const getLength = () => Array.from(text).length;
+
+  if (getLength() > IMAGE_PROMPT_SOFT_TARGET_CHARS) {
+    const compacted = compactPanelDescriptionLines(text, 18, 110);
+    if (compacted !== text) {
+      text = compacted;
+      wasCompacted = true;
+    }
+  }
+
+  if (getLength() > IMAGE_PROMPT_SOFT_TARGET_CHARS) {
+    const compacted = compactPanelDescriptionLines(text, 12, 80);
+    if (compacted !== text) {
+      text = compacted;
+      wasCompacted = true;
+    }
+  }
+
+  if (getLength() > IMAGE_PROMPT_SOFT_TARGET_CHARS) {
+    const compacted = text
+      .split('\n')
+      .map((line) => {
+        if (Array.from(line).length <= 240) return line;
+        return compactTextByWordsAndChars(line, 42, 220);
+      })
+      .join('\n');
+    if (compacted !== text) {
+      text = compacted;
+      wasCompacted = true;
+    }
+  }
+
+  if (getLength() > IMAGE_PROMPT_SOFT_TARGET_CHARS) {
+    const deduped = dedupePromptLines(text);
+    if (deduped !== text) {
+      text = deduped;
+      wasCompacted = true;
+    }
+  }
+
+  text = normalizePromptWhitespace(text);
+
+  const bounded = truncatePromptAtBoundary(text, maxChars);
+  return {
+    text: bounded.text,
+    wasCompacted: wasCompacted || bounded.wasTruncated,
+    wasTruncated: bounded.wasTruncated,
+    originalLength: bounded.originalLength,
+    finalLength: Array.from(bounded.text).length,
   };
 };
 
@@ -560,60 +728,56 @@ export const generateImage = async (
   const apiBase = getApiBase('image', activeImageModel?.id);
 
   try {
-    let finalPrompt = prompt;
+    const normalizedUserPrompt = normalizePromptWhitespace(prompt);
+    let finalPrompt = normalizedUserPrompt;
     if (hasAnyReference) {
       if (isVariation) {
+        const compactVariationPrompt = compactTextByWordsAndChars(normalizedUserPrompt, 220, 1400);
         finalPrompt = `
-      ⚠️⚠️⚠️ CRITICAL REQUIREMENTS - CHARACTER OUTFIT VARIATION ⚠️⚠️⚠️
-      
-      Reference Images Information:
-      - The provided image shows the CHARACTER's BASE APPEARANCE that you MUST use as reference for FACE ONLY.
-      
-      Task:
-      Generate a character image with a NEW OUTFIT/COSTUME based on this description: "${prompt}".
-      
-      ⚠️ ABSOLUTE REQUIREMENTS (NON-NEGOTIABLE):
-      
-      1. FACE & IDENTITY - MUST BE 100% IDENTICAL TO REFERENCE:
-         • Facial Features: Eyes (color, shape, size), nose structure, mouth shape, facial contours must be EXACTLY the same
-         • Hairstyle & Hair Color: Length, color, texture, and style must be PERFECTLY matched (unless prompt specifies hair change)
-         • Skin tone and facial structure: MUST remain identical
-         • Expression can vary based on prompt
-         
-      2. OUTFIT/CLOTHING - MUST BE COMPLETELY DIFFERENT FROM REFERENCE:
-         • Generate NEW clothing/outfit as described in the prompt
-         • DO NOT copy the clothing from the reference image
-         • The outfit should match the description provided: "${prompt}"
-         • Include all accessories, props, or costume details mentioned in the prompt
-         
-      3. Body proportions should remain consistent with the reference.
-      
-      ⚠️ This is an OUTFIT VARIATION task - The face MUST match the reference, but the CLOTHES MUST be NEW as described!
-      ⚠️ If the new outfit is not clearly visible and different from the reference, the task has FAILED!
-    `;
+Task: Character outfit variation image.
+Requested variation:
+${compactVariationPrompt}
+
+Reference constraints (strict):
+- Keep face identity, hair, skin tone, and body proportions identical to references.
+- Outfit/clothing must follow the requested variation and should be visibly different from reference outfit.
+- Keep style, lighting, and rendering quality coherent.
+- Do not add unrelated characters, objects, or text overlays.
+Output one cinematic still image.`;
       } else {
-        // 九宫格造型图说明段落（仅在有九宫格时注入）
-        const baseReferenceGuide = (() => {
+        const referenceRoleLines = (() => {
           if (referenceImages.length === 0) {
-            return '- No explicit reference pack is provided. Use the textual prompt as the primary source for composition.';
+            return ['- No explicit reference pack is provided; use text prompt as primary composition source.'];
           }
 
           if (referencePackType === 'character') {
-            return `- All provided images are CHARACTER references for the SAME character identity.
-      - Treat every image as identity reference priority (face, hair, body proportions, outfit details).${hasTurnaround ? '\n      - Some images are 3x3 TURNAROUND SHEETS showing the same character from multiple angles.' : ''}`;
+            const lines = [
+              '- All provided images are the SAME character identity references.',
+              '- Prioritize face, hair, body proportions, outfit material, and signature accessories.',
+            ];
+            if (hasTurnaround) {
+              lines.push('- Some references are 3x3 turnaround sheets for angle-specific consistency.');
+            }
+            return lines;
           }
 
           if (referencePackType === 'scene') {
-            return '- All provided images are SCENE/ENVIRONMENT references. Preserve location layout, atmosphere, lighting logic, and art direction.';
+            return ['- All provided images are scene/environment references.', '- Preserve location layout, atmosphere, and lighting logic.'];
           }
 
           if (referencePackType === 'prop') {
-            return '- All provided images are PROP/ITEM references. Preserve object shape, color, materials, and distinguishing details.';
+            return ['- All provided images are prop/item references.', '- Preserve object shape, color, materials, and distinguishing details.'];
           }
 
-          return `- The FIRST image is the Scene/Environment reference.
-      - Subsequent images are Character references (Base Look or Variation).${hasTurnaround ? '\n      - Some character images are 3x3 TURNAROUND SHEETS showing the character from 9 different angles (front, side, back, close-up, etc.).' : ''}
-      - Any remaining images after characters are Prop/Item references (objects that must appear consistently).`;
+          const lines = [
+            '- First image: scene/environment reference.',
+            '- Next images: character references (base look or variation).',
+            '- Remaining images: prop/item references.',
+          ];
+          if (hasTurnaround) {
+            lines.push('- Some character references are 3x3 turnaround sheets.');
+          }
+          return lines;
         })();
         const taskLabel = referencePackType === 'character'
           ? 'character image'
@@ -623,58 +787,45 @@ export const generateImage = async (
               ? 'prop/item image'
               : 'cinematic shot';
         const sceneConsistencyRule = referencePackType === 'shot'
-          ? '- STRICTLY maintain the visual style, lighting, and environment from the scene reference.'
+          ? 'Strictly preserve scene visual style, lighting logic, and environment continuity from references.'
           : referencePackType === 'scene'
-            ? '- STRICTLY maintain location layout, atmosphere, and lighting logic from scene references.'
-            : '- Keep visual style and lighting coherent with the prompt and provided references.';
+            ? 'Strictly preserve scene layout, atmosphere, and lighting logic.'
+            : 'Keep visual style and lighting coherent with prompt and references.';
         const characterConsistencyRule = referencePackType === 'character'
-          ? 'If character references are provided, the generated character MUST remain IDENTICAL to references:'
-          : 'If characters are present in the prompt, they MUST be IDENTICAL to the character reference images:';
+          ? 'Generated character must remain identical to references (face, hair, proportions, outfit details).'
+          : 'If characters appear, match referenced identity exactly (face, hair, proportions, signature details).';
         const propConsistencyRule = referencePackType === 'prop'
-          ? 'If prop reference images are provided, the props/items MUST match the references exactly:'
-          : 'If prop reference images are provided, the objects/items in the shot MUST match the reference:';
+          ? 'Props/items must match references exactly (shape, material, color, details).'
+          : 'Referenced props/items in shot must match shape, material, color, and details.';
         const continuityGuide = continuityReferenceImage
-          ? '\n      - The LAST image is a continuity reference (previous/start keyframe). Use it to keep character identity, outfit, lighting, and spatial continuity. Do NOT treat it as a prop reference.'
-          : '';
-        const turnaroundGuide = hasTurnaround ? `
-      4. CHARACTER TURNAROUND SHEET - MULTI-ANGLE REFERENCE:
-         Some character reference images are provided as a 3x3 TURNAROUND SHEET (9-panel grid showing the SAME character from different angles: front, side, back, 3/4 view, close-up, etc.).
-         ⚠️ This turnaround sheet is your MOST IMPORTANT reference for character consistency!
-         • Use the panel that best matches the CAMERA ANGLE of this shot (e.g., if the shot is from behind, refer to the back-view panel)
-         • The character's face, hair, clothing, and body proportions must match ALL panels in the turnaround sheet
-         • The turnaround sheet takes priority over single character reference images for angle-specific details
-         ` : '';
+          ? '- Last image is continuity reference; preserve transition continuity for identity, lighting, and spatial placement.'
+          : null;
+        const turnaroundGuide = hasTurnaround
+          ? '- If a 3x3 turnaround sheet is present, prioritize panel matching current camera angle.'
+          : null;
+        const compactPrimaryPrompt = compactTextByWordsAndChars(normalizedUserPrompt, 520, 2800);
+        const referenceGuides = [
+          ...referenceRoleLines,
+          continuityGuide,
+        ].filter((line): line is string => Boolean(line));
+        const consistencyRules = [
+          `- ${sceneConsistencyRule}`,
+          `- ${characterConsistencyRule}`,
+          `- ${propConsistencyRule}`,
+          turnaroundGuide,
+          '- Output one cinematic still image without text overlays.',
+        ].filter((line): line is string => Boolean(line));
 
         finalPrompt = `
-      ⚠️⚠️⚠️ CRITICAL REQUIREMENTS - CHARACTER CONSISTENCY ⚠️⚠️⚠️
-      
-      Reference Images Information:
-      ${baseReferenceGuide}${continuityGuide}
-      
-      Task:
-      Generate a ${taskLabel} matching this prompt: "${prompt}".
-      
-      ⚠️ ABSOLUTE REQUIREMENTS (NON-NEGOTIABLE):
-      1. Scene Consistency:
-         ${sceneConsistencyRule}
-      
-      2. Character Consistency - HIGHEST PRIORITY:
-         ${characterConsistencyRule}
-         • Facial Features: Eyes (color, shape, size), nose structure, mouth shape, facial contours must be EXACTLY the same
-         • Hairstyle & Hair Color: Length, color, texture, and style must be PERFECTLY matched
-         • Clothing & Outfit: Style, color, material, and accessories must be IDENTICAL
-         • Body Type: Height, build, proportions must remain consistent
-      
-      3. Prop/Item Consistency:
-         ${propConsistencyRule}
-         • Shape & Form: The prop's shape, size, and proportions must be identical to the reference
-         • Color & Material: Colors, textures, and materials must be consistent
-         • Details: Patterns, text, decorations, and distinguishing features must match exactly
-      ${turnaroundGuide}
-      ⚠️ DO NOT create variations or interpretations of the character - STRICT REPLICATION ONLY!
-      ⚠️ Character appearance consistency is THE MOST IMPORTANT requirement!
-      ⚠️ Props/items must also maintain visual consistency with their reference images!
-    `;
+Task: Generate a ${taskLabel} using provided references.
+Primary prompt:
+${compactPrimaryPrompt}
+
+Reference roles:
+${referenceGuides.join('\n')}
+
+Consistency priorities:
+${consistencyRules.join('\n')}`;
       }
     }
 
@@ -687,17 +838,23 @@ export const generateImage = async (
       finalPrompt = `${modelRoutingPrefix}\n\n${finalPrompt}`;
     }
 
-    if (negativePrompt.trim()) {
+    const compactNegativePrompt = compactNegativePromptTerms(negativePrompt.trim());
+    if (compactNegativePrompt) {
       finalPrompt = `${finalPrompt}
 
-NEGATIVE PROMPT (strictly avoid all of the following): ${negativePrompt.trim()}`;
+NEGATIVE PROMPT (strictly avoid): ${compactNegativePrompt}`;
     }
 
-    const promptLimitResult = truncatePromptToMaxChars(finalPrompt, MAX_IMAGE_PROMPT_CHARS);
+    const promptLimitResult = compactPromptToMaxChars(finalPrompt, MAX_IMAGE_PROMPT_CHARS);
+    if (promptLimitResult.wasCompacted) {
+      console.info(
+        `[ImagePrompt] Prompt compacted ${promptLimitResult.originalLength} -> ${promptLimitResult.finalLength} chars.`
+      );
+    }
     if (promptLimitResult.wasTruncated) {
       console.warn(
         `[ImagePrompt] Prompt exceeded ${MAX_IMAGE_PROMPT_CHARS} chars ` +
-        `(${promptLimitResult.originalLength}). Truncated before image request.`
+        `(${promptLimitResult.originalLength}). Boundary-truncated after compaction.`
       );
     }
     finalPrompt = promptLimitResult.text;
@@ -873,7 +1030,7 @@ export const generateCharacterTurnaroundPanels = async (
   visualStyle: string,
   artDirection?: ArtDirection,
   language: string = '中文',
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.2'
 ): Promise<CharacterTurnaroundPanel[]> => {
   console.log(`🎭 generateCharacterTurnaroundPanels - 为角色 ${character.name} 生成九宫格造型视角`);
   logScriptProgress(`正在为角色「${character.name}」生成九宫格造型视角描述...`);

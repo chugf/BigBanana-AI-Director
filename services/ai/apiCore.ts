@@ -149,9 +149,9 @@ export const getApiBase = (type: 'chat' | 'image' | 'video' = 'chat', modelId?: 
 export const getActiveChatModelName = (): string => {
   try {
     const model = getActiveChatModel();
-    return model?.apiModel || model?.id || 'gpt-5.1';
+    return model?.apiModel || model?.id || 'gpt-5.2';
   } catch {
-    return 'gpt-5.1';
+    return 'gpt-5.2';
   }
 };
 
@@ -280,7 +280,7 @@ export const parseHttpError = async (response: Response): Promise<Error> => {
 /** Non-stream chat completion */
 export const chatCompletion = async (
   prompt: string,
-  model: string = 'gpt-5.1',
+  model: string = 'gpt-5.2',
   temperature: number = 0.7,
   maxTokens: number = 8192,
   responseFormat?: 'json_object',
@@ -357,7 +357,7 @@ export const chatCompletion = async (
 /** Streaming chat completion (SSE) */
 export const chatCompletionStream = async (
   prompt: string,
-  model: string = 'gpt-5.1',
+  model: string = 'gpt-5.2',
   temperature: number = 0.7,
   responseFormat: 'json_object' | undefined,
   timeout: number = 600000,

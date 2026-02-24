@@ -360,7 +360,7 @@ export const createNewEpisode = (projectId: string, seriesId: string, episodeNum
     targetDuration: '60s',
     language: '中文',
     visualStyle: '3d-animation',
-    shotGenerationModel: 'gpt-5.1',
+    shotGenerationModel: 'gpt-5.2',
     scriptData: null,
     shots: [],
     isParsingScript: false,
@@ -634,7 +634,7 @@ export const importIndexedDBData = async (
           createdAt: p.createdAt || Date.now(), lastModified: p.lastModified || Date.now(),
           stage: p.stage || 'script', rawScript: p.rawScript || '', targetDuration: p.targetDuration || '60s',
           language: p.language || '中文', visualStyle: p.visualStyle || '3d-animation',
-          shotGenerationModel: p.shotGenerationModel || 'gpt-5.1',
+          shotGenerationModel: p.shotGenerationModel || 'gpt-5.2',
           scriptData: p.scriptData
             ? {
                 ...p.scriptData,

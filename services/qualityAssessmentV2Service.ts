@@ -268,7 +268,7 @@ export const assessShotQualityWithLLM = async (
     options?.model ||
     activeChatModel?.id ||
     activeChatModel?.apiModel ||
-    'gpt-5.1';
+    'gpt-5.2';
 
   try {
     const prompt = buildPrompt(shot, scriptData);
@@ -293,4 +293,3 @@ export const assessShotQualityWithLLM = async (
     return fallbackAssessment(shot, scriptData, error?.message);
   }
 };
-
