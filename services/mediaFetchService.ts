@@ -1,4 +1,5 @@
-const DEV_MEDIA_PROXY_PATH = '/__bb_proxy_media';
+const MEDIA_PROXY_PATH = '/__bb_proxy_media';
+const mediaProxyEnabled = String(import.meta.env.VITE_MEDIA_PROXY_ENABLED ?? 'true').toLowerCase() !== 'false';
 
 const isHttpUrl = (value: string): boolean => /^https?:\/\//i.test(value);
 
@@ -12,8 +13,8 @@ const isLikelyCorsOrNetworkError = (error: unknown): boolean => {
 };
 
 /**
- * Fetch remote media with a local dev-server fallback for CORS-blocked URLs.
- * In dev mode, when direct cross-origin fetch fails, it retries via same-origin proxy.
+ * Fetch remote media with a same-origin proxy fallback for CORS-blocked URLs.
+ * When direct cross-origin fetch fails in browser, it retries via /__bb_proxy_media.
  */
 export const fetchMediaWithCorsFallback = async (
   url: string,
@@ -23,7 +24,7 @@ export const fetchMediaWithCorsFallback = async (
     return await fetch(url, init);
   } catch (error) {
     const shouldFallback =
-      import.meta.env.DEV &&
+      mediaProxyEnabled &&
       isHttpUrl(url) &&
       isLikelyCorsOrNetworkError(error);
 
@@ -31,7 +32,7 @@ export const fetchMediaWithCorsFallback = async (
       throw error;
     }
 
-    const proxyUrl = `${DEV_MEDIA_PROXY_PATH}?url=${encodeURIComponent(url)}`;
+    const proxyUrl = `${MEDIA_PROXY_PATH}?url=${encodeURIComponent(url)}`;
     return fetch(proxyUrl, {
       method: init?.method || 'GET',
       headers: init?.headers,
