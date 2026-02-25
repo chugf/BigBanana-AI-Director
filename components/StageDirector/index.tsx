@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { LayoutGrid, Sparkles, Loader2, AlertCircle, Edit2, Film, Video as VideoIcon } from 'lucide-react';
+import { LayoutGrid, Sparkles, Loader2, AlertCircle, Edit2, Film, MessageSquare, Video as VideoIcon } from 'lucide-react';
 import {
   ProjectState,
   Shot,
@@ -76,7 +76,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
   
   // 统一的编辑状态
   const [editModal, setEditModal] = useState<{
-    type: 'action' | 'keyframe' | 'video';
+    type: 'action' | 'dialogue' | 'keyframe' | 'video';
     value: string;
     shotId?: string;
     frameType?: 'start' | 'end';
@@ -826,6 +826,12 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       case 'action':
         updateShot(activeShot.id, (s) => ({ ...s, actionSummary: editModal.value }));
         break;
+      case 'dialogue':
+        updateShot(activeShot.id, (s) => ({
+          ...s,
+          dialogue: editModal.value.trim() || undefined
+        }));
+        break;
       case 'keyframe':
         updateShot(activeShot.id, (s) => ({
           ...s,
@@ -1569,6 +1575,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
             onNext={() => setActiveShotId(project.shots[activeShotIndex + 1].id)}
             onAIReassessQuality={handleAIReassessQuality}
             onEditActionSummary={() => setEditModal({ type: 'action', value: activeShot.actionSummary })}
+            onEditDialogue={() => setEditModal({ type: 'dialogue', value: activeShot.dialogue || '' })}
             onGenerateAIAction={handleGenerateAIAction}
             onSplitShot={() => handleSplitShot(activeShot)}
             onAddCharacter={(charId) => updateShot(activeShot.id, s => ({ ...s, characters: [...s.characters, charId] }))}
@@ -1703,11 +1710,13 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         onSave={handleSaveEdit}
         title={
           editModal?.type === 'action' ? '编辑叙事动作' :
+          editModal?.type === 'dialogue' ? '编辑台词' :
           editModal?.type === 'keyframe' ? '编辑关键帧提示词' :
           '编辑视频提示词'
         }
         icon={
           editModal?.type === 'action' ? <Film className="w-4 h-4 text-[var(--accent-text)]" /> :
+          editModal?.type === 'dialogue' ? <MessageSquare className="w-4 h-4 text-[var(--accent-text)]" /> :
           editModal?.type === 'keyframe' ? <Edit2 className="w-4 h-4 text-[var(--accent-text)]" /> :
           <VideoIcon className="w-4 h-4 text-[var(--accent-text)]" />
         }
@@ -1715,10 +1724,17 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         onChange={(value) => setEditModal(editModal ? { ...editModal, value } : null)}
         placeholder={
           editModal?.type === 'action' ? '描述镜头的动作和内容...' :
+          editModal?.type === 'dialogue' ? '输入镜头台词（留空表示无台词）...' :
           editModal?.type === 'keyframe' ? '输入关键帧的提示词...' :
           '输入视频生成的提示词...'
         }
-        textareaClassName={editModal?.type === 'keyframe' || editModal?.type === 'video' ? 'font-mono' : 'font-normal'}
+        textareaClassName={
+          editModal?.type === 'keyframe' || editModal?.type === 'video'
+            ? 'font-mono'
+            : editModal?.type === 'dialogue'
+              ? 'font-serif italic'
+              : 'font-normal'
+        }
         showAIGenerate={editModal?.type === 'action'}
         onAIGenerate={handleGenerateAIAction}
         isAIGenerating={isAIGenerating}

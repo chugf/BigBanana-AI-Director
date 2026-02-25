@@ -51,6 +51,7 @@ interface ShotWorkbenchProps {
   onNext: () => void;
   onAIReassessQuality: () => void;
   onEditActionSummary: () => void;
+  onEditDialogue: () => void;
   onGenerateAIAction: () => void;
   onSplitShot: () => void;
   onAddCharacter: (charId: string) => void;
@@ -97,6 +98,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   onNext,
   onAIReassessQuality,
   onEditActionSummary,
+  onEditDialogue,
   onGenerateAIAction,
   onSplitShot,
   onAddCharacter,
@@ -640,20 +642,29 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
                   >
                     <Edit2 className="w-3 h-3" />
                   </button>
+                  <button
+                    onClick={onEditDialogue}
+                    className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+                    title="编辑台词"
+                  >
+                    <MessageSquare className="w-3 h-3" />
+                  </button>
                 </div>
               </div>
               <div className="space-y-3 max-h-[220px] overflow-y-auto custom-scrollbar">
                 <div className="bg-[var(--bg-base)] p-4 rounded-lg border border-[var(--border-primary)]">
                   <p className="text-[var(--text-secondary)] text-sm leading-relaxed">{shot.actionSummary || '暂无动作描述。'}</p>
                 </div>
-                {shot.dialogue && (
-                  <div className="bg-[var(--bg-base)] p-4 rounded-lg border border-[var(--border-primary)] flex gap-3">
-                    <MessageSquare className="w-4 h-4 text-[var(--text-muted)] mt-0.5" />
-                    <div className="flex-1">
+                <div className="bg-[var(--bg-base)] p-4 rounded-lg border border-[var(--border-primary)] flex gap-3">
+                  <MessageSquare className="w-4 h-4 text-[var(--text-muted)] mt-0.5" />
+                  <div className="flex-1">
+                    {shot.dialogue ? (
                       <p className="text-[var(--text-tertiary)] text-xs italic leading-relaxed">"{shot.dialogue}"</p>
-                    </div>
+                    ) : (
+                      <p className="text-[var(--text-muted)] text-xs leading-relaxed">暂无台词，点击上方气泡图标添加。</p>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             </div>
           )}
