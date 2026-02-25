@@ -1,8 +1,8 @@
 import React from 'react';
-import { FileText, Users, Clapperboard, Film, ChevronLeft, ListTree, HelpCircle, Cpu, Sun, Moon, Loader2, FolderOpen, BookOpen } from 'lucide-react';
+import { FileText, Users, Clapperboard, Film, ChevronLeft, ListTree, HelpCircle, Cpu, Sun, Moon, Loader2, FolderOpen, BookOpen, Globe, Palette } from 'lucide-react';
 import logoImg from '../logo.png';
 import { useTheme } from '../contexts/ThemeContext';
-import { USER_MANUAL_URL } from '../constants/links';
+import { USER_MANUAL_URL, OFFICIAL_WEBSITE_URL, CREATIVE_HOME_URL, COPYRIGHT_TEXT } from '../constants/links';
 
 interface SidebarProps {
   currentStage: string;
@@ -123,6 +123,26 @@ const Sidebar: React.FC<SidebarProps> = ({ currentStage, setStage, onExit, proje
             <Cpu className="w-4 h-4" />
           </button>
         )}
+        <div className="flex gap-3 pt-2">
+          <a href={OFFICIAL_WEBSITE_URL} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--accent-text)] transition-colors"
+            title="树语智能官网"
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span className="font-mono text-[10px] tracking-wide">官网</span>
+          </a>
+          <span className="text-[var(--border-secondary)]">|</span>
+          <a href={CREATIVE_HOME_URL} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--accent-text)] transition-colors"
+            title="BigBanana 创作主页"
+          >
+            <Palette className="w-3.5 h-3.5" />
+            <span className="font-mono text-[10px] tracking-wide">创作主页</span>
+          </a>
+        </div>
+        <div className="text-[9px] text-[var(--text-muted)] font-mono tracking-wide opacity-60 pt-1">
+          {COPYRIGHT_TEXT}
+        </div>
       </div>
     </aside>
   );
