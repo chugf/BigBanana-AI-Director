@@ -180,7 +180,13 @@ const ModelCard: React.FC<ModelCardProps> = ({
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-[var(--text-primary)]">{model.name}</span>
               {model.isBuiltIn && (
-                <span className="px-1.5 py-0.5 bg-[var(--border-secondary)] text-[var(--text-tertiary)] text-[9px] rounded">内置</span>
+                <span className={`px-1.5 py-0.5 text-[9px] rounded ${
+                  isVolcengineModel
+                    ? 'bg-[var(--warning-bg)] text-[var(--warning-text)]'
+                    : 'bg-[var(--border-secondary)] text-[var(--text-tertiary)]'
+                }`}>
+                  {isVolcengineModel ? '火山引擎' : '内置'}
+                </span>
               )}
             </div>
             <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
