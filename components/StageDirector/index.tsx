@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { LayoutGrid, Sparkles, Loader2, AlertCircle, Edit2, Film, MessageSquare, Video as VideoIcon } from 'lucide-react';
 import {
   ProjectState,
@@ -45,6 +45,7 @@ import { runKeyframePreflight, runVideoPreflight, formatLintIssues } from '../..
 import { assessShotQuality, getProjectAverageQualityScore } from '../../services/qualityAssessmentService';
 import { assessShotQualityWithLLM } from '../../services/qualityAssessmentV2Service';
 import { updatePromptWithVersion } from '../../services/promptVersionService';
+import { resolvePromptTemplateConfig } from '../../services/promptTemplateService';
 
 interface Props {
   project: ProjectState;
@@ -85,6 +86,10 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
   const activeShotIndex = project.shots.findIndex(s => s.id === activeShotId);
   const activeShot = project.shots[activeShotIndex];
   const projectQualityScore = getProjectAverageQualityScore(project.shots);
+  const promptTemplates = useMemo(
+    () => resolvePromptTemplateConfig(project.promptTemplateOverrides),
+    [project.promptTemplateOverrides]
+  );
 
   const getModelDefaultDuration = (modelId?: string): number => {
     const model = getModelById(modelId || DEFAULTS.videoModel) as any;
@@ -392,13 +397,35 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     let prompt: string;
     if (useAIEnhancement) {
       try {
-        prompt = await buildKeyframePromptWithAI(basePrompt, visualStyle, shot.cameraMovement, type, true, propsInfo);
+        prompt = await buildKeyframePromptWithAI(
+          basePrompt,
+          visualStyle,
+          shot.cameraMovement,
+          type,
+          true,
+          propsInfo,
+          promptTemplates
+        );
       } catch (error) {
         console.error('AI增强失败,使用基础提示词:', error);
-        prompt = buildKeyframePrompt(basePrompt, visualStyle, shot.cameraMovement, type, propsInfo);
+        prompt = buildKeyframePrompt(
+          basePrompt,
+          visualStyle,
+          shot.cameraMovement,
+          type,
+          propsInfo,
+          promptTemplates
+        );
       }
     } else {
-      prompt = buildKeyframePrompt(basePrompt, visualStyle, shot.cameraMovement, type, propsInfo);
+      prompt = buildKeyframePrompt(
+        basePrompt,
+        visualStyle,
+        shot.cameraMovement,
+        type,
+        propsInfo,
+        promptTemplates
+      );
     }
 
     const refResult = getRefImagesForShot(shot, project.scriptData);
@@ -596,7 +623,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         {
           hasStartFrame: !!routedFrames.startImage,
           hasEndFrame: !!routedFrames.endImage,
-        }
+        },
+        promptTemplates
       );
     }
 
@@ -1213,7 +1241,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         characterNames,
         visualStyle,
         shotGenerationModel,
-        layout.panelCount
+        layout.panelCount,
+        promptTemplates
       );
       
       // 5. 更新状态为 panels_ready，等待用户确认
@@ -1299,6 +1328,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         {
           hasTurnaround: refResult.hasTurnaround,
           panelCount: layout.panelCount,
+          promptTemplates,
         }
       );
 
@@ -1388,7 +1418,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       visualStyle,
       activeShot.cameraMovement,
       shotPropsInfo,
-      activeShot.nineGrid?.layout
+      activeShot.nineGrid?.layout,
+      promptTemplates
     );
     
     const existingKf = activeShot.keyframes?.find(k => k.type === 'start');
@@ -1669,7 +1700,8 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
                   {
                     hasStartFrame: !!routedFrames.startImage,
                     hasEndFrame: !!routedFrames.endImage,
-                  }
+                  },
+                  promptTemplates
                 );
               }
               setEditModal({ 

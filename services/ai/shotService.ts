@@ -3,7 +3,12 @@
  * 包含关键帧优化、动作生成、镜头拆分、九宫格分镜等功能
  */
 
-import { AspectRatio, NineGridPanel, StoryboardGridPanelCount } from "../../types";
+import {
+  AspectRatio,
+  NineGridPanel,
+  PromptTemplateConfig,
+  StoryboardGridPanelCount,
+} from "../../types";
 import { addRenderLogWithTokens } from '../renderLogService';
 import {
   retryOperation,
@@ -18,6 +23,12 @@ import {
   NINE_GRID_IMAGE_PROMPT_TEMPLATE,
   resolveStoryboardGridLayout,
 } from './storyboardPromptTemplates';
+import {
+  DEFAULT_PROMPT_TEMPLATE_CONFIG,
+  renderPromptTemplate,
+  resolvePromptTemplateConfig,
+  withTemplateFallback,
+} from '../promptTemplateService';
 
 const countEnglishWords = (text: string): number => {
   const matches = String(text || '').trim().match(/[A-Za-z0-9'-]+/g);
@@ -646,28 +657,52 @@ export const generateNineGridPanels = async (
   characterNames: string[],
   visualStyle: string,
   model?: string,
-  panelCount: StoryboardGridPanelCount = 9
+  panelCount: StoryboardGridPanelCount = 9,
+  promptTemplates?: PromptTemplateConfig
 ): Promise<NineGridPanel[]> => {
   const startTime = Date.now();
   const layout = resolveStoryboardGridLayout(panelCount);
   const gridLayout = `${layout.cols}x${layout.rows}`;
+  const templates = promptTemplates || resolvePromptTemplateConfig();
+  const splitSystemTemplate = withTemplateFallback(
+    templates.nineGrid.splitSystem,
+    withTemplateFallback(
+      DEFAULT_PROMPT_TEMPLATE_CONFIG.nineGrid.splitSystem,
+      NINE_GRID_SPLIT_PROMPT.system
+    )
+  );
+  const splitUserTemplate = withTemplateFallback(
+    templates.nineGrid.splitUser,
+    withTemplateFallback(
+      DEFAULT_PROMPT_TEMPLATE_CONFIG.nineGrid.splitUser,
+      NINE_GRID_SPLIT_PROMPT.user
+    )
+  );
   console.log(`🎬 ${layout.label}分镜 - 开始AI拆分视角...`);
 
   const resolvedModel = model || getActiveChatModel()?.id || 'gpt-5.2';
-  const systemPrompt = NINE_GRID_SPLIT_PROMPT.system
-    .replace(/{panelCount}/g, String(layout.panelCount))
-    .replace(/{gridLayout}/g, gridLayout);
-  const userPrompt = NINE_GRID_SPLIT_PROMPT.user
-    .replace(/{panelCount}/g, String(layout.panelCount))
-    .replace(/{lastIndex}/g, String(layout.panelCount - 1))
-    .replace(/{gridLayout}/g, gridLayout)
-    .replace('{actionSummary}', actionSummary)
-    .replace('{cameraMovement}', cameraMovement)
-    .replace('{location}', sceneInfo.location)
-    .replace('{time}', sceneInfo.time)
-    .replace('{atmosphere}', sceneInfo.atmosphere)
-    .replace('{characters}', characterNames.length > 0 ? characterNames.join('、') : '无特定角色')
-    .replace('{visualStyle}', visualStyle);
+  const systemPrompt = renderPromptTemplate(
+    splitSystemTemplate,
+    {
+      panelCount: layout.panelCount,
+      gridLayout,
+    }
+  );
+  const userPrompt = renderPromptTemplate(
+    splitUserTemplate,
+    {
+      panelCount: layout.panelCount,
+      lastIndex: layout.panelCount - 1,
+      gridLayout,
+      actionSummary,
+      cameraMovement,
+      location: sceneInfo.location,
+      time: sceneInfo.time,
+      atmosphere: sceneInfo.atmosphere,
+      characters: characterNames.length > 0 ? characterNames.join('、') : '无特定角色',
+      visualStyle,
+    }
+  );
 
   const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
@@ -745,11 +780,34 @@ export const generateNineGridImage = async (
   options?: {
     hasTurnaround?: boolean;
     panelCount?: StoryboardGridPanelCount;
+    promptTemplates?: PromptTemplateConfig;
   }
 ): Promise<string> => {
   const startTime = Date.now();
   const layout = resolveStoryboardGridLayout(options?.panelCount || panels.length);
   const gridLayout = `${layout.cols}x${layout.rows}`;
+  const templates = options?.promptTemplates || resolvePromptTemplateConfig();
+  const imagePrefixTemplate = withTemplateFallback(
+    templates.nineGrid.imagePrefix,
+    withTemplateFallback(
+      DEFAULT_PROMPT_TEMPLATE_CONFIG.nineGrid.imagePrefix,
+      NINE_GRID_IMAGE_PROMPT_TEMPLATE.prefix
+    )
+  );
+  const imagePanelTemplate = withTemplateFallback(
+    templates.nineGrid.imagePanelTemplate,
+    withTemplateFallback(
+      DEFAULT_PROMPT_TEMPLATE_CONFIG.nineGrid.imagePanelTemplate,
+      NINE_GRID_IMAGE_PROMPT_TEMPLATE.panelTemplate
+    )
+  );
+  const imageSuffixTemplate = withTemplateFallback(
+    templates.nineGrid.imageSuffix,
+    withTemplateFallback(
+      DEFAULT_PROMPT_TEMPLATE_CONFIG.nineGrid.imageSuffix,
+      NINE_GRID_IMAGE_PROMPT_TEMPLATE.suffix
+    )
+  );
   console.log(`🎬 ${layout.label}分镜 - 开始生成网格图片...`);
 
   const stylePrompt = getStylePrompt(visualStyle);
@@ -759,23 +817,35 @@ export const generateNineGridImage = async (
   }
 
   const panelDescriptions = panels.map((panel, idx) =>
-    NINE_GRID_IMAGE_PROMPT_TEMPLATE.panelTemplate
-      .replace('{index}', String(idx + 1))
-      .replace('{position}', layout.positionLabels[idx] || `Panel-${idx + 1}`)
-      .replace('{shotSize}', panel.shotSize)
-      .replace('{cameraAngle}', panel.cameraAngle)
-      .replace('{description}', panel.description)
+    renderPromptTemplate(
+      imagePanelTemplate,
+      {
+        index: idx + 1,
+        position: layout.positionLabels[idx] || `Panel-${idx + 1}`,
+        shotSize: panel.shotSize,
+        cameraAngle: panel.cameraAngle,
+        description: panel.description,
+      }
+    )
   ).join('\n');
 
-  const nineGridPrompt = `${NINE_GRID_IMAGE_PROMPT_TEMPLATE.prefix
-    .replace(/{gridLayout}/g, gridLayout)
-    .replace(/{panelCount}/g, String(layout.panelCount))
-    .replace('{visualStyle}', stylePrompt)}
+  const nineGridPrompt = `${renderPromptTemplate(
+    imagePrefixTemplate,
+    {
+      gridLayout,
+      panelCount: layout.panelCount,
+      visualStyle: stylePrompt,
+    }
+  )}
 ${panelDescriptions}
 
-${NINE_GRID_IMAGE_PROMPT_TEMPLATE.suffix
-  .replace(/{gridLayout}/g, gridLayout)
-  .replace(/{panelCount}/g, String(layout.panelCount))}`;
+${renderPromptTemplate(
+  imageSuffixTemplate,
+  {
+    gridLayout,
+    panelCount: layout.panelCount,
+  }
+)}`;
 
   try {
     const imageUrl = await generateImage(

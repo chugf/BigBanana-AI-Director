@@ -3,7 +3,17 @@
  * 包含剧本解析、分镜生成、续写、改写等功能
  */
 
-import { ScriptData, Shot, Scene, Character, Prop, ArtDirection, QualityCheck, ShotQualityAssessment } from "../../types";
+import {
+  ScriptData,
+  Shot,
+  Scene,
+  Character,
+  Prop,
+  ArtDirection,
+  QualityCheck,
+  ShotQualityAssessment,
+  PromptTemplateConfig,
+} from "../../types";
 import { addRenderLogWithTokens } from '../renderLogService';
 import { parseDurationToSeconds } from '../durationParser';
 import {
@@ -16,6 +26,13 @@ import {
 } from './apiCore';
 import { getStylePrompt } from './promptConstants';
 import { generateArtDirection, generateAllCharacterPrompts, generateVisualPrompts } from './visualService';
+import {
+  DEFAULT_PROMPT_TEMPLATE_CONFIG,
+  getStoryboardCameraMovementReference,
+  renderPromptTemplate,
+  resolvePromptTemplateConfig,
+  withTemplateFallback,
+} from '../promptTemplateService';
 
 // Re-export 日志回调函数（保持外部 API 兼容）
 export { setScriptLogCallback, clearScriptLogCallback, logScriptProgress } from './apiCore';
@@ -474,6 +491,7 @@ interface GenerateShotListOptions {
   previousShots?: Shot[];
   reuseUnchangedScenes?: boolean;
   enableQualityCheck?: boolean;
+  promptTemplates?: PromptTemplateConfig;
 }
 
 // Keep version=1 so StageDirector does not mislabel this deterministic pass as AI V2 scoring.
@@ -916,6 +934,7 @@ export const generateShotList = async (
   const previousScriptData = options.previousScriptData || null;
   const previousShots = Array.isArray(options.previousShots) ? options.previousShots : [];
   const enableQualityCheck = options.enableQualityCheck !== false;
+  const promptTemplates = options.promptTemplates || resolvePromptTemplateConfig();
   const shouldReuseUnchangedScenes =
     !!options.reuseUnchangedScenes &&
     !!previousScriptData &&
@@ -1236,97 +1255,45 @@ export const generateShotList = async (
       logScriptProgress(`场景「${scene.location}」段落映射缺失，已使用${actionSource.source}回填策略`);
     }
 
-    const prompt = `
-      Act as a professional cinematographer. Generate a detailed shot list (Camera blocking) for Scene ${index + 1}.
-      Language for Text Output: ${lang}.
-      
-      IMPORTANT VISUAL STYLE: ${stylePrompt}
-      All 'visualPrompt' fields MUST describe shots in this "${visualStyle}" style.
-${artDirectionBlock}
-      Scene Details:
-      Location: ${scene.location}
-      Time: ${scene.time}
-      Atmosphere: ${scene.atmosphere}
-      
-      Scene Action:
-      "${paragraphs.slice(0, 5000)}"
-      Scene Action Source: ${actionSource.source}
-      
-      Context:
-      Genre: ${scriptData.genre}
-      Visual Style: ${visualStyle} (${stylePrompt})
-      Target Duration (Whole Script): ${scriptData.targetDuration || 'Standard'}
-      Active Video Model: ${activeVideoModel?.name || 'Default Video Model'}
-      Shot Duration Baseline: ${shotDurationSeconds}s per shot
-      Total Shots Budget: ${totalShotsNeeded} shots
-      Shots for This Scene: ${shotsPerScene} shots (EXACT)
-      
-      Characters:
-      ${JSON.stringify(scriptData.characters.map(c => ({ id: c.id, name: c.name, desc: c.visualPrompt || c.personality })))}
-      Props:
-      ${JSON.stringify((scriptData.props || []).map(p => ({ id: p.id, name: p.name, category: p.category, desc: p.description })))}
+    const sceneAction = paragraphs.slice(0, 5000);
+    const charactersJson = JSON.stringify(
+      scriptData.characters.map(c => ({ id: c.id, name: c.name, desc: c.visualPrompt || c.personality }))
+    );
+    const propsJson = JSON.stringify(
+      (scriptData.props || []).map(p => ({ id: p.id, name: p.name, category: p.category, desc: p.description }))
+    );
 
-      Professional Camera Movement Reference (Choose from these categories):
-      - Horizontal Left Shot (向左平移) - Camera moves left
-      - Horizontal Right Shot (向右平移) - Camera moves right
-      - Pan Left Shot (平行向左扫视) - Pan left
-      - Pan Right Shot (平行向右扫视) - Pan right
-      - Vertical Up Shot (向上直线运动) - Move up vertically
-      - Vertical Down Shot (向下直线运动) - Move down vertically
-      - Tilt Up Shot (向上仰角运动) - Tilt upward
-      - Tilt Down Shot (向下俯角运动) - Tilt downward
-      - Zoom Out Shot (镜头缩小/拉远) - Pull back/zoom out
-      - Zoom In Shot (镜头放大/拉近) - Push in/zoom in
-      - Dolly Shot (推镜头) - Dolly in/out movement
-      - Circular Shot (环绕拍摄) - Orbit around subject
-      - Over the Shoulder Shot (越肩镜头) - Over shoulder perspective
-      - Pan Shot (摇镜头) - Pan movement
-      - Low Angle Shot (仰视镜头) - Low angle view
-      - High Angle Shot (俯视镜头) - High angle view
-      - Tracking Shot (跟踪镜头) - Follow subject
-      - Handheld Shot (摇摄镜头) - Handheld camera
-      - Static Shot (静止镜头) - Fixed camera position
-      - POV Shot (主观视角) - Point of view
-      - Bird's Eye View Shot (俯瞰镜头) - Overhead view
-      - 360-Degree Circular Shot (360度环绕) - Full circle
-      - Parallel Tracking Shot (平行跟踪) - Side tracking
-      - Diagonal Tracking Shot (对角跟踪) - Diagonal tracking
-      - Rotating Shot (旋转镜头) - Rotating movement
-      - Slow Motion Shot (慢动作) - Slow-mo effect
-      - Time-Lapse Shot (延时摄影) - Time-lapse
-      - Canted Shot (斜视镜头) - Dutch angle
-      - Cinematic Dolly Zoom (电影式变焦推轨) - Vertigo effect
-
-      Instructions:
-      1. Create EXACTLY ${shotsPerScene} shots for this scene.
-      2. CRITICAL: Each shot should represent about ${shotDurationSeconds} seconds. Total planning formula: ${targetSeconds} seconds ÷ ${shotDurationSeconds} ≈ ${totalShotsNeeded} shots across all scenes.
-      3. DO NOT output more or fewer than ${shotsPerScene} shots for this scene.
-      4. 'cameraMovement': Can reference the Professional Camera Movement Reference list above for inspiration, or use your own creative camera movements. You may use the exact English terms (e.g., "Dolly Shot", "Pan Right Shot", "Zoom In Shot", "Tracking Shot") or describe custom movements.
-      5. 'shotSize': Specify the field of view (e.g., Extreme Close-up, Medium Shot, Wide Shot).
-      6. 'actionSummary': Detailed description of what happens in the shot (in ${lang}).
-      7. 'characters': Return ONLY IDs from provided Characters list.
-      8. 'props': Return ONLY IDs from provided Props list when a prop is visibly involved. Use [] if none.
-      9. 'visualPrompt': Detailed description for image generation in ${visualStyle} style (OUTPUT IN ${lang}). Include style-specific keywords.${artDir ? ' MUST follow the Global Art Direction color palette, lighting, and mood.' : ''} Keep it under 50 words.
-      
-      Output ONLY a valid JSON OBJECT with this exact structure (no markdown, no extra text):
-      {
-        "shots": [
-          {
-            "id": "string",
-            "sceneId": "${scene.id}",
-            "actionSummary": "string",
-            "dialogue": "string (empty if none)",
-            "cameraMovement": "string",
-            "shotSize": "string",
-            "characters": ["string"],
-            "props": ["string"],
-            "keyframes": [
-              {"id": "string", "type": "start|end", "visualPrompt": "string (MUST include ${visualStyle} style keywords${artDir ? ' and follow Art Direction' : ''})"}
-            ]
-          }
-        ]
-      }
-    `;
+    const shotGenerationTemplate = withTemplateFallback(
+      promptTemplates.storyboard.shotGeneration,
+      DEFAULT_PROMPT_TEMPLATE_CONFIG.storyboard.shotGeneration
+    );
+    const prompt = renderPromptTemplate(shotGenerationTemplate, {
+      sceneIndex: index + 1,
+      lang,
+      stylePrompt,
+      visualStyle,
+      artDirectionBlock,
+      sceneLocation: scene.location,
+      sceneTime: scene.time,
+      sceneAtmosphere: scene.atmosphere,
+      sceneAction,
+      actionSource: actionSource.source,
+      genre: scriptData.genre,
+      targetDuration: scriptData.targetDuration || 'Standard',
+      activeVideoModel: activeVideoModel?.name || 'Default Video Model',
+      shotDurationSeconds,
+      totalShotsNeeded,
+      shotsPerScene,
+      targetSeconds,
+      charactersJson,
+      propsJson,
+      sceneId: scene.id,
+      cameraMovementReference: getStoryboardCameraMovementReference(),
+      artDirectionVisualPromptConstraint: artDir
+        ? ' MUST follow the Global Art Direction color palette, lighting, and mood.'
+        : '',
+      keyframeVisualPromptConstraint: artDir ? ' and follow Art Direction' : '',
+    });
 
     let responseText = '';
     try {
@@ -1349,26 +1316,20 @@ ${artDirectionBlock}
 
       if (validShots.length !== shotsPerScene) {
         console.warn(`⚠️ 场景 ${index + 1} 返回分镜数量不符：期望 ${shotsPerScene}，实际 ${validShots.length}，尝试自动纠偏...`);
-        const repairPrompt = `
-You previously returned ${validShots.length} shots for Scene ${index + 1}, but EXACTLY ${shotsPerScene} shots are required.
-
-Scene Details:
-Location: ${scene.location}
-Time: ${scene.time}
-Atmosphere: ${scene.atmosphere}
-
-Scene Action:
-"${paragraphs.slice(0, 5000)}"
-
-Requirements:
-1. Return EXACTLY ${shotsPerScene} shots in JSON object format: {"shots":[...]}.
-2. Keep story continuity and preserve the original cinematic intent.
-3. Each shot represents about ${shotDurationSeconds} seconds.
-4. Include fields: id, sceneId, actionSummary, dialogue, cameraMovement, shotSize, characters, props, keyframes.
-5. characters/props must be arrays of valid IDs from provided context.
-6. keyframes must include type=start/end and visualPrompt.
-7. Output ONLY valid JSON object (no markdown).
-`;
+        const shotRepairTemplate = withTemplateFallback(
+          promptTemplates.storyboard.shotRepair,
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.storyboard.shotRepair
+        );
+        const repairPrompt = renderPromptTemplate(shotRepairTemplate, {
+          actualShots: validShots.length,
+          sceneIndex: index + 1,
+          shotsPerScene,
+          sceneLocation: scene.location,
+          sceneTime: scene.time,
+          sceneAtmosphere: scene.atmosphere,
+          sceneAction,
+          shotDurationSeconds,
+        });
 
         try {
           const repairedText = await retryOperation(

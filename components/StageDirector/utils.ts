@@ -1,12 +1,24 @@
-import { Shot, ProjectState, Keyframe, NineGridPanel, NineGridData } from '../../types';
+import {
+  Shot,
+  ProjectState,
+  Keyframe,
+  NineGridPanel,
+  NineGridData,
+  PromptTemplateConfig,
+} from '../../types';
 import {
   VISUAL_STYLE_PROMPTS,
-  VIDEO_PROMPT_TEMPLATES,
   getStoryboardPositionLabel,
   resolveStoryboardGridLayout,
 } from './constants';
 import { getCameraMovementCompositionGuide } from './cameraMovementGuides';
 import { enhanceKeyframePrompt } from '../../services/aiService';
+import {
+  DEFAULT_PROMPT_TEMPLATE_CONFIG,
+  renderPromptTemplate,
+  resolvePromptTemplateConfig,
+  withTemplateFallback,
+} from '../../services/promptTemplateService';
 
 const KEYFRAME_META_SPLITTER = '\n\n---PROMPT_META_START---';
 
@@ -220,24 +232,40 @@ export const buildKeyframePrompt = (
   visualStyle: string,
   cameraMovement: string,
   frameType: 'start' | 'end',
-  propsInfo?: { name: string; description: string; hasImage: boolean }[]
+  propsInfo?: { name: string; description: string; hasImage: boolean }[],
+  promptTemplates?: PromptTemplateConfig
 ): string => {
+  const templates = promptTemplates || resolvePromptTemplateConfig();
   const stylePrompt = VISUAL_STYLE_PROMPTS[visualStyle] || visualStyle;
   const cameraGuide = getCameraMovementCompositionGuide(cameraMovement, frameType);
+  const startFrameGuideTemplate = withTemplateFallback(
+    templates.keyframe.startFrameGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.startFrameGuide
+  );
+  const endFrameGuideTemplate = withTemplateFallback(
+    templates.keyframe.endFrameGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.endFrameGuide
+  );
+  const characterConsistencyTemplate = withTemplateFallback(
+    templates.keyframe.characterConsistencyGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.characterConsistencyGuide
+  );
+  const propWithImageTemplate = withTemplateFallback(
+    templates.keyframe.propWithImageGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.propWithImageGuide
+  );
+  const propWithoutImageTemplate = withTemplateFallback(
+    templates.keyframe.propWithoutImageGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.propWithoutImageGuide
+  );
   
   // 针对起始帧和结束帧的特定指导
-  const frameSpecificGuide = frameType === 'start' 
-    ? `【起始帧要求】建立清晰的初始状态和场景氛围,人物/物体的起始位置、姿态和表情要明确,为后续运动预留视觉空间和动势。`
-    : `【结束帧要求】展现动作完成后的最终状态,人物/物体的终点位置、姿态和情绪变化,体现镜头运动带来的视角变化。`;
+  const frameSpecificGuide = frameType === 'start'
+    ? startFrameGuideTemplate
+    : endFrameGuideTemplate;
 
   // 角色一致性要求
-  const characterConsistencyGuide = `【角色一致性要求】CHARACTER CONSISTENCY REQUIREMENTS - CRITICAL
-⚠️ 如果提供了角色参考图,画面中的人物外观必须严格遵循参考图:
-• 面部特征: 五官轮廓、眼睛颜色和形状、鼻子和嘴巴的结构必须完全一致
-• 发型发色: 头发的长度、颜色、质感、发型样式必须保持一致
-• 服装造型: 服装的款式、颜色、材质、配饰必须与参考图匹配
-• 体型特征: 身材比例、身高体型必须保持一致
-⚠️ 这是最高优先级要求,不可妥协!`;
+  const characterConsistencyGuide = characterConsistencyTemplate;
 
   // 道具一致性要求（仅在有道具时添加）
   let propConsistencyGuide = '';
@@ -250,21 +278,17 @@ export const buildKeyframePrompt = (
     // 有参考图的道具：要求严格遵循参考图
     if (propsWithImage.length > 0) {
       const list = propsWithImage.map(p => `- ${p.name}: ${p.description}`).join('\n');
-      sections.push(`⚠️ 以下道具已提供参考图,画面中出现时必须严格遵循参考图:
-• 外形特征: 道具的形状、大小、比例必须与参考图一致
-• 颜色材质: 颜色、材质、纹理必须保持一致
-• 细节元素: 图案、文字、装饰细节必须与参考图匹配
-⚠️ 这是高优先级要求!
-
-有参考图的道具:
-${list}`);
+      sections.push(
+        renderPromptTemplate(propWithImageTemplate, { propList: list })
+      );
     }
 
     // 无参考图的道具：仅文字描述约束
     if (propsWithoutImage.length > 0) {
       const list = propsWithoutImage.map(p => `- ${p.name}: ${p.description}`).join('\n');
-      sections.push(`以下道具无参考图,请根据文字描述准确呈现:
-${list}`);
+      sections.push(
+        renderPromptTemplate(propWithoutImageTemplate, { propList: list })
+      );
     }
 
     propConsistencyGuide = `
@@ -310,10 +334,18 @@ export const buildKeyframePromptWithAI = async (
   cameraMovement: string,
   frameType: 'start' | 'end',
   enhanceWithAI: boolean = true,
-  propsInfo?: { name: string; description: string; hasImage: boolean }[]
+  propsInfo?: { name: string; description: string; hasImage: boolean }[],
+  promptTemplates?: PromptTemplateConfig
 ): Promise<string> => {
   // 先构建基础提示词
-  const basicPrompt = buildKeyframePrompt(basePrompt, visualStyle, cameraMovement, frameType, propsInfo);
+  const basicPrompt = buildKeyframePrompt(
+    basePrompt,
+    visualStyle,
+    cameraMovement,
+    frameType,
+    propsInfo,
+    promptTemplates
+  );
   
   // 如果不需要AI增强,直接返回基础提示词
   if (!enhanceWithAI) {
@@ -438,8 +470,10 @@ export const buildVideoPrompt = (
   visualStyle: string,
   nineGrid?: NineGridData,
   videoDuration?: number,
-  context?: VideoPromptContext
+  context?: VideoPromptContext,
+  promptTemplates?: PromptTemplateConfig
 ): string => {
+  const templates = promptTemplates || resolvePromptTemplateConfig();
   const isChinese = language === '中文' || language === 'Chinese';
   const stylePrompt = VISUAL_STYLE_PROMPTS[visualStyle] || visualStyle;
   const visualStyleAnchor = compactPromptField(`${visualStyle} (${stylePrompt})`, 220, 40);
@@ -470,9 +504,15 @@ export const buildVideoPrompt = (
     // Keep per-panel pacing compatible with very short durations (e.g. 4s) without exceeding total duration.
     const secondsPerPanel = Math.max(0.2, Math.floor((totalDuration / panelCount) * 100) / 100);
     
-    const templateGroup = VIDEO_PROMPT_TEMPLATES.sora2NineGrid;
-    
-    const template = isChinese ? templateGroup.chinese : templateGroup.english;
+    const template = isChinese
+      ? withTemplateFallback(
+          templates.video.sora2NineGridChinese,
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.sora2NineGridChinese
+        )
+      : withTemplateFallback(
+          templates.video.sora2NineGridEnglish,
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.sora2NineGridEnglish
+        );
     const promptWithoutPanels = template
       .replace('{actionSummary}', compactActionSummary)
       .replace('{panelDescriptions}', '')
@@ -499,9 +539,15 @@ export const buildVideoPrompt = (
   
   // 普通模式
   if (routing.family === 'sora' || routing.family === 'doubao-task') {
-    const template = isChinese 
-      ? VIDEO_PROMPT_TEMPLATES.sora2.chinese 
-      : VIDEO_PROMPT_TEMPLATES.sora2.english;
+    const template = isChinese
+      ? withTemplateFallback(
+          templates.video.sora2Chinese,
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.sora2Chinese
+        )
+      : withTemplateFallback(
+          templates.video.sora2English,
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.sora2English
+        );
     
     const routedPrompt = template
       .replace('{actionSummary}', compactActionSummary)
@@ -510,9 +556,6 @@ export const buildVideoPrompt = (
       .replace('{language}', language);
     return appendCapabilityNotes(routedPrompt);
   }
-  const veoTemplateGroup = routing.family === 'veo-fast'
-    ? (VIDEO_PROMPT_TEMPLATES as any).veoFast
-    : (VIDEO_PROMPT_TEMPLATES as any).veo;
   const fallbackStartOnly = `Use the provided start frame as the exact opening composition.
 Action: {actionSummary}
 Camera Movement: {cameraMovement}
@@ -526,8 +569,20 @@ Visual Style Anchor: {visualStyle}
 Language: {language}
 The video must start from the start frame composition and progress naturally to a final state that matches the end frame.`;
   const template = hasUsableEndFrame
-    ? (veoTemplateGroup?.startEnd || fallbackStartEnd || veoTemplateGroup?.simple || fallbackStartOnly)
-    : (veoTemplateGroup?.startOnly || fallbackStartOnly || veoTemplateGroup?.simple);
+    ? withTemplateFallback(
+        templates.video.veoStartEnd,
+        withTemplateFallback(
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.veoStartEnd,
+          fallbackStartEnd
+        )
+      )
+    : withTemplateFallback(
+        templates.video.veoStartOnly,
+        withTemplateFallback(
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.veoStartOnly,
+          fallbackStartOnly
+        )
+      );
 
   const routedPrompt = template
       .replace('{actionSummary}', compactActionSummary)
@@ -738,9 +793,27 @@ export const buildPromptFromNineGridPanel = (
   visualStyle: string,
   cameraMovement: string,
   propsInfo?: { name: string; description: string; hasImage: boolean }[],
-  layout?: NineGridData['layout']
+  layout?: NineGridData['layout'],
+  promptTemplates?: PromptTemplateConfig
 ): string => {
+  const templates = promptTemplates || resolvePromptTemplateConfig();
   const stylePrompt = VISUAL_STYLE_PROMPTS[visualStyle] || visualStyle;
+  const characterConsistencyTemplate = withTemplateFallback(
+    templates.keyframe.characterConsistencyGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.characterConsistencyGuide
+  );
+  const propWithImageTemplate = withTemplateFallback(
+    templates.keyframe.propWithImageGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.propWithImageGuide
+  );
+  const propWithoutImageTemplate = withTemplateFallback(
+    templates.keyframe.propWithoutImageGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.propWithoutImageGuide
+  );
+  const nineGridSourceMetaTemplate = withTemplateFallback(
+    templates.keyframe.nineGridSourceMeta,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.nineGridSourceMeta
+  );
   const sourceLabel = getStoryboardPositionLabel(
     panel.index,
     layout?.panelCount,
@@ -748,13 +821,7 @@ export const buildPromptFromNineGridPanel = (
   );
   
   // 角色一致性要求
-  const characterConsistencyGuide = `【角色一致性要求】CHARACTER CONSISTENCY REQUIREMENTS - CRITICAL
-⚠️ 如果提供了角色参考图,画面中的人物外观必须严格遵循参考图:
-• 面部特征: 五官轮廓、眼睛颜色和形状、鼻子和嘴巴的结构必须完全一致
-• 发型发色: 头发的长度、颜色、质感、发型样式必须保持一致
-• 服装造型: 服装的款式、颜色、材质、配饰必须与参考图匹配
-• 体型特征: 身材比例、身高体型必须保持一致
-⚠️ 这是最高优先级要求,不可妥协!`;
+  const characterConsistencyGuide = characterConsistencyTemplate;
 
   // 道具一致性要求（仅在有道具时添加）
   let propConsistencyGuide = '';
@@ -766,20 +833,16 @@ export const buildPromptFromNineGridPanel = (
 
     if (propsWithImage.length > 0) {
       const list = propsWithImage.map(p => `- ${p.name}: ${p.description}`).join('\n');
-      sections.push(`⚠️ 以下道具已提供参考图,画面中出现时必须严格遵循参考图:
-• 外形特征: 道具的形状、大小、比例必须与参考图一致
-• 颜色材质: 颜色、材质、纹理必须保持一致
-• 细节元素: 图案、文字、装饰细节必须与参考图匹配
-⚠️ 这是高优先级要求!
-
-有参考图的道具:
-${list}`);
+      sections.push(
+        renderPromptTemplate(propWithImageTemplate, { propList: list })
+      );
     }
 
     if (propsWithoutImage.length > 0) {
       const list = propsWithoutImage.map(p => `- ${p.name}: ${p.description}`).join('\n');
-      sections.push(`以下道具无参考图,请根据文字描述准确呈现:
-${list}`);
+      sections.push(
+        renderPromptTemplate(propWithoutImageTemplate, { propList: list })
+      );
     }
 
     propConsistencyGuide = `
@@ -792,10 +855,12 @@ ${sections.join('\n\n')}`;
   return `${panel.description}${KEYFRAME_META_SPLITTER}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【来源】网格分镜预览 - ${sourceLabel}
-【景别】${panel.shotSize}
-【机位角度】${panel.cameraAngle}
-【原始动作】${actionSummary}
+${renderPromptTemplate(nineGridSourceMetaTemplate, {
+  sourceLabel,
+  shotSize: panel.shotSize,
+  cameraAngle: panel.cameraAngle,
+  actionSummary,
+})}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【视觉风格】Visual Style

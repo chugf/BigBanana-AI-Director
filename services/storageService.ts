@@ -1,6 +1,7 @@
 import { ProjectState, AssetLibraryItem, SeriesProject, Series, Episode } from '../types';
 import { runV2ToV3Migration, runEpisodeTitleFixMigration } from './migrationService';
 import { materializeProjectVideosForExport, migrateProjectVideosToOPFS } from './videoStorageService';
+import { sanitizePromptTemplateOverrides } from './promptTemplateService';
 
 const DB_NAME = 'BigBananaDB';
 const DB_VERSION = 3;
@@ -118,6 +119,7 @@ const normalizeEpisode = (ep: Episode): Episode => {
     characterRefs: mergeByKey(ep.characterRefs, inferredCharacterRefs, r => r.characterId),
     sceneRefs: mergeByKey(ep.sceneRefs, inferredSceneRefs, r => r.sceneId),
     propRefs: mergeByKey(ep.propRefs, inferredPropRefs, r => r.propId),
+    promptTemplateOverrides: sanitizePromptTemplateOverrides(ep.promptTemplateOverrides),
   };
 };
 
@@ -368,6 +370,7 @@ export const createNewEpisode = (projectId: string, seriesId: string, episodeNum
     characterRefs: [],
     sceneRefs: [],
     propRefs: [],
+    promptTemplateOverrides: undefined,
     scriptGenerationCheckpoint: null,
   };
 };
@@ -647,6 +650,7 @@ export const importIndexedDBData = async (
           characterRefs: chars.map((c: any) => ({ characterId: c.id, syncedVersion: 1, syncStatus: 'synced' as const })),
           sceneRefs: scenes.map((s: any) => ({ sceneId: s.id, syncedVersion: 1, syncStatus: 'synced' as const })),
           propRefs: props.map((pr: any) => ({ propId: pr.id, syncedVersion: 1, syncStatus: 'synced' as const })),
+          promptTemplateOverrides: sanitizePromptTemplateOverrides(p.promptTemplateOverrides),
           scriptGenerationCheckpoint: null,
         };
         epStore.put(normalizeEpisode(ep));

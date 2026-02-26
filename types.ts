@@ -18,6 +18,69 @@ export interface PromptVersion {
   note?: string;
 }
 
+/**
+ * 分镜阶段提示词模板配置（可编辑）
+ */
+export interface StoryboardPromptTemplateConfig {
+  shotGeneration: string;
+  shotRepair: string;
+}
+
+/**
+ * 首尾帧提示词模板配置（可编辑）
+ */
+export interface KeyframePromptTemplateConfig {
+  startFrameGuide: string;
+  endFrameGuide: string;
+  characterConsistencyGuide: string;
+  propWithImageGuide: string;
+  propWithoutImageGuide: string;
+  nineGridSourceMeta: string;
+}
+
+/**
+ * 网格分镜提示词模板配置（可编辑）
+ */
+export interface NineGridPromptTemplateConfig {
+  splitSystem: string;
+  splitUser: string;
+  imagePrefix: string;
+  imagePanelTemplate: string;
+  imageSuffix: string;
+}
+
+/**
+ * 视频生成提示词模板配置（可编辑）
+ */
+export interface VideoPromptTemplateConfig {
+  sora2Chinese: string;
+  sora2English: string;
+  sora2NineGridChinese: string;
+  sora2NineGridEnglish: string;
+  veoStartOnly: string;
+  veoStartEnd: string;
+}
+
+/**
+ * 当前项目可编辑的提示词模板集合
+ */
+export interface PromptTemplateConfig {
+  storyboard: StoryboardPromptTemplateConfig;
+  keyframe: KeyframePromptTemplateConfig;
+  nineGrid: NineGridPromptTemplateConfig;
+  video: VideoPromptTemplateConfig;
+}
+
+/**
+ * 模板覆盖配置（仅存储用户改动）
+ */
+export interface PromptTemplateOverrides {
+  storyboard?: Partial<StoryboardPromptTemplateConfig>;
+  keyframe?: Partial<KeyframePromptTemplateConfig>;
+  nineGrid?: Partial<NineGridPromptTemplateConfig>;
+  video?: Partial<VideoPromptTemplateConfig>;
+}
+
 export interface QualityCheck {
   key: string;
   label: string;
@@ -355,6 +418,7 @@ export interface Episode {
   characterRefs: EpisodeCharacterRef[];
   sceneRefs: EpisodeSceneRef[];
   propRefs: EpisodePropRef[];
+  promptTemplateOverrides?: PromptTemplateOverrides;
   scriptGenerationCheckpoint?: ScriptGenerationCheckpoint | null;
 }
 

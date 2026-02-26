@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ProjectState, ScriptData, ScriptGenerationCheckpoint, ScriptGenerationStep, Shot } from '../../types';
 import { useAlert } from '../GlobalAlert';
 import {
@@ -23,6 +23,7 @@ import SceneBreakdown from './SceneBreakdown';
 import AssetMatchDialog from './AssetMatchDialog';
 import { findAssetMatches, applyAssetMatches, AssetMatchResult } from '../../services/assetMatchService';
 import { loadSeriesProject } from '../../services/storageService';
+import { resolvePromptTemplateConfig } from '../../services/promptTemplateService';
 
 interface Props {
   project: ProjectState;
@@ -36,6 +37,10 @@ type AnalyzeRunStep = ScriptGenerationStep | 'done';
 
 const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfig, onGeneratingChange }) => {
   const { showAlert } = useAlert();
+  const promptTemplates = useMemo(
+    () => resolvePromptTemplateConfig(project.promptTemplateOverrides),
+    [project.promptTemplateOverrides]
+  );
   const [activeTab, setActiveTab] = useState<TabMode>(project.scriptData ? 'script' : 'story');
 
   const getDraftValue = (selected: string, customInput: string, fallback: string): string => {
@@ -628,7 +633,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
         previousScriptData,
         previousShots,
         reuseUnchangedScenes,
-        enableQualityCheck
+        enableQualityCheck,
+        promptTemplates,
       });
       workingScriptData = attachGenerationMeta(
         hydrateScriptDataMeta(workingScriptData!, {
@@ -1474,4 +1480,3 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
 };
 
 export default StageScript;
-

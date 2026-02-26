@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Search, Film, Users, MapPin, Package, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Search, Film, Users, MapPin, Package, SlidersHorizontal, X } from 'lucide-react';
 import { ProjectState, PromptVersion } from '../../types';
 import { PromptCategory, EditingPrompt } from './constants';
 import { 
@@ -15,18 +15,25 @@ import CharacterSection from './CharacterSection';
 import SceneSection from './SceneSection';
 import PropSection from './PropSection';
 import KeyframeSection from './KeyframeSection';
+import TemplateSection from './TemplateSection';
+import {
+  PromptTemplatePath,
+  resolvePromptTemplateConfig,
+  searchPromptTemplateFields,
+} from '../../services/promptTemplateService';
 
 interface Props {
   project: ProjectState;
   updateProject: (updates: Partial<ProjectState> | ((prev: ProjectState) => ProjectState)) => void;
 }
 
-type SectionKey = 'characters' | 'scenes' | 'props' | 'shots';
+type SectionKey = 'templates' | 'characters' | 'scenes' | 'props' | 'shots';
 
-const SECTION_KEYS: SectionKey[] = ['characters', 'scenes', 'props', 'shots'];
+const SECTION_KEYS: SectionKey[] = ['templates', 'characters', 'scenes', 'props', 'shots'];
 
 const CATEGORY_LABELS: Record<PromptCategory, string> = {
   all: '全部',
+  templates: '模板',
   characters: '角色',
   scenes: '场景',
   props: '道具',
@@ -39,6 +46,10 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
   const [editingPrompt, setEditingPrompt] = useState<EditingPrompt>(null);
   const [expandedSections, setExpandedSections] = useState<Set<SectionKey>>(
     new Set<SectionKey>(SECTION_KEYS)
+  );
+  const templateConfig = useMemo(
+    () => resolvePromptTemplateConfig(project.promptTemplateOverrides),
+    [project.promptTemplateOverrides]
   );
 
   const toggleSection = (section: SectionKey) => {
@@ -102,10 +113,18 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
   };
 
   // Search first, then apply category filter
+  const searchedTemplateFields = useMemo(
+    () => searchPromptTemplateFields(templateConfig, searchQuery),
+    [templateConfig, searchQuery]
+  );
   const searchedCharacters = filterCharacters(project.scriptData?.characters || [], searchQuery);
   const searchedScenes = filterScenes(project.scriptData?.scenes || [], searchQuery);
   const searchedProps = filterProps(project.scriptData?.props || [], searchQuery);
   const searchedShots = filterShots(project.shots || [], searchQuery);
+
+  const filteredTemplateFields = category === 'all' || category === 'templates'
+    ? searchedTemplateFields
+    : [];
 
   const filteredCharacters = category === 'all' || category === 'characters'
     ? searchedCharacters
@@ -127,12 +146,26 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
   const totalScenes = project.scriptData?.scenes.length || 0;
   const totalProps = project.scriptData?.props.length || 0;
   const totalShots = project.shots.length || 0;
-  const totalItems = totalCharacters + totalScenes + totalProps + totalShots;
-  const visibleItems = filteredCharacters.length + filteredScenes.length + filteredProps.length + filteredShots.length;
+  const totalTemplates = searchPromptTemplateFields(templateConfig, '').length;
+  const totalItems = totalTemplates + totalCharacters + totalScenes + totalProps + totalShots;
+  const visibleItems =
+    filteredTemplateFields.length +
+    filteredCharacters.length +
+    filteredScenes.length +
+    filteredProps.length +
+    filteredShots.length;
   const hasNoData = totalItems === 0;
   const hasFilteredResults = visibleItems > 0;
 
   const sectionSummary = [
+    {
+      key: 'templates' as const,
+      category: 'templates' as const,
+      label: '模板',
+      icon: <SlidersHorizontal className="w-4 h-4" />,
+      total: totalTemplates,
+      filtered: searchedTemplateFields.length,
+    },
     {
       key: 'characters' as const,
       category: 'characters' as const,
@@ -167,7 +200,7 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
     }
   ];
 
-  const categoryOptions: PromptCategory[] = ['all', 'characters', 'scenes', 'props', 'keyframes'];
+  const categoryOptions: PromptCategory[] = ['all', 'templates', 'characters', 'scenes', 'props', 'keyframes'];
   const editingCategoryLabel = editingPrompt
     ? (() => {
         switch (editingPrompt.type) {
@@ -301,6 +334,17 @@ const StagePrompts: React.FC<Props> = ({ project, updateProject }) => {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="p-6 max-w-7xl mx-auto space-y-6">
+          {(category === 'all' || category === 'templates') && (
+            <TemplateSection
+              templateConfig={templateConfig}
+              templateOverrides={project.promptTemplateOverrides}
+              visiblePaths={new Set<PromptTemplatePath>(filteredTemplateFields.map((field) => field.path))}
+              isExpanded={expandedSections.has('templates')}
+              onToggle={() => toggleSection('templates')}
+              onUpdateOverrides={(nextOverrides) => updateProject({ promptTemplateOverrides: nextOverrides })}
+            />
+          )}
+
           {project.scriptData && (
             <>
               <CharacterSection
