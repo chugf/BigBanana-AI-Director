@@ -537,6 +537,13 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     const selectedModelRouting = resolveVideoModelRouting(selectedModelInput);
     const selectedModel = selectedModelRouting.normalizedModelId;
     // 规范化模型名称：旧模型名 -> 'veo'
+
+    const hasCompletedStartFrame = !!sKf?.imageUrl && sKf?.status === 'completed';
+    const hasCompletedEndFrame = !!eKf?.imageUrl && eKf?.status === 'completed';
+
+    if (selectedModelRouting.family === 'veo-sync' && (!hasCompletedStartFrame || !hasCompletedEndFrame)) {
+      return showAlert('Veo 3.1 首尾帧模式要求首帧和尾帧图片都已完成，请先补齐后再生成视频。', { type: 'warning' });
+    }
     
     // 必须有起始帧
     if (!sKf?.imageUrl) {
