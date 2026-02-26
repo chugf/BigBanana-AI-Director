@@ -139,8 +139,18 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
   const [localVideoModelId, setLocalVideoModelId] = useState(currentVideoModelId);
   const [expandedCheckKey, setExpandedCheckKey] = useState<string | null>(null);
   const [isAdvancedMode, setIsAdvancedMode] = useState(false);
-  const [expandedSection, setExpandedSection] = useState<SectionKey>('context');
+  const [expandedSections, setExpandedSections] = useState<SectionKey[]>(['context']);
   const lastAutoExpandedShotRef = useRef<string | null>(null);
+
+  const isSectionOpen = (sectionKey: SectionKey) => expandedSections.includes(sectionKey);
+  const openSection = (sectionKey: SectionKey) => {
+    setExpandedSections((prev) => (prev.includes(sectionKey) ? prev : [...prev, sectionKey]));
+  };
+  const toggleSection = (sectionKey: SectionKey) => {
+    setExpandedSections((prev) =>
+      prev.includes(sectionKey) ? prev.filter((item) => item !== sectionKey) : [...prev, sectionKey]
+    );
+  };
 
   useEffect(() => {
     setLocalVideoModelId(currentVideoModelId);
@@ -214,18 +224,18 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
     lastAutoExpandedShotRef.current = shot.id;
 
     if (!hasActionSummary) {
-      setExpandedSection('narrative');
+      openSection('narrative');
       return;
     }
     if (!keyframeReady) {
-      setExpandedSection('keyframe');
+      openSection('keyframe');
       return;
     }
     if (!hasVideo) {
-      setExpandedSection('video');
+      openSection('video');
       return;
     }
-    setExpandedSection('quality');
+    openSection('quality');
   }, [shot.id, hasActionSummary, keyframeReady, hasVideo]);
 
   useEffect(() => {
@@ -313,7 +323,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
         label: '下一步：完善动作与台词',
         hint: '关键帧与网格分镜依赖动作描述，建议先补齐叙事内容。',
         disabled: false,
-        onClick: () => setExpandedSection('narrative'),
+        onClick: () => openSection('narrative'),
       };
     }
 
@@ -325,7 +335,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
           : '网格分镜属于高级功能，请先切换到“高级”。',
         disabled: isGridGenerating,
         onClick: () => {
-          setExpandedSection('keyframe');
+          openSection('keyframe');
           if (!isAdvancedMode) {
             setIsAdvancedMode(true);
             return;
@@ -341,7 +351,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
         hint: '先生成首帧，建立镜头视觉锚点。',
         disabled: startKf?.status === 'generating',
         onClick: () => {
-          setExpandedSection('keyframe');
+          openSection('keyframe');
           onGenerateKeyframe('start');
         },
       };
@@ -353,7 +363,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
         hint: '补齐首尾关键帧后，再做视频会更稳定。',
         disabled: endKf?.status === 'generating',
         onClick: () => {
-          setExpandedSection('keyframe');
+          openSection('keyframe');
           onGenerateKeyframe('end');
         },
       };
@@ -364,7 +374,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
         label: isVideoGenerating ? '视频生成中...' : '下一步：进入视频生成',
         hint: isVideoGenerating ? '当前镜头正在出片，请稍候。' : '在步骤 4 选择模型和参数后生成视频。',
         disabled: isVideoGenerating,
-        onClick: () => setExpandedSection('video'),
+        onClick: () => openSection('video'),
       };
     }
 
@@ -373,7 +383,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
       hint: '视频已完成，建议做一次最终可交付性评估。',
       disabled: isAIReassessing,
       onClick: () => {
-        setExpandedSection('quality');
+        openSection('quality');
         onAIReassessQuality();
       },
     };
@@ -410,12 +420,12 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
     subtitle: string,
     done?: boolean
   ) => {
-    const isOpen = expandedSection === sectionKey;
+    const isOpen = isSectionOpen(sectionKey);
     return (
       <button
         type="button"
         className="w-full px-4 py-3 flex items-center justify-between text-left"
-        onClick={() => setExpandedSection(isOpen ? 'quality' : sectionKey)}
+        onClick={() => toggleSection(sectionKey)}
       >
         <div className="flex items-center gap-2 min-w-0">
           {done === undefined ? null : done ? (
@@ -498,7 +508,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
       <div className="flex-1 overflow-y-auto p-5 space-y-4">
         <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] overflow-hidden">
           {renderSectionHeader('quality', '质量评估', '查看当前镜头可交付性')}
-          {expandedSection === 'quality' && quality && (
+          {isSectionOpen('quality') && quality && (
             <div className="px-4 pb-4 border-t border-[var(--border-primary)] space-y-2">
               <div className="pt-3 flex items-center justify-between gap-2">
                 <span className={`px-2 py-1 rounded-md text-[10px] font-mono border ${qualityBadgeClass}`}>
@@ -554,7 +564,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
               </div>
             </div>
           )}
-          {expandedSection === 'quality' && !quality && (
+          {isSectionOpen('quality') && !quality && (
             <div className="px-4 pb-4 border-t border-[var(--border-primary)]">
               <p className="pt-3 text-xs text-[var(--text-muted)]">当前镜头还没有质量评估结果。</p>
             </div>
@@ -573,9 +583,9 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
               <button
                 key={step.key}
                 type="button"
-                onClick={() => setExpandedSection(step.key)}
+                onClick={() => openSection(step.key)}
                 className={`px-2 py-1.5 rounded border text-[10px] text-left flex items-center gap-1.5 ${
-                  expandedSection === step.key
+                  isSectionOpen(step.key)
                     ? 'border-[var(--accent-border)] bg-[var(--accent-bg)] text-[var(--accent-text)]'
                     : 'border-[var(--border-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
                 }`}
@@ -594,7 +604,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
 
         <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] overflow-hidden">
           {renderSectionHeader('context', '资产上下文', '先确认场景、角色与道具绑定', steps[0]?.done)}
-          {expandedSection === 'context' && (
+          {isSectionOpen('context') && (
             <div className="border-t border-[var(--border-primary)] p-3">
               {scriptData ? (
                 <SceneContext
@@ -621,7 +631,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
 
         <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] overflow-hidden">
           {renderSectionHeader('narrative', '动作与台词', '先明确叙事动作，再进入分镜与关键帧', steps[1]?.done)}
-          {expandedSection === 'narrative' && (
+          {isSectionOpen('narrative') && (
             <div className="border-t border-[var(--border-primary)] p-4 space-y-3">
               <div className="flex items-center gap-2 border-b border-[var(--border-primary)] pb-2">
                 <Film className="w-4 h-4 text-[var(--text-tertiary)]" />
@@ -679,7 +689,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
               : '完成首帧/尾帧后再进入视频',
             steps[2]?.done
           )}
-          {expandedSection === 'keyframe' && (
+          {isSectionOpen('keyframe') && (
             <div className="border-t border-[var(--border-primary)] p-3 space-y-3">
               <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--bg-base)]/40 p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
@@ -836,7 +846,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
 
         <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] overflow-hidden">
           {renderSectionHeader('video', '视频生成', '选模型、设参数、出片', steps[3]?.done)}
-          {expandedSection === 'video' && (
+          {isSectionOpen('video') && (
             <div className="border-t border-[var(--border-primary)] p-3">
               <VideoGenerator
                 shot={shot}
@@ -856,7 +866,7 @@ const ShotWorkbench: React.FC<ShotWorkbenchProps> = ({
         {isAdvancedMode && (
           <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] overflow-hidden">
             {renderSectionHeader('advanced', '高级工具', '镜头拆分与实验能力', undefined)}
-            {expandedSection === 'advanced' && (
+            {isSectionOpen('advanced') && (
               <div className="border-t border-[var(--border-primary)] p-4 space-y-3">
                 <button
                   onClick={onSplitShot}
