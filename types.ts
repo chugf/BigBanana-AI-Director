@@ -2,9 +2,101 @@ export interface CharacterVariation {
   id: string;
   name: string; // e.g., "Casual", "Tactical Gear", "Injured"
   visualPrompt: string;
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
   negativePrompt?: string; // 负面提示词，用于排除不想要的元素
   referenceImage?: string; // 角色变体参考图，存储为base64格式（data:image/png;base64,...）
   status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
+}
+
+export type PromptVersionSource = 'ai-generated' | 'manual-edit' | 'rollback' | 'imported' | 'system';
+
+export interface PromptVersion {
+  id: string;
+  prompt: string;
+  createdAt: number;
+  source: PromptVersionSource;
+  note?: string;
+}
+
+/**
+ * 分镜阶段提示词模板配置（可编辑）
+ */
+export interface StoryboardPromptTemplateConfig {
+  shotGeneration: string;
+  shotRepair: string;
+}
+
+/**
+ * 首尾帧提示词模板配置（可编辑）
+ */
+export interface KeyframePromptTemplateConfig {
+  startFrameGuide: string;
+  endFrameGuide: string;
+  characterConsistencyGuide: string;
+  propWithImageGuide: string;
+  propWithoutImageGuide: string;
+  nineGridSourceMeta: string;
+}
+
+/**
+ * 网格分镜提示词模板配置（可编辑）
+ */
+export interface NineGridPromptTemplateConfig {
+  splitSystem: string;
+  splitUser: string;
+  imagePrefix: string;
+  imagePanelTemplate: string;
+  imageSuffix: string;
+}
+
+/**
+ * 视频生成提示词模板配置（可编辑）
+ */
+export interface VideoPromptTemplateConfig {
+  sora2Chinese: string;
+  sora2English: string;
+  sora2NineGridChinese: string;
+  sora2NineGridEnglish: string;
+  veoStartOnly: string;
+  veoStartEnd: string;
+}
+
+/**
+ * 当前项目可编辑的提示词模板集合
+ */
+export interface PromptTemplateConfig {
+  storyboard: StoryboardPromptTemplateConfig;
+  keyframe: KeyframePromptTemplateConfig;
+  nineGrid: NineGridPromptTemplateConfig;
+  video: VideoPromptTemplateConfig;
+}
+
+/**
+ * 模板覆盖配置（仅存储用户改动）
+ */
+export interface PromptTemplateOverrides {
+  storyboard?: Partial<StoryboardPromptTemplateConfig>;
+  keyframe?: Partial<KeyframePromptTemplateConfig>;
+  nineGrid?: Partial<NineGridPromptTemplateConfig>;
+  video?: Partial<VideoPromptTemplateConfig>;
+}
+
+export interface QualityCheck {
+  key: string;
+  label: string;
+  score: number; // 0-100
+  weight: number; // Weight percentage in total score
+  passed: boolean;
+  details?: string;
+}
+
+export interface ShotQualityAssessment {
+  version: number; // Quality scoring schema version
+  score: number; // 0-100
+  grade: 'pass' | 'warning' | 'fail';
+  generatedAt: number;
+  checks: QualityCheck[];
+  summary: string;
 }
 
 /**
@@ -39,12 +131,16 @@ export interface Character {
   age: string;
   personality: string;
   visualPrompt?: string;
-  negativePrompt?: string; // 负面提示词，用于排除不想要的元素
-  coreFeatures?: string; // 核心固定特征，用于保持角色一致性
-  referenceImage?: string; // 角色基础参考图，存储为base64格式（data:image/png;base64,...）
-  turnaround?: CharacterTurnaroundData; // 角色九宫格造型设计，多视角参考图
-  variations: CharacterVariation[]; // Added: List of alternative looks
-  status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
+  negativePrompt?: string;
+  coreFeatures?: string;
+  referenceImage?: string;
+  turnaround?: CharacterTurnaroundData;
+  variations: CharacterVariation[];
+  status?: 'pending' | 'generating' | 'completed' | 'failed';
+  libraryId?: string;
+  libraryVersion?: number;
+  version?: number;
 }
 
 export interface Scene {
@@ -53,9 +149,13 @@ export interface Scene {
   time: string;
   atmosphere: string;
   visualPrompt?: string;
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
   negativePrompt?: string; // 负面提示词，用于排除不想要的元素
   referenceImage?: string; // 场景参考图，存储为base64格式（data:image/png;base64,...）
   status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
+  libraryId?: string;
+  libraryVersion?: number;
+  version?: number;
 }
 
 /**
@@ -68,9 +168,13 @@ export interface Prop {
   category: string;       // 分类：武器、文件/书信、食物/饮品、交通工具、装饰品、科技设备、其他
   description: string;    // 道具描述
   visualPrompt?: string;  // 视觉提示词
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
   negativePrompt?: string; // 负面提示词，用于排除不想要的元素
   referenceImage?: string; // 道具参考图，存储为base64格式（data:image/png;base64,...）
   status?: 'pending' | 'generating' | 'completed' | 'failed'; // 生成状态，用于loading状态持久化
+  libraryId?: string;
+  libraryVersion?: number;
+  version?: number;
 }
 
 export type AssetLibraryItemType = 'character' | 'scene' | 'prop';
@@ -90,6 +194,7 @@ export interface Keyframe {
   id: string;
   type: 'start' | 'end';
   visualPrompt: string;
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
   imageUrl?: string; // 关键帧图像，存储为base64格式（data:image/png;base64,...）
   status: 'pending' | 'generating' | 'completed' | 'failed';
 }
@@ -102,14 +207,29 @@ export interface VideoInterval {
   motionStrength: number;
   videoUrl?: string; // 视频数据，存储为base64格式（data:video/mp4;base64,...），避免URL过期问题
   videoPrompt?: string; // 视频生成时使用的提示词
+  promptVersions?: PromptVersion[]; // Prompt edit history with rollback support
   status: 'pending' | 'generating' | 'completed' | 'failed';
+}
+
+/**
+ * 分镜网格面板数量（导演工作台）
+ */
+export type StoryboardGridPanelCount = 4 | 6 | 9;
+
+/**
+ * 分镜网格布局元信息
+ */
+export interface StoryboardGridLayoutMeta {
+  panelCount: StoryboardGridPanelCount;
+  rows: number;
+  cols: number;
 }
 
 /**
  * 九宫格分镜预览 - 单个面板数据
  */
 export interface NineGridPanel {
-  index: number;           // 0-8, 九宫格位置索引
+  index: number;           // 0-(panelCount-1), 网格位置索引
   shotSize: string;        // 景别：特写/近景/中景/全景/远景 等
   cameraAngle: string;     // 机位角度：俯拍/仰拍/平视/斜拍 等
   description: string;     // 该格子的视觉描述
@@ -119,13 +239,14 @@ export interface NineGridPanel {
  * 九宫格分镜预览数据
  */
 export interface NineGridData {
-  panels: NineGridPanel[];  // 9个格子的描述数据
-  imageUrl?: string;        // 生成的九宫格图片 (base64)
+  panels: NineGridPanel[];  // 网格格子的描述数据
+  layout?: StoryboardGridLayoutMeta; // 当前网格布局（4/6/9）
+  imageUrl?: string;        // 生成的网格图片 (base64)
   prompt?: string;          // 生成时使用的完整提示词
   status: 'pending' | 'generating_panels' | 'panels_ready' | 'generating_image' | 'completed' | 'failed';
-  // generating_panels: AI正在生成9个镜头描述
+  // generating_panels: AI正在生成网格镜头描述
   // panels_ready: 镜头描述已生成，等待用户确认/编辑后再生成图片
-  // generating_image: 用户已确认，正在生成九宫格图片
+  // generating_image: 用户已确认，正在生成网格图片
 }
 
 export interface Shot {
@@ -140,7 +261,9 @@ export interface Shot {
   props?: string[]; // 道具ID数组，引用 ScriptData.props 中的道具
   keyframes: Keyframe[];
   interval?: VideoInterval;
-  videoModel?: 'veo' | 'sora-2' | 'veo_3_1-fast' | 'veo_3_1-fast-4K' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait'; // Video generation model selection
+  qualityAssessment?: ShotQualityAssessment;
+  videoModel?: 'veo' | 'sora-2' | 'veo_3_1-fast' | 'veo_3_1-fast-4K' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait' | 'doubao-seedance-1-5-pro-251215' | 'doubao-seedance-2-0-260128'; // Video generation model selection
+  videoInputMode?: 'keyframes' | 'storyboard-grid'; // 视频驱动方式：首尾帧 / 网格分镜（互斥）
   nineGrid?: NineGridData; // 可选的九宫格分镜预览数据（高级功能）
 }
 
@@ -184,11 +307,21 @@ export interface ScriptData {
   language?: string;
   visualStyle?: string; // Visual style: live-action, anime, 3d-animation, etc.
   shotGenerationModel?: string; // Model used for shot generation
+  planningShotDuration?: number; // Locked shot duration baseline (seconds) used for shot count planning
   artDirection?: ArtDirection; // 全局美术指导文档，用于统一角色和场景的视觉风格
   characters: Character[];
   scenes: Scene[];
   props: Prop[]; // 道具列表，用于保持多分镜间物品视觉一致性
   storyParagraphs: { id: number; text: string; sceneRefId: string }[];
+  generationMeta?: {
+    // Fingerprint of raw script + language (structure extraction inputs).
+    structureKey?: string;
+    // Fingerprint of structure + style/model/language (visual enrichment inputs).
+    visualsKey?: string;
+    // Fingerprint of visualized script + duration/model (shot generation inputs).
+    shotsKey?: string;
+    generatedAt?: number;
+  };
 }
 
 export interface RenderLog {
@@ -207,25 +340,89 @@ export interface RenderLog {
   duration?: number; // Time taken in milliseconds
 }
 
-export interface ProjectState {
+export interface SeriesProject {
   id: string;
+  title: string;
+  description?: string;
+  coverImage?: string;
+  createdAt: number;
+  lastModified: number;
+  visualStyle: string;
+  language: string;
+  artDirection?: ArtDirection;
+  characterLibrary: Character[];
+  sceneLibrary: Scene[];
+  propLibrary: Prop[];
+}
+
+export interface Series {
+  id: string;
+  projectId: string;
+  title: string;
+  description?: string;
+  sortOrder: number;
+  createdAt: number;
+  lastModified: number;
+}
+
+export type AssetSyncStatus = 'synced' | 'outdated' | 'local-only';
+
+export interface EpisodeCharacterRef {
+  characterId: string;
+  syncedVersion: number;
+  syncStatus: AssetSyncStatus;
+}
+
+export interface EpisodeSceneRef {
+  sceneId: string;
+  syncedVersion: number;
+  syncStatus: AssetSyncStatus;
+}
+
+export interface EpisodePropRef {
+  propId: string;
+  syncedVersion: number;
+  syncStatus: AssetSyncStatus;
+}
+
+export type ScriptGenerationStep = 'structure' | 'visuals' | 'shots';
+
+export interface ScriptGenerationCheckpoint {
+  // Next step to execute in the analyze pipeline.
+  step: ScriptGenerationStep;
+  // Hash of script/config inputs so stale checkpoints can be invalidated.
+  configKey: string;
+  // Latest successful intermediate result for resume.
+  scriptData?: ScriptData | null;
+  updatedAt: number;
+}
+
+export interface Episode {
+  id: string;
+  projectId: string;
+  seriesId: string;
+  episodeNumber: number;
   title: string;
   createdAt: number;
   lastModified: number;
   stage: 'script' | 'assets' | 'director' | 'export' | 'prompts';
-  
-  // Script Phase Data
   rawScript: string;
   targetDuration: string;
   language: string;
-  visualStyle: string; // Visual style: live-action, anime, 3d-animation, etc.
-  shotGenerationModel: string; // Model for shot generation
-  
+  visualStyle: string;
+  shotGenerationModel: string;
   scriptData: ScriptData | null;
   shots: Shot[];
   isParsingScript: boolean;
-  renderLogs: RenderLog[]; // History of all API calls for this project
+  renderLogs: RenderLog[];
+  characterRefs: EpisodeCharacterRef[];
+  sceneRefs: EpisodeSceneRef[];
+  propRefs: EpisodePropRef[];
+  promptTemplateOverrides?: PromptTemplateOverrides;
+  scriptGenerationCheckpoint?: ScriptGenerationCheckpoint | null;
 }
+
+export type ProjectState = Episode;
 
 // ============================================
 // 模型管理相关类型定义
@@ -242,7 +439,7 @@ export type AspectRatio = '16:9' | '9:16' | '1:1';
 /**
  * 视频时长类型（仅异步视频模型支持）
  */
-export type VideoDuration = 4 | 8 | 12;
+export type VideoDuration = 4 | 5 | 8 | 10 | 12 | 15;
 
 /**
  * 模型提供商配置

@@ -105,6 +105,13 @@ export const loadRegistry = (): ModelRegistryState => {
           if (existingParams) {
             for (const key of USER_PREF_KEYS) {
               if (key in existingParams && existingParams[key] !== undefined) {
+                if (key === 'defaultDuration') {
+                  const candidate = existingParams[key];
+                  const supported = (mergedParams as any).supportedDurations;
+                  if (Array.isArray(supported) && !supported.includes(candidate)) {
+                    continue;
+                  }
+                }
                 mergedParams[key] = existingParams[key];
               }
             }
@@ -112,6 +119,8 @@ export const loadRegistry = (): ModelRegistryState => {
           parsed.models[existingIndex] = {
             ...bm,
             isEnabled: existing.isEnabled,
+            // Keep user-configured model-level API key for built-in models.
+            apiKey: existing.apiKey?.trim() || undefined,
             params: mergedParams as any,
           };
         }
@@ -368,7 +377,7 @@ export const setActiveModel = (type: ModelType, modelId: string): boolean => {
  * 注册新模型
  * @param model - 模型定义（可包含自定义 id，不包含 isBuiltIn）
  */
-export const registerModel = (model: Omit<ModelDefinition, 'isBuiltIn'> & { id?: string }): ModelDefinition => {
+export const registerModel = (model: Omit<ModelDefinition, 'id' | 'isBuiltIn'> & { id?: string }): ModelDefinition => {
   const state = loadRegistry();
   
   const providedId = (model as any).id?.trim();
@@ -408,11 +417,17 @@ export const updateModel = (id: string, updates: Partial<ModelDefinition>): bool
   const index = state.models.findIndex(m => m.id === id);
   if (index === -1) return false;
 
-  // 内置模型只能修改 isEnabled 和 params
+  // 内置模型仅开放少量可编辑字段：
+  // - isEnabled: 启用/禁用
+  // - params: 参数偏好（比例、时长等）
+  // - apiKey: 模型专属密钥（覆盖全局/Provider）
   if (state.models[index].isBuiltIn) {
     const allowedUpdates: Partial<ModelDefinition> = {};
     if (updates.isEnabled !== undefined) allowedUpdates.isEnabled = updates.isEnabled;
     if (updates.params) allowedUpdates.params = updates.params as any;
+    if (updates.apiKey !== undefined) {
+      allowedUpdates.apiKey = updates.apiKey?.trim() || undefined;
+    }
     state.models[index] = { ...state.models[index], ...allowedUpdates } as ModelDefinition;
   } else {
     state.models[index] = { ...state.models[index], ...updates } as ModelDefinition;

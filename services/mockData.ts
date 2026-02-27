@@ -8,6 +8,7 @@ export const MOCK_SCRIPT: ScriptData = {
     { id: "c1", name: "Kael", gender: "Male", age: "30s (Android)", personality: "Stoic, Melancholic", visualPrompt: "Cyberpunk android detective, glowing blue eyes, trench coat, rain-soaked neon city background, cinematic lighting", variations: [] },
     { id: "c2", name: "Mira", gender: "Female", age: "25", personality: "Rebellious, Hacker", visualPrompt: "Cyberpunk hacker girl, purple hair, augmented reality glasses, tactical streetwear, holding a data pad, neon alleyway", variations: [] }
   ],
+  props: [],
   scenes: [
     { id: "s1", location: "Sector 7 Alley", time: "Night", atmosphere: "Rainy, Neon-lit", visualPrompt: "Dark alleyway in a futuristic city, heavy rain, neon signs reflecting in puddles, steam rising from vents, volumetric lighting" }
   ],

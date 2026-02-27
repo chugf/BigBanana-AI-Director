@@ -47,12 +47,16 @@ export {
 
 // 剧本处理服务
 export {
+  parseScriptStructure,
+  enrichScriptDataVisuals,
   parseScriptToData,
   generateShotList,
   continueScript,
   continueScriptStream,
   rewriteScript,
   rewriteScriptStream,
+  rewriteScriptSegment,
+  rewriteScriptSegmentStream,
 } from './scriptService';
 
 // 视觉资产生成服务
@@ -81,3 +85,8 @@ export {
   generateNineGridPanels,
   generateNineGridImage,
 } from './shotService';
+
+// Prompt compression service
+export {
+  compressPromptWithLLM,
+} from './promptCompressionService';

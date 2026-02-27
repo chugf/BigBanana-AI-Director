@@ -1,6 +1,6 @@
 import React from 'react';
 import { User } from 'lucide-react';
-import { Character } from '../../types';
+import { Character, PromptVersion } from '../../types';
 import { EditingPrompt, STYLES } from './constants';
 import CollapsibleSection from './CollapsibleSection';
 import PromptEditor from './PromptEditor';
@@ -10,10 +10,12 @@ interface Props {
   isExpanded: boolean;
   onToggle: () => void;
   editingPrompt: EditingPrompt;
+  editingVersions: PromptVersion[];
   onStartEdit: (type: 'character' | 'character-variation', id: string, value: string, variationId?: string) => void;
   onSaveEdit: () => void;
   onCancelEdit: () => void;
   onPromptChange: (value: string) => void;
+  onRollbackVersion: (versionId: string) => void;
 }
 
 const CharacterSection: React.FC<Props> = ({
@@ -21,10 +23,12 @@ const CharacterSection: React.FC<Props> = ({
   isExpanded,
   onToggle,
   editingPrompt,
+  editingVersions,
   onStartEdit,
   onSaveEdit,
   onCancelEdit,
-  onPromptChange
+  onPromptChange,
+  onRollbackVersion
 }) => {
   if (characters.length === 0) return null;
 
@@ -60,6 +64,8 @@ const CharacterSection: React.FC<Props> = ({
               onSave={onSaveEdit}
               onCancel={onCancelEdit}
               size="large"
+              versions={editingVersions}
+              onRollback={onRollbackVersion}
             />
           ) : (
             <p className={STYLES.display.base}>
@@ -92,6 +98,8 @@ const CharacterSection: React.FC<Props> = ({
                       onSave={onSaveEdit}
                       onCancel={onCancelEdit}
                       size="small"
+                      versions={editingVersions}
+                      onRollback={onRollbackVersion}
                     />
                   ) : (
                     <p className={STYLES.display.small}>

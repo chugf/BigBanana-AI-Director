@@ -1,7 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { LayoutGrid, Sparkles, Loader2, AlertCircle, Edit2, Film, Video as VideoIcon } from 'lucide-react';
-import { ProjectState, Shot, Keyframe, AspectRatio, VideoDuration, NineGridPanel, NineGridData } from '../../types';
-import { generateImage, generateVideo, generateActionSuggestion, optimizeKeyframePrompt, optimizeBothKeyframes, enhanceKeyframePrompt, splitShotIntoSubShots, generateNineGridPanels, generateNineGridImage } from '../../services/aiService';
+import React, { useState, useEffect, useMemo } from 'react';
+import { LayoutGrid, Sparkles, Loader2, AlertCircle, Edit2, Film, MessageSquare, Video as VideoIcon } from 'lucide-react';
+import {
+  ProjectState,
+  Shot,
+  Keyframe,
+  AspectRatio,
+  VideoDuration,
+  NineGridPanel,
+  NineGridData,
+  StoryboardGridPanelCount,
+} from '../../types';
+import { generateImage, generateVideo, generateActionSuggestion, optimizeKeyframePrompt, optimizeBothKeyframes, enhanceKeyframePrompt, splitShotIntoSubShots, generateNineGridPanels, generateNineGridImage, getNegativePrompt, compressPromptWithLLM } from '../../services/aiService';
 import { 
   getRefImagesForShot, 
   getPropsInfoForShot,
@@ -18,9 +27,11 @@ import {
   createSubShot,
   replaceShotWithSubShots,
   buildPromptFromNineGridPanel,
-  cropPanelFromNineGrid
+  cropPanelFromNineGrid,
+  resolveVideoModelRouting,
+  routeVideoFrameInputs
 } from './utils';
-import { DEFAULTS } from './constants';
+import { DEFAULTS, resolveStoryboardGridLayout } from './constants';
 import EditModal from './EditModal';
 import ShotCard from './ShotCard';
 import ShotWorkbench from './ShotWorkbench';
@@ -28,7 +39,13 @@ import ImagePreviewModal from './ImagePreviewModal';
 import NineGridPreview from './NineGridPreview';
 import { useAlert } from '../GlobalAlert';
 import { AspectRatioSelector } from '../AspectRatioSelector';
-import { getUserAspectRatio, setUserAspectRatio, getModelById } from '../../services/modelRegistry';
+import { getUserAspectRatio, setUserAspectRatio, getModelById, getActiveImageModel } from '../../services/modelRegistry';
+import { persistVideoReference } from '../../services/videoStorageService';
+import { runKeyframePreflight, runVideoPreflight, formatLintIssues } from '../../services/promptLintService';
+import { assessShotQuality, getProjectAverageQualityScore } from '../../services/qualityAssessmentService';
+import { assessShotQualityWithLLM } from '../../services/qualityAssessmentV2Service';
+import { updatePromptWithVersion } from '../../services/promptVersionService';
+import { resolvePromptTemplateConfig } from '../../services/promptTemplateService';
 
 interface Props {
   project: ProjectState;
@@ -43,6 +60,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
   const [batchProgress, setBatchProgress] = useState<{current: number, total: number, message: string} | null>(null);
   const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
   const [isAIGenerating, setIsAIGenerating] = useState(false);
+  const [isAIReassessing, setIsAIReassessing] = useState(false);
   const [useAIEnhancement, setUseAIEnhancement] = useState(false); // 是否使用AI增强提示词
   const [isSplittingShot, setIsSplittingShot] = useState(false); // 是否正在拆分镜头
   const [showNineGrid, setShowNineGrid] = useState(false); // 是否显示九宫格预览弹窗
@@ -59,7 +77,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
   
   // 统一的编辑状态
   const [editModal, setEditModal] = useState<{
-    type: 'action' | 'keyframe' | 'video';
+    type: 'action' | 'dialogue' | 'keyframe' | 'video';
     value: string;
     shotId?: string;
     frameType?: 'start' | 'end';
@@ -67,6 +85,137 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
 
   const activeShotIndex = project.shots.findIndex(s => s.id === activeShotId);
   const activeShot = project.shots[activeShotIndex];
+  const projectQualityScore = getProjectAverageQualityScore(project.shots);
+  const promptTemplates = useMemo(
+    () => resolvePromptTemplateConfig(project.promptTemplateOverrides),
+    [project.promptTemplateOverrides]
+  );
+
+  const getModelDefaultDuration = (modelId?: string): number => {
+    const model = getModelById(modelId || DEFAULTS.videoModel) as any;
+    const duration = model?.params?.defaultDuration;
+    return typeof duration === 'number' && Number.isFinite(duration) ? duration : 8;
+  };
+
+  const getRecommendedVideoInputMode = (modelId: string): 'keyframes' | 'storyboard-grid' => {
+    const routing = resolveVideoModelRouting(modelId);
+    return routing.family === 'sora' || routing.family === 'doubao-task'
+      ? 'storyboard-grid'
+      : 'keyframes';
+  };
+
+  const applyShotQuality = (shot: Shot, scriptData: ProjectState['scriptData']): Shot => ({
+    ...shot,
+    qualityAssessment: assessShotQuality(shot, scriptData),
+  });
+
+  /**
+   * 场景负面提示词里常包含“禁止人物”的约束（用于纯环境图），
+   * 在角色镜头中应移除这些词条，避免与“必须出人”目标冲突。
+   */
+  const stripHumanExclusionTerms = (input?: string): string => {
+    if (!input || typeof input !== 'string') return '';
+    const humanBlockPatterns: RegExp[] = [
+      /\bperson\b/i,
+      /\bpeople\b/i,
+      /\bhuman\b/i,
+      /\bman\b/i,
+      /\bwoman\b/i,
+      /\bchild\b/i,
+      /\bfigure\b/i,
+      /\bsilhouette\b/i,
+      /\bcrowd\b/i,
+      /\bpedestrian\b/i,
+      /\bcharacter\b/i,
+    ];
+
+    return input
+      .split(/[,;，；\n]+/)
+      .map(item => item.trim())
+      .filter(Boolean)
+      .filter(item => !humanBlockPatterns.some(pattern => pattern.test(item)))
+      .join(', ');
+  };
+
+  const formatUserFriendlyError = (error: any, fallback: string): string => {
+    if (!error) return fallback;
+
+    const status = error?.status;
+    const rawMessage = typeof error?.message === 'string' ? error.message : '';
+
+    let normalizedMessage = rawMessage;
+    if (!normalizedMessage) {
+      if (status === 400) {
+        normalizedMessage = '提示词可能被风控拦截，请修改提示词后重试。';
+      } else if (status === 500 || status === 503) {
+        normalizedMessage = '服务器繁忙，请稍后重试。';
+      } else {
+        normalizedMessage = fallback;
+      }
+    }
+
+    if (!import.meta.env.DEV) {
+      normalizedMessage = normalizedMessage.replace(/（接口信息：.*?）/g, '');
+    }
+
+    return normalizedMessage || fallback;
+  };
+  
+  const buildShotNegativePrompt = (shot: Shot, visualStyle: string): string => {
+    const parts: string[] = [];
+    const shotHasCharacters = (shot.characters?.length || 0) > 0;
+    const pushPrompt = (value?: string) => {
+      if (!value || typeof value !== 'string') return;
+      const trimmed = value.trim();
+      if (trimmed) parts.push(trimmed);
+    };
+
+    pushPrompt(getNegativePrompt(visualStyle));
+
+    const scriptData = project.scriptData;
+    if (!scriptData) {
+      return parts.join(', ');
+    }
+
+    const scene = scriptData.scenes.find(s => String(s.id) === String(shot.sceneId));
+    pushPrompt(
+      shotHasCharacters
+        ? stripHumanExclusionTerms(scene?.negativePrompt)
+        : scene?.negativePrompt
+    );
+
+    if (shot.characters?.length) {
+      shot.characters.forEach(charId => {
+        const char = scriptData.characters.find(c => String(c.id) === String(charId));
+        if (!char) return;
+        const variationId = shot.characterVariations?.[charId];
+        const variation = variationId ? char.variations?.find(v => v.id === variationId) : undefined;
+        pushPrompt(variation?.negativePrompt || char.negativePrompt);
+      });
+    }
+
+    if (shot.props?.length && scriptData.props) {
+      shot.props.forEach(propId => {
+        const prop = scriptData.props?.find(p => String(p.id) === String(propId));
+        pushPrompt(prop?.negativePrompt);
+      });
+    }
+
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+    parts
+      .flatMap(part => part.split(/[,;，；\n]+/))
+      .map(item => item.trim())
+      .filter(Boolean)
+      .forEach(item => {
+        const key = item.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        deduped.push(item);
+      });
+
+    return deduped.slice(0, 80).join(', ');
+  };
   
   const allStartFramesGenerated = project.shots.length > 0 && 
     project.shots.every(s => s.keyframes?.find(k => k.type === 'start')?.imageUrl);
@@ -77,9 +226,9 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
    */
   useEffect(() => {
     const hasStuckGenerating = project.shots.some(shot => {
-      const stuckKeyframes = shot.keyframes?.some(kf => kf.status === 'generating' && !kf.imageUrl);
-      const stuckVideo = shot.interval?.status === 'generating' && !shot.interval?.videoUrl;
-      const stuckNineGrid = (shot.nineGrid?.status === 'generating_panels' || shot.nineGrid?.status === 'generating_image' || (shot.nineGrid?.status as string) === 'generating') && !shot.nineGrid?.imageUrl;
+      const stuckKeyframes = shot.keyframes?.some(kf => kf.status === 'generating');
+      const stuckVideo = shot.interval?.status === 'generating';
+      const stuckNineGrid = shot.nineGrid?.status === 'generating_panels' || shot.nineGrid?.status === 'generating_image' || (shot.nineGrid?.status as string) === 'generating';
       return stuckKeyframes || stuckVideo || stuckNineGrid;
     });
 
@@ -87,23 +236,25 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       console.log('🔧 检测到卡住的生成状态，正在重置...');
       updateProject((prevProject: ProjectState) => ({
         ...prevProject,
-        shots: prevProject.shots.map(shot => ({
-          ...shot,
-          keyframes: shot.keyframes?.map(kf => 
-            kf.status === 'generating' && !kf.imageUrl
-              ? { ...kf, status: 'failed' as const }
-              : kf
-          ),
-          interval: shot.interval && shot.interval.status === 'generating' && !shot.interval.videoUrl
-            ? { ...shot.interval, status: 'failed' as const }
-            : shot.interval,
-          nineGrid: shot.nineGrid && (shot.nineGrid.status === 'generating_panels' || shot.nineGrid.status === 'generating_image' || (shot.nineGrid.status as string) === 'generating') && !shot.nineGrid.imageUrl
-            ? { ...shot.nineGrid, status: 'failed' as const }
-            : shot.nineGrid
-        }))
+        shots: prevProject.shots.map(shot =>
+          applyShotQuality({
+            ...shot,
+            keyframes: shot.keyframes?.map(kf => 
+              kf.status === 'generating'
+                ? { ...kf, status: 'failed' as const }
+                : kf
+            ),
+            interval: shot.interval && shot.interval.status === 'generating'
+              ? { ...shot.interval, status: 'failed' as const }
+              : shot.interval,
+            nineGrid: shot.nineGrid && (shot.nineGrid.status === 'generating_panels' || shot.nineGrid.status === 'generating_image' || (shot.nineGrid.status as string) === 'generating')
+              ? { ...shot.nineGrid, status: 'failed' as const }
+              : shot.nineGrid
+          }, prevProject.scriptData)
+        )
       }));
     }
-  }, [project.id]); // 仅在项目ID变化时运行，避免重复执行
+  }, []); // 进入导演页时执行一次，清理离开页面后遗留的 generating 状态
 
   /**
    * 上报生成状态给父组件，用于导航锁定
@@ -137,14 +288,56 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     return () => clearTimeout(timerId);
   }, [toastMessage]);
 
+  useEffect(() => {
+    const hasMissingAssessment = project.shots.some((shot) => !shot.qualityAssessment);
+    if (!hasMissingAssessment) return;
+
+    updateProject((prevProject: ProjectState) => ({
+      ...prevProject,
+      shots: prevProject.shots.map((shot) =>
+        shot.qualityAssessment ? shot : applyShotQuality(shot, prevProject.scriptData)
+      ),
+    }));
+  }, [project.id]);
+
   /**
    * 更新镜头
    */
   const updateShot = (shotId: string, transform: (s: Shot) => Shot) => {
     updateProject((prevProject: ProjectState) => ({
       ...prevProject,
-      shots: prevProject.shots.map(s => s.id === shotId ? transform(s) : s)
+      shots: prevProject.shots.map((shot) =>
+        shot.id === shotId
+          ? applyShotQuality(transform(shot), prevProject.scriptData)
+          : shot
+      )
     }));
+  };
+
+  const handleAIReassessQuality = async () => {
+    if (!activeShot) return;
+    const targetShotId = activeShot.id;
+    setIsAIReassessing(true);
+
+    try {
+      const assessment = await assessShotQualityWithLLM(activeShot, project.scriptData);
+      updateProject((prevProject: ProjectState) => ({
+        ...prevProject,
+        shots: prevProject.shots.map((shot) =>
+          shot.id === targetShotId
+            ? { ...shot, qualityAssessment: assessment }
+            : shot
+        )
+      }));
+
+      const sourceLabel = assessment.version >= 2 ? 'AI V2' : 'Rule V1 Fallback';
+      showAlert(`质量评分已更新（${sourceLabel}）：${assessment.score} 分`, { type: 'success' });
+    } catch (error: any) {
+      if (onApiKeyError && onApiKeyError(error)) return;
+      showAlert(`AI重评估失败：${formatUserFriendlyError(error, '请稍后重试。')}`, { type: 'error' });
+    } finally {
+      setIsAIReassessing(false);
+    }
   };
 
   /**
@@ -180,22 +373,23 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
   const handleGenerateKeyframe = async (shot: Shot, type: 'start' | 'end') => {
     const existingKf = shot.keyframes?.find(k => k.type === type);
     const kfId = existingKf?.id || generateId(`kf-${shot.id}-${type}`);
+    const startKf = shot.keyframes?.find(k => k.type === 'start');
     
-    const basePrompt = existingKf?.visualPrompt 
+    const rawBasePrompt = existingKf?.visualPrompt 
       ? extractBasePrompt(existingKf.visualPrompt, shot.actionSummary)
       : shot.actionSummary;
+
+    const continuityHint = type === 'end' && startKf?.visualPrompt
+      ? `【连贯性约束】结束帧必须与起始帧保持同一角色身份、服装主体、场景锚点与光照逻辑，并在构图和动作结果上体现明确变化。起始帧参考：${extractBasePrompt(startKf.visualPrompt, shot.actionSummary).slice(0, 200)}`
+      : '';
+
+    const basePrompt = continuityHint && !rawBasePrompt.includes('【连贯性约束】')
+      ? `${rawBasePrompt}\n\n${continuityHint}`
+      : rawBasePrompt;
     
-    const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
-    
-    // 立即设置生成状态，显示loading
-    updateProject((prevProject: ProjectState) => ({
-      ...prevProject,
-      shots: prevProject.shots.map(s => {
-        if (s.id !== shot.id) return s;
-        return updateKeyframeInShot(s, type, createKeyframe(kfId, type, basePrompt, undefined, 'generating'));
-      })
-    }));
-    
+    const visualStyle = project.visualStyle || project.scriptData?.visualStyle || '3d-animation';
+    const negativePrompt = buildShotNegativePrompt(shot, visualStyle);
+
     // 获取道具信息用于提示词注入
     const propsInfo = getPropsInfoForShot(shot, project.scriptData);
     
@@ -203,39 +397,116 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     let prompt: string;
     if (useAIEnhancement) {
       try {
-        prompt = await buildKeyframePromptWithAI(basePrompt, visualStyle, shot.cameraMovement, type, true, propsInfo);
+        prompt = await buildKeyframePromptWithAI(
+          basePrompt,
+          visualStyle,
+          shot.cameraMovement,
+          type,
+          true,
+          propsInfo,
+          promptTemplates
+        );
       } catch (error) {
         console.error('AI增强失败,使用基础提示词:', error);
-        prompt = buildKeyframePrompt(basePrompt, visualStyle, shot.cameraMovement, type, propsInfo);
+        prompt = buildKeyframePrompt(
+          basePrompt,
+          visualStyle,
+          shot.cameraMovement,
+          type,
+          propsInfo,
+          promptTemplates
+        );
       }
     } else {
-      prompt = buildKeyframePrompt(basePrompt, visualStyle, shot.cameraMovement, type, propsInfo);
+      prompt = buildKeyframePrompt(
+        basePrompt,
+        visualStyle,
+        shot.cameraMovement,
+        type,
+        propsInfo,
+        promptTemplates
+      );
     }
-    
-    try {
-      const refResult = getRefImagesForShot(shot, project.scriptData);
-      // 使用当前设置的横竖屏比例生成关键帧，传递 hasTurnaround 标记
-      const url = await generateImage(prompt, refResult.images, keyframeAspectRatio, false, refResult.hasTurnaround);
 
-      updateProject((prevProject: ProjectState) => ({
-        ...prevProject,
-        shots: prevProject.shots.map(s => {
-          if (s.id !== shot.id) return s;
-          return updateKeyframeInShot(s, type, createKeyframe(kfId, type, prompt, url, 'completed'));
-        })
-      }));
+    const refResult = getRefImagesForShot(shot, project.scriptData);
+    const referenceImages = [...refResult.images];
+    const continuityReferenceImage =
+      type === 'end' && startKf?.imageUrl && !referenceImages.includes(startKf.imageUrl)
+        ? startKf.imageUrl
+        : undefined;
+
+    const activeImageModel = getActiveImageModel() as any;
+    const preflightResult = runKeyframePreflight({
+      prompt,
+      negativePrompt,
+      hasCharacters: (shot.characters?.length || 0) > 0,
+      frameType: type,
+      hasStartFrameImage: !!startKf?.imageUrl,
+      referenceImageCount: referenceImages.length + (continuityReferenceImage ? 1 : 0),
+      aspectRatio: keyframeAspectRatio,
+      supportedAspectRatios: activeImageModel?.params?.supportedAspectRatios,
+    });
+
+    if (!preflightResult.canProceed) {
+      showAlert(`关键帧预检未通过：\n${formatLintIssues(preflightResult.issues)}`, { type: 'warning' });
+      return;
+    }
+
+    const nonErrorIssues = preflightResult.issues.filter((issue) => issue.severity !== 'error');
+    if (nonErrorIssues.length > 0) {
+      setToastMessage(`关键帧预检提醒：\n${formatLintIssues(nonErrorIssues)}`);
+    }
+
+    const promptVersions = updatePromptWithVersion(
+      existingKf?.visualPrompt,
+      prompt,
+      existingKf?.promptVersions,
+      'ai-generated',
+      `Generate ${type} keyframe`
+    );
+
+    // 立即设置生成状态，显示loading
+    updateShot(shot.id, (s) => {
+      const generatingKeyframe = {
+        ...createKeyframe(kfId, type, prompt, undefined, 'generating'),
+        promptVersions,
+      };
+      return updateKeyframeInShot(s, type, generatingKeyframe);
+    });
+
+    try {
+      // 使用当前设置的横竖屏比例生成关键帧，传递 hasTurnaround 标记
+      const url = await generateImage(
+        prompt,
+        referenceImages,
+        keyframeAspectRatio,
+        false,
+        refResult.hasTurnaround,
+        negativePrompt,
+        continuityReferenceImage
+          ? { continuityReferenceImage, referencePackType: 'shot' }
+          : { referencePackType: 'shot' }
+      );
+
+      updateShot(shot.id, (s) => {
+        const completedKeyframe = {
+          ...createKeyframe(kfId, type, prompt, url, 'completed'),
+          promptVersions,
+        };
+        return updateKeyframeInShot(s, type, completedKeyframe);
+      });
     } catch (e: any) {
       console.error(e);
-      updateProject((prevProject: ProjectState) => ({
-        ...prevProject,
-        shots: prevProject.shots.map(s => {
-          if (s.id !== shot.id) return s;
-          return updateKeyframeInShot(s, type, createKeyframe(kfId, type, prompt, undefined, 'failed'));
-        })
-      }));
+      updateShot(shot.id, (s) => {
+        const failedKeyframe = {
+          ...createKeyframe(kfId, type, prompt, undefined, 'failed'),
+          promptVersions,
+        };
+        return updateKeyframeInShot(s, type, failedKeyframe);
+      });
       
       if (onApiKeyError && onApiKeyError(e)) return;
-      showAlert(`生成失败: ${e.message}`, { type: 'error' });
+      showAlert(`生成失败: ${formatUserFriendlyError(e, '图片生成失败，请稍后重试。')}`, { type: 'error' });
     }
   };
 
@@ -261,14 +532,14 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         const existingKf = shot.keyframes?.find(k => k.type === type);
         const kfId = existingKf?.id || generateId(`kf-${shot.id}-${type}`);
         
-        updateProject((prevProject: ProjectState) => ({
-          ...prevProject,
-          shots: prevProject.shots.map(s => {
-            if (s.id !== shot.id) return s;
-            const visualPrompt = existingKf?.visualPrompt || shot.actionSummary;
-            return updateKeyframeInShot(s, type, createKeyframe(kfId, type, visualPrompt, base64Url, 'completed'));
-          })
-        }));
+        updateShot(shot.id, (s) => {
+          const visualPrompt = existingKf?.visualPrompt || shot.actionSummary;
+          const uploadedKeyframe = {
+            ...createKeyframe(kfId, type, visualPrompt, base64Url, 'completed'),
+            promptVersions: existingKf?.promptVersions,
+          };
+          return updateKeyframeInShot(s, type, uploadedKeyframe);
+        });
       } catch (error) {
         showAlert('读取文件失败！', { type: 'error' });
       }
@@ -289,15 +560,16 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     const eKf = shot.keyframes?.find(k => k.type === 'end');
     
     // 使用传入的 modelId 或默认模型
-    let selectedModel: string = modelId || shot.videoModel || DEFAULTS.videoModel;
+    const selectedModelInput: string = modelId || shot.videoModel || DEFAULTS.videoModel;
+    const selectedModelRouting = resolveVideoModelRouting(selectedModelInput);
+    const selectedModel = selectedModelRouting.normalizedModelId;
     // 规范化模型名称：旧模型名 -> 'veo'
-    if (
-      selectedModel === 'veo_3_1' ||
-      selectedModel.startsWith('veo_3_1_') ||
-      selectedModel === 'veo-r2v' ||
-      selectedModel.startsWith('veo_3_0_r2v')
-    ) {
-      selectedModel = 'veo';
+
+    const hasCompletedStartFrame = !!sKf?.imageUrl && sKf?.status === 'completed';
+    const hasCompletedEndFrame = !!eKf?.imageUrl && eKf?.status === 'completed';
+
+    if (selectedModelRouting.family === 'veo-sync' && (!hasCompletedStartFrame || !hasCompletedEndFrame)) {
+      return showAlert('Veo 3.1 首尾帧模式要求首帧和尾帧图片都已完成，请先补齐后再生成视频。', { type: 'warning' });
     }
     
     // 必须有起始帧
@@ -306,34 +578,117 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     }
     
     const projectLanguage = project.language || project.scriptData?.language || '中文';
+    const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
     
-    // 检测是否为九宫格分镜模式：首帧图片就是九宫格整图时触发
-    const isNineGridMode = (shot.nineGrid?.status === 'completed' 
-        && shot.nineGrid?.imageUrl 
-        && sKf?.imageUrl === shot.nineGrid.imageUrl);
-    
-    const videoPrompt = buildVideoPrompt(
-      shot.actionSummary,
-      shot.cameraMovement,
-      selectedModel,
-      projectLanguage,
-      isNineGridMode ? shot.nineGrid : undefined,
-      duration
+    const videoInputMode = shot.videoInputMode || getRecommendedVideoInputMode(selectedModel);
+    // 检测是否为网格分镜模式：必须显式选择网格模式 + 首帧使用整张网格图
+    const isNineGridMode = (
+      videoInputMode === 'storyboard-grid' &&
+      shot.nineGrid?.status === 'completed' &&
+      shot.nineGrid?.imageUrl &&
+      sKf?.imageUrl === shot.nineGrid.imageUrl
     );
     
+    const routedFrames = routeVideoFrameInputs(
+      selectedModel,
+      sKf?.imageUrl,
+      eKf?.imageUrl,
+      videoInputMode
+    );
+    const routedEndKeyframeId = routedFrames.endImage ? (eKf?.id || '') : '';
+
+    if (routedFrames.ignoredEndFrame) {
+      if (videoInputMode === 'storyboard-grid' && !!eKf?.imageUrl) {
+        setToastMessage('网格分镜模式已启用：视频生成将只使用首帧，尾帧输入已自动忽略。');
+      } else {
+        const modelName = selectedModelRouting.family === 'sora'
+          ? 'Sora'
+          : selectedModelRouting.family === 'doubao-task'
+            ? 'Doubao Task'
+            : selectedModel;
+        setToastMessage(`能力路由：${modelName} 当前只使用首帧，已自动忽略尾帧输入。`);
+      }
+    }
+
+    let videoPrompt = (shot.interval?.videoPrompt || '').trim();
+    if (!videoPrompt) {
+      videoPrompt = buildVideoPrompt(
+        shot.actionSummary,
+        shot.cameraMovement,
+        selectedModel,
+        projectLanguage,
+        visualStyle,
+        isNineGridMode ? shot.nineGrid : undefined,
+        duration,
+        {
+          hasStartFrame: !!routedFrames.startImage,
+          hasEndFrame: !!routedFrames.endImage,
+        },
+        promptTemplates
+      );
+    }
+
+    const videoPromptLength = Array.from(videoPrompt).length;
+    if (videoPromptLength > 5000) {
+      const compressionResult = await compressPromptWithLLM({
+        text: videoPrompt,
+        maxChars: 4920,
+        mode: 'video',
+        timeoutMs: 45000,
+      });
+      if (compressionResult.compressed) {
+        videoPrompt = compressionResult.text;
+        setToastMessage(
+          `Video prompt compressed by ${compressionResult.model}: ` +
+          `${compressionResult.originalLength} -> ${compressionResult.finalLength} chars`
+        );
+      }
+    }
+
+    const selectedModelConfig = (getModelById(selectedModelInput) || getModelById(selectedModel)) as any;
+    const preflightResult = runVideoPreflight({
+      prompt: videoPrompt,
+      hasStartFrame: !!sKf?.imageUrl,
+      hasEndFrame: !!routedFrames.endImage,
+      modelId: selectedModel,
+      supportsEndFrame: selectedModelRouting.supportsEndFrame,
+      aspectRatio,
+      supportedAspectRatios: selectedModelConfig?.params?.supportedAspectRatios,
+      duration,
+      supportedDurations: selectedModelConfig?.params?.supportedDurations,
+    });
+
+    if (!preflightResult.canProceed) {
+      showAlert(`视频预检未通过：\n${formatLintIssues(preflightResult.issues)}`, { type: 'warning' });
+      return;
+    }
+
+    const nonErrorIssues = preflightResult.issues.filter((issue) => issue.severity !== 'error');
+    if (nonErrorIssues.length > 0) {
+      setToastMessage(`视频预检提醒：\n${formatLintIssues(nonErrorIssues)}`);
+    }
+    
     const intervalId = shot.interval?.id || generateId(`int-${shot.id}`);
+    const intervalPromptVersions = updatePromptWithVersion(
+      shot.interval?.videoPrompt,
+      videoPrompt,
+      shot.interval?.promptVersions,
+      'ai-generated',
+      `Generate video (${selectedModel})`
+    );
     
     // 更新 shot 的 videoModel
     updateShot(shot.id, (s) => ({
       ...s,
       videoModel: selectedModel as any,
-      interval: s.interval ? { ...s.interval, status: 'generating', videoPrompt } : {
+      interval: s.interval ? { ...s.interval, status: 'generating', videoPrompt, promptVersions: intervalPromptVersions } : {
         id: intervalId,
         startKeyframeId: sKf?.id || '',
-        endKeyframeId: eKf?.id || '',
+        endKeyframeId: routedEndKeyframeId,
         duration: duration,
         motionStrength: 5,
         videoPrompt,
+        promptVersions: intervalPromptVersions,
         status: 'generating'
       }
     }));
@@ -341,23 +696,29 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     try {
       const videoUrl = await generateVideo(
         videoPrompt, 
-        sKf?.imageUrl,
-        eKf?.imageUrl,
+        routedFrames.startImage,
+        routedFrames.endImage,
         selectedModel,
         aspectRatio,
         duration
       );
+      const persistedVideoUrl = await persistVideoReference(videoUrl, {
+        projectId: project.projectId || project.id,
+        episodeId: project.id,
+        shotId: shot.id,
+      });
 
       updateShot(shot.id, (s) => ({
         ...s,
-        interval: s.interval ? { ...s.interval, videoUrl, status: 'completed' } : {
+        interval: s.interval ? { ...s.interval, videoUrl: persistedVideoUrl, status: 'completed', promptVersions: intervalPromptVersions } : {
           id: intervalId,
           startKeyframeId: sKf?.id || '',
-          endKeyframeId: eKf?.id || '',
-          duration: 10,
+          endKeyframeId: routedEndKeyframeId,
+          duration: duration,
           motionStrength: 5,
           videoPrompt,
-          videoUrl,
+          promptVersions: intervalPromptVersions,
+          videoUrl: persistedVideoUrl,
           status: 'completed'
         }
       }));
@@ -365,11 +726,20 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       console.error(e);
       updateShot(shot.id, (s) => ({
         ...s,
-        interval: s.interval ? { ...s.interval, status: 'failed' } : undefined
+        interval: s.interval ? { ...s.interval, status: 'failed', promptVersions: intervalPromptVersions } : {
+          id: intervalId,
+          startKeyframeId: sKf?.id || '',
+          endKeyframeId: routedEndKeyframeId,
+          duration: duration,
+          motionStrength: 5,
+          videoPrompt,
+          promptVersions: intervalPromptVersions,
+          status: 'failed'
+        }
       }));
       
       if (onApiKeyError && onApiKeyError(e)) return;
-      showAlert(`视频生成失败: ${e.message}`, { type: 'error' });
+      showAlert(`视频生成失败: ${formatUserFriendlyError(e, '请稍后重试。')}`, { type: 'error' });
     }
   };
 
@@ -491,20 +861,62 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       case 'action':
         updateShot(activeShot.id, (s) => ({ ...s, actionSummary: editModal.value }));
         break;
+      case 'dialogue':
+        updateShot(activeShot.id, (s) => ({
+          ...s,
+          dialogue: editModal.value.trim() || undefined
+        }));
+        break;
       case 'keyframe':
         updateShot(activeShot.id, (s) => ({
           ...s,
-          keyframes: s.keyframes?.map(kf => 
-            kf.type === editModal.frameType 
-              ? { ...kf, visualPrompt: editModal.value }
-              : kf
-          ) || []
+          keyframes: s.keyframes?.map((kf) => {
+            if (kf.type !== editModal.frameType) return kf;
+            return {
+              ...kf,
+              visualPrompt: editModal.value,
+              promptVersions: updatePromptWithVersion(
+                kf.visualPrompt,
+                editModal.value,
+                kf.promptVersions,
+                'manual-edit',
+                `Manual ${kf.type} keyframe edit`
+              ),
+            };
+          }) || []
         }));
         break;
       case 'video':
         updateShot(activeShot.id, (s) => ({
           ...s,
-          interval: s.interval ? { ...s.interval, videoPrompt: editModal.value } : undefined
+          interval: s.interval ? {
+            ...s.interval,
+            videoPrompt: editModal.value,
+            promptVersions: updatePromptWithVersion(
+              s.interval.videoPrompt,
+              editModal.value,
+              s.interval.promptVersions,
+              'manual-edit',
+              'Manual video prompt edit'
+            ),
+          } : {
+            id: generateId(`int-${s.id}`),
+            startKeyframeId: s.keyframes?.find((kf) => kf.type === 'start')?.id || '',
+            endKeyframeId: s.keyframes?.find((kf) => kf.type === 'end')?.id || '',
+            duration:
+              Number(s.interval?.duration) ||
+              getModelDefaultDuration(s.videoModel || DEFAULTS.videoModel),
+            motionStrength: s.interval?.motionStrength ?? 5,
+            videoPrompt: editModal.value,
+            promptVersions: updatePromptWithVersion(
+              undefined,
+              editModal.value,
+              undefined,
+              'manual-edit',
+              'Manual video prompt edit'
+            ),
+            status: s.interval?.status || 'pending',
+          }
         }));
         break;
     }
@@ -533,11 +945,16 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       const startPrompt = startKf?.visualPrompt || activeShot.actionSummary || '未定义的起始场景';
       const endPrompt = endKf?.visualPrompt || activeShot.actionSummary || '未定义的结束场景';
       const cameraMovement = activeShot.cameraMovement || '平移';
+      const modelDuration = getModelDefaultDuration(activeShot.videoModel || DEFAULTS.videoModel);
+      const planningDuration = Number(project.scriptData?.planningShotDuration) || modelDuration;
+      const targetDurationSeconds = Math.max(1, Number(activeShot.interval?.duration) || planningDuration);
       
       const suggestion = await generateActionSuggestion(
         startPrompt,
         endPrompt,
-        cameraMovement
+        cameraMovement,
+        undefined,
+        targetDurationSeconds
       );
       
       // 更新编辑框的内容
@@ -726,7 +1143,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     }
     
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
-    const shotGenerationModel = project.shotGenerationModel || 'gpt-5.1';
+    const shotGenerationModel = project.shotGenerationModel || 'gpt-5.2';
     
     // 3. 调用AI拆分
     setIsSplittingShot(true);
@@ -754,6 +1171,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       updateProject((prevProject: ProjectState) => ({
         ...prevProject,
         shots: replaceShotWithSubShots(prevProject.shots, shot.id, subShots)
+          .map((nextShot) => applyShotQuality(nextShot, prevProject.scriptData))
       }));
       
       // 6. 关闭工作台，显示成功提示
@@ -770,10 +1188,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
 
   /**
    * 九宫格分镜预览 - 第一步：生成镜头描述
-   * 使用 AI 将镜头拆分为 9 个不同视角的文字描述，等待用户确认/编辑后再生成图片
+   * 使用 AI 将镜头拆分为网格视角描述（4/6/9），等待用户确认/编辑后再生成图片
    */
-  const handleGenerateNineGrid = async (shot: Shot) => {
+  const handleGenerateNineGrid = async (shot: Shot, panelCount?: StoryboardGridPanelCount) => {
     if (!shot) return;
+    const layout = resolveStoryboardGridLayout(panelCount ?? shot.nineGrid?.layout?.panelCount);
     
     // 1. 获取场景信息
     const scene = project.scriptData?.scenes.find(s => String(s.id) === String(shot.sceneId));
@@ -792,7 +1211,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     }
     
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
-    const shotGenerationModel = project.shotGenerationModel || 'gpt-5.1';
+    const shotGenerationModel = project.shotGenerationModel || 'gpt-5.2';
     
     // 3. 显示弹窗并设置生成状态（仅生成面板描述）
     setShowNineGrid(true);
@@ -800,12 +1219,17 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       ...s,
       nineGrid: {
         panels: [],
+        layout: {
+          panelCount: layout.panelCount,
+          rows: layout.rows,
+          cols: layout.cols,
+        },
         status: 'generating_panels' as const
       }
     }));
     
     try {
-      // 4. 调用 AI 拆分镜头为 9 个视角（仅文字描述，不生成图片）
+      // 4. 调用 AI 拆分镜头为网格视角（仅文字描述，不生成图片）
       const panels = await generateNineGridPanels(
         shot.actionSummary,
         shot.cameraMovement,
@@ -816,7 +1240,9 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         },
         characterNames,
         visualStyle,
-        shotGenerationModel
+        shotGenerationModel,
+        layout.panelCount,
+        promptTemplates
       );
       
       // 5. 更新状态为 panels_ready，等待用户确认
@@ -824,18 +1250,28 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         ...s,
         nineGrid: {
           panels,
+          layout: {
+            panelCount: layout.panelCount,
+            rows: layout.rows,
+            cols: layout.cols,
+          },
           status: 'panels_ready' as const
         }
       }));
       
-      showAlert('9个镜头描述已生成，请检查并编辑后确认生成图片', { type: 'success' });
+      showAlert(`${layout.panelCount}个镜头描述已生成，请检查并编辑后确认生成图片`, { type: 'success' });
       
     } catch (e: any) {
-      console.error('九宫格镜头描述生成失败:', e);
+      console.error('网格镜头描述生成失败:', e);
       updateShot(shot.id, (s) => ({
         ...s,
         nineGrid: {
           panels: s.nineGrid?.panels || [],
+          layout: s.nineGrid?.layout || {
+            panelCount: layout.panelCount,
+            rows: layout.rows,
+            cols: layout.cols,
+          },
           status: 'failed' as const
         }
       }));
@@ -849,52 +1285,88 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
    * 九宫格分镜预览 - 第二步：确认并生成图片
    * 用户确认/编辑完面板描述后，调用图片生成 API 生成九宫格图片
    */
-  const handleConfirmNineGridPanels = async (confirmedPanels: NineGridPanel[]) => {
-    if (!activeShot) return;
-    
+  const getShotById = (shotId: string): Shot | undefined =>
+    project.shots.find(s => s.id === shotId);
+
+  const handleConfirmNineGridPanels = async (shotId: string, confirmedPanels: NineGridPanel[]) => {
+    const shot = getShotById(shotId);
+    if (!shot) return;
+    const layout = resolveStoryboardGridLayout(
+      shot.nineGrid?.layout?.panelCount,
+      confirmedPanels.length
+    );
+
     const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
-    
+
     // 1. 更新面板数据并设置生成图片状态
-    updateShot(activeShot.id, (s) => ({
+    updateShot(shotId, (s) => ({
       ...s,
       nineGrid: {
         panels: confirmedPanels,
+        layout: {
+          panelCount: layout.panelCount,
+          rows: layout.rows,
+          cols: layout.cols,
+        },
         status: 'generating_image' as const
       }
     }));
-    
+
     try {
-      // 2. 收集参考图片
-      const refResult = getRefImagesForShot(activeShot, project.scriptData);
-      
+      // 2. 基于最新 shot 快照收集参考图片，避免重试时引用过期闭包数据
+      const refResult = getRefImagesForShot(shot, project.scriptData);
+      if (refResult.images.length === 0) {
+        console.warn(`[NineGrid] shot=${shotId} 没有可用参考图，将仅按文案生成。`);
+      }
+
       // 3. 生成九宫格图片
-      const imageUrl = await generateNineGridImage(confirmedPanels, refResult.images, visualStyle, keyframeAspectRatio);
-      
+      const imageUrl = await generateNineGridImage(
+        confirmedPanels,
+        refResult.images,
+        visualStyle,
+        keyframeAspectRatio,
+        {
+          hasTurnaround: refResult.hasTurnaround,
+          panelCount: layout.panelCount,
+          promptTemplates,
+        }
+      );
+
       // 4. 更新状态为完成
-      updateShot(activeShot.id, (s) => ({
+      updateShot(shotId, (s) => ({
         ...s,
         nineGrid: {
           panels: confirmedPanels,
+          layout: {
+            panelCount: layout.panelCount,
+            rows: layout.rows,
+            cols: layout.cols,
+          },
           imageUrl,
-          prompt: `Nine Grid Storyboard - ${activeShot.actionSummary}`,
+          prompt: `${layout.label} Storyboard - ${shot.actionSummary}`,
           status: 'completed' as const
         }
       }));
-      
-      showAlert('九宫格分镜图片生成完成！', { type: 'success' });
-      
+
+      showAlert(`${layout.label}分镜图片生成完成！`, { type: 'success' });
+
     } catch (e: any) {
-      console.error('九宫格图片生成失败:', e);
-      updateShot(activeShot.id, (s) => ({
+      console.error('网格分镜图片生成失败:', e);
+      updateShot(shotId, (s) => ({
         ...s,
         nineGrid: {
           panels: confirmedPanels,
+          layout: {
+            panelCount: layout.panelCount,
+            rows: layout.rows,
+            cols: layout.cols,
+          },
           status: 'failed' as const
         }
       }));
-      
+
       if (onApiKeyError && onApiKeyError(e)) return;
-      showAlert(`九宫格图片生成失败: ${e.message}`, { type: 'error' });
+      showAlert(`网格图片生成失败: ${formatUserFriendlyError(e, '图片生成失败，请稍后重试。')}`, { type: 'error' });
     }
   };
 
@@ -903,10 +1375,10 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
    * 当用户对文案满意但图片效果不好时使用
    */
   const handleRegenerateNineGridImage = async () => {
-    if (!activeShot || !activeShot.nineGrid?.panels || activeShot.nineGrid.panels.length !== 9) return;
+    if (!activeShot || !activeShot.nineGrid?.panels || activeShot.nineGrid.panels.length === 0) return;
     
     // 直接使用已有的面板描述重新生成图片
-    handleConfirmNineGridPanels(activeShot.nineGrid.panels);
+    await handleConfirmNineGridPanels(activeShot.id, activeShot.nineGrid.panels);
   };
 
   /**
@@ -945,7 +1417,9 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
       activeShot.actionSummary,
       visualStyle,
       activeShot.cameraMovement,
-      shotPropsInfo
+      shotPropsInfo,
+      activeShot.nineGrid?.layout,
+      promptTemplates
     );
     
     const existingKf = activeShot.keyframes?.find(k => k.type === 'start');
@@ -953,7 +1427,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     
     try {
       // 2. 从九宫格图片中裁剪出选中的面板
-      const croppedImageUrl = await cropPanelFromNineGrid(activeShot.nineGrid.imageUrl, panel.index);
+      const croppedImageUrl = await cropPanelFromNineGrid(
+        activeShot.nineGrid.imageUrl,
+        panel.index,
+        activeShot.nineGrid?.layout
+      );
       
       // 3. 将裁剪后的图片直接设为首帧（九宫格与首帧是替代关系）
       updateShot(activeShot.id, (s) => {
@@ -981,7 +1459,11 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     
     const existingKf = activeShot.keyframes?.find(k => k.type === 'start');
     const kfId = existingKf?.id || generateId(`kf-${activeShot.id}-start`);
-    const prompt = `九宫格分镜全图 - ${activeShot.actionSummary}`;
+    const layout = resolveStoryboardGridLayout(
+      activeShot.nineGrid?.layout?.panelCount,
+      activeShot.nineGrid?.panels?.length
+    );
+    const prompt = `${layout.label}分镜全图 - ${activeShot.actionSummary}`;
     
     updateShot(activeShot.id, (s) => {
       return updateKeyframeInShot(
@@ -992,7 +1474,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
     });
     
     setShowNineGrid(false);
-    showAlert('已将九宫格整图设为首帧', { type: 'success' });
+    showAlert('已将网格整图设为首帧', { type: 'success' });
   };
 
   // 空状态
@@ -1069,6 +1551,15 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
             </label>
           </div>
           
+          <span className={`text-xs font-mono px-2 py-1 rounded border ${
+            projectQualityScore >= 80
+              ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+              : projectQualityScore >= 60
+                ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+                : 'text-rose-300 border-rose-500/40 bg-rose-500/10'
+          }`}>
+            质检分 {projectQualityScore}
+          </span>
           <span className="text-xs text-[var(--text-tertiary)] mr-4 font-mono">
             {project.shots.filter(s => s.interval?.videoUrl).length} / {project.shots.length} 完成
           </span>
@@ -1115,11 +1606,14 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
             currentVideoModelId={activeShot.videoModel || DEFAULTS.videoModel}
             nextShotHasStartFrame={!!project.shots[activeShotIndex + 1]?.keyframes?.find(k => k.type === 'start')?.imageUrl}
             isAIOptimizing={isAIGenerating}
+            isAIReassessing={isAIReassessing}
             isSplittingShot={isSplittingShot}
             onClose={() => setActiveShotId(null)}
             onPrevious={() => setActiveShotId(project.shots[activeShotIndex - 1].id)}
             onNext={() => setActiveShotId(project.shots[activeShotIndex + 1].id)}
+            onAIReassessQuality={handleAIReassessQuality}
             onEditActionSummary={() => setEditModal({ type: 'action', value: activeShot.actionSummary })}
+            onEditDialogue={() => setEditModal({ type: 'dialogue', value: activeShot.dialogue || '' })}
             onGenerateAIAction={handleGenerateAIAction}
             onSplitShot={() => handleSplitShot(activeShot)}
             onAddCharacter={(charId) => updateShot(activeShot.id, s => ({ ...s, characters: [...s.characters, charId] }))}
@@ -1159,23 +1653,55 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
                 videoModel: modelId as any
               }));
             }}
+            videoInputMode={activeShot.videoInputMode}
+            onVideoInputModeChange={(mode) =>
+              updateShot(activeShot.id, (s) => ({
+                ...s,
+                videoInputMode: mode,
+              }))
+            }
             onEditVideoPrompt={() => {
               // 如果videoPrompt不存在，动态生成一个
               let promptValue = activeShot.interval?.videoPrompt;
               if (!promptValue) {
-                const selectedModel = activeShot.videoModel || DEFAULTS.videoModel;
+                const selectedModelInput = activeShot.videoModel || DEFAULTS.videoModel;
+                const selectedModel = resolveVideoModelRouting(selectedModelInput).normalizedModelId;
                 const projectLanguage = project.language || project.scriptData?.language || '中文';
+                const visualStyle = project.visualStyle || project.scriptData?.visualStyle || 'live-action';
+                const promptDuration =
+                  Number(activeShot.interval?.duration) ||
+                  getModelDefaultDuration(selectedModel) ||
+                  Number(project.scriptData?.planningShotDuration) ||
+                  8;
                 const startKf = activeShot.keyframes?.find(k => k.type === 'start');
-                // 首帧等于九宫格图时触发九宫格分镜模式
-                const isNineGridMode = (activeShot.nineGrid?.status === 'completed'
-                    && activeShot.nineGrid?.imageUrl
-                    && startKf?.imageUrl === activeShot.nineGrid.imageUrl);
+                const endKf = activeShot.keyframes?.find(k => k.type === 'end');
+                const videoInputMode = activeShot.videoInputMode || getRecommendedVideoInputMode(selectedModel);
+                const routedFrames = routeVideoFrameInputs(
+                  selectedModel,
+                  startKf?.imageUrl,
+                  endKf?.imageUrl,
+                  videoInputMode
+                );
+                // 首帧等于九宫格图 + 已选择网格模式时触发网格分镜提示词
+                const isNineGridMode = (
+                  videoInputMode === 'storyboard-grid' &&
+                  activeShot.nineGrid?.status === 'completed' &&
+                  activeShot.nineGrid?.imageUrl &&
+                  startKf?.imageUrl === activeShot.nineGrid.imageUrl
+                );
                 promptValue = buildVideoPrompt(
                   activeShot.actionSummary,
                   activeShot.cameraMovement,
                   selectedModel,
                   projectLanguage,
-                  isNineGridMode ? activeShot.nineGrid : undefined
+                  visualStyle,
+                  isNineGridMode ? activeShot.nineGrid : undefined,
+                  promptDuration,
+                  {
+                    hasStartFrame: !!routedFrames.startImage,
+                    hasEndFrame: !!routedFrames.endImage,
+                  },
+                  promptTemplates
                 );
               }
               setEditModal({ 
@@ -1184,7 +1710,7 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
               });
             }}
             onImageClick={(url, title) => setPreviewImage({ url, title })}
-            onGenerateNineGrid={() => handleGenerateNineGrid(activeShot)}
+            onGenerateNineGrid={(panelCount) => handleGenerateNineGrid(activeShot, panelCount)}
             nineGrid={activeShot.nineGrid}
             onSelectNineGridPanel={handleSelectNineGridPanel}
             onShowNineGrid={() => setShowNineGrid(true)}
@@ -1200,9 +1726,17 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
           onClose={() => setShowNineGrid(false)}
           onSelectPanel={handleSelectNineGridPanel}
           onUseWholeImage={handleUseWholeNineGridAsFrame}
-          onRegenerate={() => handleGenerateNineGrid(activeShot)}
+          onRegenerate={() =>
+            handleGenerateNineGrid(
+              activeShot,
+              resolveStoryboardGridLayout(
+                activeShot.nineGrid?.layout?.panelCount,
+                activeShot.nineGrid?.panels?.length
+              ).panelCount
+            )
+          }
           onRegenerateImage={handleRegenerateNineGridImage}
-          onConfirmPanels={handleConfirmNineGridPanels}
+          onConfirmPanels={(panels) => handleConfirmNineGridPanels(activeShot.id, panels)}
           onUpdatePanel={handleUpdateNineGridPanel}
           aspectRatio={keyframeAspectRatio}
         />
@@ -1215,11 +1749,13 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         onSave={handleSaveEdit}
         title={
           editModal?.type === 'action' ? '编辑叙事动作' :
+          editModal?.type === 'dialogue' ? '编辑台词' :
           editModal?.type === 'keyframe' ? '编辑关键帧提示词' :
           '编辑视频提示词'
         }
         icon={
           editModal?.type === 'action' ? <Film className="w-4 h-4 text-[var(--accent-text)]" /> :
+          editModal?.type === 'dialogue' ? <MessageSquare className="w-4 h-4 text-[var(--accent-text)]" /> :
           editModal?.type === 'keyframe' ? <Edit2 className="w-4 h-4 text-[var(--accent-text)]" /> :
           <VideoIcon className="w-4 h-4 text-[var(--accent-text)]" />
         }
@@ -1227,10 +1763,17 @@ const StageDirector: React.FC<Props> = ({ project, updateProject, onApiKeyError,
         onChange={(value) => setEditModal(editModal ? { ...editModal, value } : null)}
         placeholder={
           editModal?.type === 'action' ? '描述镜头的动作和内容...' :
+          editModal?.type === 'dialogue' ? '输入镜头台词（留空表示无台词）...' :
           editModal?.type === 'keyframe' ? '输入关键帧的提示词...' :
           '输入视频生成的提示词...'
         }
-        textareaClassName={editModal?.type === 'keyframe' || editModal?.type === 'video' ? 'font-mono' : 'font-normal'}
+        textareaClassName={
+          editModal?.type === 'keyframe' || editModal?.type === 'video'
+            ? 'font-mono'
+            : editModal?.type === 'dialogue'
+              ? 'font-serif italic'
+              : 'font-normal'
+        }
         showAIGenerate={editModal?.type === 'action'}
         onAIGenerate={handleGenerateAIAction}
         isAIGenerating={isAIGenerating}

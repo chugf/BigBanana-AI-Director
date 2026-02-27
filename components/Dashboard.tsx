@@ -1,11 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Loader2, Folder, ChevronRight, Calendar, AlertTriangle, X, HelpCircle, Cpu, Archive, Search, Users, MapPin, Database, Settings, Sun, Moon } from 'lucide-react';
-import { ProjectState, AssetLibraryItem, Character, Scene } from '../types';
-import { getAllProjectsMetadata, createNewProjectState, deleteProjectFromDB, getAllAssetLibraryItems, deleteAssetFromLibrary, loadProjectFromDB, saveProjectToDB, exportIndexedDBData, importIndexedDBData } from '../services/storageService';
-import { applyLibraryItemToProject } from '../services/assetLibraryService';
+import React, { useEffect, useState } from 'react';
+import { Plus, Trash2, Loader2, Folder, ChevronRight, Calendar, AlertTriangle, X, HelpCircle, Cpu, Archive, Search, Users, MapPin, Package, Database, Settings, Sun, Moon, Film } from 'lucide-react';
+import { SeriesProject, AssetLibraryItem, Character, Scene, Prop, ProjectState } from '../types';
+import { getAllSeriesProjects, createNewSeriesProject, saveSeriesProject, deleteSeriesProject, createNewSeries, saveSeries, createNewEpisode, saveEpisode, getAllAssetLibraryItems, deleteAssetFromLibrary, exportIndexedDBData } from '../services/storageService';
 import { useAlert } from './GlobalAlert';
 import { useTheme } from '../contexts/ThemeContext';
+import { useNavigate } from 'react-router-dom';
 import qrCodeImg from '../images/qrcode.jpg';
+import {
+  useBackupTransfer,
+  DEFAULT_BACKUP_TRANSFER_MESSAGES,
+  globalBackupFileName,
+} from '../hooks/useBackupTransfer';
 
 interface Props {
   onOpenProject: (project: ProjectState) => void;
@@ -16,26 +21,24 @@ interface Props {
 const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowModelConfig }) => {
   const { showAlert } = useAlert();
   const { theme, toggleTheme } = useTheme();
-  const [projects, setProjects] = useState<ProjectState[]>([]);
+  const navigate = useNavigate();
+  const [projects, setProjects] = useState<SeriesProject[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showGroupQr, setShowGroupQr] = useState(false);
   const [libraryItems, setLibraryItems] = useState<AssetLibraryItem[]>([]);
   const [isLibraryLoading, setIsLibraryLoading] = useState(true);
   const [libraryQuery, setLibraryQuery] = useState('');
-  const [libraryFilter, setLibraryFilter] = useState<'all' | 'character' | 'scene'>('all');
+  const [libraryFilter, setLibraryFilter] = useState<'all' | 'character' | 'scene' | 'prop'>('all');
   const [libraryProjectFilter, setLibraryProjectFilter] = useState('all');
   const [assetToUse, setAssetToUse] = useState<AssetLibraryItem | null>(null);
   const [showLibraryModal, setShowLibraryModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [isDataExporting, setIsDataExporting] = useState(false);
-  const [isDataImporting, setIsDataImporting] = useState(false);
-  const importInputRef = useRef<HTMLInputElement>(null);
 
   const loadProjects = async () => {
     setIsLoading(true);
     try {
-      const list = await getAllProjectsMetadata();
+      const list = await getAllSeriesProjects();
       setProjects(list);
     } catch (e) {
       console.error("Failed to load projects", e);
@@ -66,9 +69,14 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
     }
   }, [showLibraryModal]);
 
-  const handleCreate = () => {
-    const newProject = createNewProjectState();
-    onOpenProject(newProject);
+  const handleCreate = async () => {
+    const sp = createNewSeriesProject();
+    await saveSeriesProject(sp);
+    const s = createNewSeries(sp.id, '第一季', 0);
+    await saveSeries(s);
+    const ep = createNewEpisode(sp.id, s.id, 1, '第 1 集');
+    await saveEpisode(ep);
+    navigate(`/project/${sp.id}`);
   };
 
   const requestDelete = (e: React.MouseEvent, id: string) => {
@@ -83,23 +91,14 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
 
   const confirmDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    
-    // 获取项目名称用于提示
-    const project = projects.find(p => p.id === id);
-    const projectName = project?.title || '未命名项目';
-    
+    const proj = projects.find(p => p.id === id);
+    const projectName = proj?.title || '未命名项目';
     try {
-        console.log('📋 准备删除项目及所有关联资源...');
-        await deleteProjectFromDB(id);
-        console.log('💾 重新加载项目列表...');
+        await deleteSeriesProject(id);
         await loadProjects();
-        console.log(`✅ 项目 "${projectName}" 已成功删除`);
-        
-        // 可选：添加成功提示（如果不想打扰用户可以注释掉）
-        // alert(`项目 "${projectName}" 已删除`);
+        console.log(`Project "${projectName}" deleted`);
     } catch (error) {
-        console.error("❌ 删除项目失败:", error);
-        showAlert(`删除项目失败: ${error instanceof Error ? error.message : '未知错误'}\n\n请检查浏览器控制台查看详细信息`, { type: 'error' });
+        showAlert(`删除项目失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
     } finally {
         setDeleteConfirmId(null);
     }
@@ -122,31 +121,29 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
 
   const handleUseAsset = async (projectId: string) => {
     if (!assetToUse) return;
-    try {
-      const project = await loadProjectFromDB(projectId);
-      const updated = applyLibraryItemToProject(project, assetToUse);
-      await saveProjectToDB(updated);
-      onOpenProject(updated);
-      setAssetToUse(null);
-    } catch (error) {
-      showAlert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-    }
+    setAssetToUse(null);
+    navigate(`/project/${projectId}`);
   };
 
   const formatDate = (ts: number) => {
     return new Date(ts).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
   };
 
-  const projectNameOptions = Array.from(
-    new Set(
-      libraryItems.map((item) => (item.projectName && item.projectName.trim()) || '未知项目')
+  const getLibraryProjectName = (item: AssetLibraryItem): string => {
+    const projectName = typeof item.projectName === 'string' ? item.projectName.trim() : '';
+    return projectName || 'Unknown Project';
+  };
+
+  const projectNameOptions = Array.from<string>(
+    new Set<string>(
+      libraryItems.map((item) => getLibraryProjectName(item))
     )
   ).sort((a, b) => a.localeCompare(b, 'zh-CN'));
 
   const filteredLibraryItems = libraryItems.filter((item) => {
     if (libraryFilter !== 'all' && item.type !== libraryFilter) return false;
     if (libraryProjectFilter !== 'all') {
-      const projectName = (item.projectName && item.projectName.trim()) || '未知项目';
+      const projectName = getLibraryProjectName(item);
       if (projectName !== libraryProjectFilter) return false;
     }
     if (!libraryQuery.trim()) return true;
@@ -154,81 +151,25 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
     return item.name.toLowerCase().includes(query);
   });
 
-  const handleExportData = async () => {
-    if (isDataExporting) return;
-
-    setIsDataExporting(true);
-    try {
-      const payload = await exportIndexedDBData();
-      const json = JSON.stringify(payload, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `bigbanana_backup_${timestamp}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      showAlert('导出完成，备份文件已下载。', { type: 'success' });
-    } catch (error) {
-      console.error('Export failed:', error);
-      showAlert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-    } finally {
-      setIsDataExporting(false);
-    }
-  };
-
-  const handleImportData = () => {
-    if (isDataImporting) return;
-    importInputRef.current?.click();
-  };
-
-  const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-
-    if (!file.name.endsWith('.json')) {
-      showAlert('请选择 .json 备份文件。', { type: 'warning' });
-      return;
-    }
-
-    try {
-      const text = await file.text();
-      const payload = JSON.parse(text);
-      const projectCount = payload?.stores?.projects?.length || 0;
-      const assetCount = payload?.stores?.assetLibrary?.length || 0;
-      const confirmMessage = `将导入 ${projectCount} 个项目和 ${assetCount} 个资产。若 ID 冲突将覆盖现有数据。是否继续？`;
-
-      showAlert(confirmMessage, {
-        type: 'warning',
-        showCancel: true,
-        onConfirm: async () => {
-          try {
-            setIsDataImporting(true);
-            const result = await importIndexedDBData(payload, { mode: 'merge' });
-            await loadProjects();
-            if (showLibraryModal) {
-              await loadLibrary();
-            }
-            showAlert(`导入完成：项目 ${result.projects} 个，资产 ${result.assets} 个。`, { type: 'success' });
-          } catch (error) {
-            console.error('Import failed:', error);
-            showAlert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-          } finally {
-            setIsDataImporting(false);
-          }
-        }
-      });
-    } catch (error) {
-      console.error('Import failed:', error);
-      showAlert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-    }
-  };
+  const {
+    importInputRef,
+    isDataExporting,
+    isDataImporting,
+    handleExportData,
+    handleImportData,
+    handleImportFileChange,
+  } = useBackupTransfer({
+    exporter: exportIndexedDBData,
+    exportFileName: globalBackupFileName,
+    showAlert,
+    messages: DEFAULT_BACKUP_TRANSFER_MESSAGES,
+    onImportSuccess: async () => {
+      await loadProjects();
+      if (showLibraryModal) {
+        await loadLibrary();
+      }
+    },
+  });
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-secondary)] p-8 md:p-12 font-sans selection:bg-[var(--selection-bg)]">
@@ -306,72 +247,42 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
             {projects.map((proj) => (
               <div 
                 key={proj.id}
-                onClick={() => onOpenProject(proj)}
+                onClick={() => navigate(`/project/${proj.id}`)}
                 className="group bg-[var(--bg-primary)] border border-[var(--border-primary)] hover:border-[var(--border-secondary)] p-0 flex flex-col cursor-pointer transition-all relative overflow-hidden h-[280px]"
               >
-                  {/* Delete Confirmation Overlay */}
                   {deleteConfirmId === proj.id && (
-                    <div 
-                        className="absolute inset-0 z-20 bg-[var(--bg-primary)] flex flex-col items-center justify-center p-6 space-y-4 animate-in fade-in duration-200"
-                        onClick={(e) => e.stopPropagation()} 
-                    >
+                    <div className="absolute inset-0 z-20 bg-[var(--bg-primary)] flex flex-col items-center justify-center p-6 space-y-4 animate-in fade-in duration-200" onClick={(e) => e.stopPropagation()}>
                         <div className="w-10 h-10 bg-[var(--error-hover-bg)] flex items-center justify-center rounded-full">
                            <AlertTriangle className="w-5 h-5 text-[var(--error)]" />
                         </div>
                         <div className="text-center space-y-2">
                             <p className="text-[var(--text-primary)] font-bold text-xs uppercase tracking-widest">确认删除项目？</p>
-                            <p className="text-[var(--text-tertiary)] text-[10px] font-mono">此操作无法撤销</p>
-                            <div className="text-[9px] text-[var(--text-muted)] space-y-1 pt-2 border-t border-[var(--border-subtle)]">
-                              <p>将同时删除以下所有资源：</p>
-                              <p className="text-[var(--text-muted)] font-mono">· 角色和场景参考图</p>
-                              <p className="text-[var(--text-muted)] font-mono">· 所有关键帧图像</p>
-                              <p className="text-[var(--text-muted)] font-mono">· 所有生成的视频片段</p>
-                              <p className="text-[var(--text-muted)] font-mono">· 渲染历史记录</p>
-                            </div>
+                            <p className="text-[var(--text-tertiary)] text-[10px] font-mono">将删除所有剧集和角色库数据</p>
                         </div>
                         <div className="flex gap-2 w-full pt-2">
-                            <button 
-                                onClick={cancelDelete}
-                                className="flex-1 py-3 bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] text-[10px] font-bold uppercase tracking-wider transition-colors border border-[var(--border-primary)]"
-                            >
-                                取消
-                            </button>
-                            <button 
-                                onClick={(e) => confirmDelete(e, proj.id)}
-                                className="flex-1 py-3 bg-[var(--error-hover-bg)] hover:bg-[var(--error-hover-bg-strong)] text-[var(--error-text)] hover:text-[var(--error-text)] text-[10px] font-bold uppercase tracking-wider transition-colors border border-[var(--error-border)]"
-                            >
-                                永久删除
-                            </button>
+                            <button onClick={cancelDelete} className="flex-1 py-3 bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] text-[10px] font-bold uppercase tracking-wider transition-colors border border-[var(--border-primary)]">取消</button>
+                            <button onClick={(e) => confirmDelete(e, proj.id)} className="flex-1 py-3 bg-[var(--error-hover-bg)] text-[var(--error-text)] text-[10px] font-bold uppercase tracking-wider transition-colors border border-[var(--error-border)]">永久删除</button>
                         </div>
-
                     </div>
                   )}
 
-                  {/* Normal Content */}
                   <div className="flex-1 p-6 relative flex flex-col">
-                     {/* Delete Button */}
-                     <button 
-                        onClick={(e) => requestDelete(e, proj.id)}
-                        className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--error-text)] transition-all rounded-sm z-10"
-                        title="删除项目"
-                    >
+                     <button onClick={(e) => requestDelete(e, proj.id)} className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 p-2 hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--error-text)] transition-all rounded-sm z-10" title="删除项目">
                         <Trash2 className="w-4 h-4" />
                     </button>
-
                      <div className="flex-1">
                         <Folder className="w-8 h-8 text-[var(--text-muted)] mb-6 group-hover:text-[var(--text-tertiary)] transition-colors" />
                         <h3 className="text-sm font-bold text-[var(--text-primary)] mb-2 line-clamp-1 tracking-wide">{proj.title}</h3>
                         <div className="flex flex-wrap gap-2 mb-4">
                             <span className="text-[9px] font-mono text-[var(--text-tertiary)] border border-[var(--border-primary)] px-1.5 py-0.5 uppercase tracking-wider">
-                              {proj.stage === 'script' ? '剧本阶段' : 
-                               proj.stage === 'assets' ? '资产生成' :
-                               proj.stage === 'director' ? '导演工作台' : '导出阶段'}
+                              <Users className="w-3 h-3 inline mr-1" />{proj.characterLibrary?.length || 0} 角色
+                            </span>
+                            <span className="text-[9px] font-mono text-[var(--text-tertiary)] border border-[var(--border-primary)] px-1.5 py-0.5 uppercase tracking-wider">
+                              <Film className="w-3 h-3 inline mr-1" />多剧集
                             </span>
                         </div>
-                        {proj.scriptData?.logline && (
-                            <p className="text-[10px] text-[var(--text-muted)] line-clamp-2 leading-relaxed font-mono border-l border-[var(--border-primary)] pl-2">
-                            {proj.scriptData.logline}
-                            </p>
+                        {proj.description && (
+                            <p className="text-[10px] text-[var(--text-muted)] line-clamp-2 leading-relaxed font-mono border-l border-[var(--border-primary)] pl-2">{proj.description}</p>
                         )}
                      </div>
                   </div>
@@ -554,7 +465,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                 </select>
               </div>
               <div className="flex gap-2">
-                {(['all', 'character', 'scene'] as const).map((type) => (
+                {(['all', 'character', 'scene', 'prop'] as const).map((type) => (
                   <button
                     key={type}
                     onClick={() => setLibraryFilter(type)}
@@ -564,7 +475,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                         : 'bg-transparent text-[var(--text-tertiary)] border-[var(--border-primary)] hover:text-[var(--text-primary)] hover:border-[var(--border-secondary)]'
                     }`}
                   >
-                    {type === 'all' ? '全部' : type === 'character' ? '角色' : '场景'}
+                    {type === 'all' ? '全部' : type === 'character' ? '角色' : type === 'scene' ? '场景' : '道具'}
                   </button>
                 ))}
               </div>
@@ -584,7 +495,9 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                   const preview =
                     item.type === 'character'
                       ? (item.data as Character).referenceImage
-                      : (item.data as Scene).referenceImage;
+                      : item.type === 'scene'
+                      ? (item.data as Scene).referenceImage
+                      : (item.data as Prop).referenceImage;
                   return (
                     <div
                       key={item.id}
@@ -597,8 +510,10 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                           <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                             {item.type === 'character' ? (
                               <Users className="w-8 h-8 opacity-30" />
-                            ) : (
+                            ) : item.type === 'scene' ? (
                               <MapPin className="w-8 h-8 opacity-30" />
+                            ) : (
+                              <Package className="w-8 h-8 opacity-30" />
                             )}
                           </div>
                         )}
@@ -607,7 +522,7 @@ const Dashboard: React.FC<Props> = ({ onOpenProject, onShowOnboarding, onShowMod
                         <div>
                           <div className="text-sm text-[var(--text-primary)] font-bold line-clamp-1">{item.name}</div>
                           <div className="text-[10px] text-[var(--text-tertiary)] font-mono uppercase tracking-widest mt-1">
-                            {item.type === 'character' ? '角色' : '场景'}
+                            {item.type === 'character' ? '角色' : item.type === 'scene' ? '场景' : '道具'}
                           </div>
                           <div className="text-[10px] text-[var(--text-muted)] font-mono mt-1 line-clamp-1">
                             {(item.projectName && item.projectName.trim()) || '未知项目'}

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { MapPin, Check, Sparkles, Loader2, Upload, Trash2, Edit2, AlertCircle, FolderPlus } from 'lucide-react';
+import React from 'react';
+import { MapPin, Check, Loader2, Trash2, Edit2, AlertCircle, FolderPlus } from 'lucide-react';
 import PromptEditor from './PromptEditor';
 import ImageUploadButton from './ImageUploadButton';
+import InlineEditableText from './InlineEditableText';
 
 interface SceneCardProps {
   scene: {
@@ -34,34 +35,6 @@ const SceneCard: React.FC<SceneCardProps> = ({
   onUpdateInfo,
   onAddToLibrary,
 }) => {
-  const [isEditingLocation, setIsEditingLocation] = useState(false);
-  const [isEditingTime, setIsEditingTime] = useState(false);
-  const [isEditingAtmosphere, setIsEditingAtmosphere] = useState(false);
-  const [editLocation, setEditLocation] = useState(scene.location);
-  const [editTime, setEditTime] = useState(scene.time);
-  const [editAtmosphere, setEditAtmosphere] = useState(scene.atmosphere);
-
-  const handleSaveLocation = () => {
-    if (editLocation.trim()) {
-      onUpdateInfo({ location: editLocation.trim() });
-      setIsEditingLocation(false);
-    }
-  };
-
-  const handleSaveTime = () => {
-    if (editTime.trim()) {
-      onUpdateInfo({ time: editTime.trim() });
-      setIsEditingTime(false);
-    }
-  };
-
-  const handleSaveAtmosphere = () => {
-    if (editAtmosphere.trim()) {
-      onUpdateInfo({ atmosphere: editAtmosphere.trim() });
-      setIsEditingAtmosphere(false);
-    }
-  };
-
   return (
     <div className="bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl overflow-hidden flex flex-col group hover:border-[var(--border-secondary)] transition-all hover:shadow-lg">
       <div 
@@ -116,74 +89,50 @@ const SceneCard: React.FC<SceneCardProps> = ({
       
       <div className="p-3 border-t border-[var(--border-primary)] bg-[var(--bg-base)]">
         <div className="flex justify-between items-center mb-1 gap-2">
-          {isEditingLocation ? (
-            <input
-              type="text"
-              value={editLocation}
-              onChange={(e) => setEditLocation(e.target.value)}
-              onBlur={handleSaveLocation}
-              onKeyPress={(e) => e.key === 'Enter' && handleSaveLocation()}
-              autoFocus
-              className="font-bold text-[var(--text-secondary)] text-sm bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded px-2 py-1 flex-1 min-w-0 focus:outline-none focus:border-[var(--accent)]"
-            />
-          ) : (
-            <div className="flex items-center gap-2 flex-1 min-w-0 group/location">
-              <h3 className="font-bold text-[var(--text-secondary)] text-sm truncate" title={scene.location}>{scene.location}</h3>
-              <button
-                onClick={() => {
-                  setEditLocation(scene.location);
-                  setIsEditingLocation(true);
-                }}
-                className="opacity-0 group-hover/location:opacity-100 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-opacity flex-shrink-0"
-              >
-                <Edit2 className="w-3 h-3" />
-              </button>
-            </div>
-          )}
-          {isEditingTime ? (
-            <input
-              type="text"
-              value={editTime}
-              onChange={(e) => setEditTime(e.target.value)}
-              onBlur={handleSaveTime}
-              onKeyPress={(e) => e.key === 'Enter' && handleSaveTime()}
-              autoFocus
-              className="px-1.5 py-0.5 bg-[var(--bg-hover)] border border-[var(--border-secondary)] text-[var(--text-secondary)] text-[9px] rounded uppercase font-mono focus:outline-none focus:border-[var(--accent)] w-24 shrink-0"
-            />
-          ) : (
-            <span
-              onClick={() => {
-                setEditTime(scene.time);
-                setIsEditingTime(true);
-              }}
-              className="px-1.5 py-0.5 bg-[var(--bg-elevated)] text-[var(--text-tertiary)] text-[9px] rounded border border-[var(--border-primary)] uppercase font-mono cursor-pointer hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] transition-colors shrink-0 whitespace-nowrap overflow-hidden max-w-[80px] text-center"
-              title={scene.time}
-            >
-              {scene.time}
-            </span>
-          )}
-        </div>
-        {isEditingAtmosphere ? (
-          <input
-            type="text"
-            value={editAtmosphere}
-            onChange={(e) => setEditAtmosphere(e.target.value)}
-            onBlur={handleSaveAtmosphere}
-            onKeyPress={(e) => e.key === 'Enter' && handleSaveAtmosphere()}
-            autoFocus
-            className="text-[10px] text-[var(--text-secondary)] w-full bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded px-2 py-1 mb-3 focus:outline-none focus:border-[var(--accent)]"
+          <InlineEditableText
+            value={scene.location}
+            onSave={(next) => onUpdateInfo({ location: next })}
+            inputClassName="font-bold text-[var(--text-secondary)] text-sm bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded px-2 py-1 flex-1 min-w-0 focus:outline-none focus:border-[var(--accent)]"
+            renderDisplay={(value, startEdit) => (
+              <div className="flex items-center gap-2 flex-1 min-w-0 group/location">
+                <h3 className="font-bold text-[var(--text-secondary)] text-sm truncate" title={value}>{value}</h3>
+                <button
+                  onClick={startEdit}
+                  className="opacity-0 group-hover/location:opacity-100 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-opacity flex-shrink-0"
+                >
+                  <Edit2 className="w-3 h-3" />
+                </button>
+              </div>
+            )}
           />
-        ) : (
-          <p
-            onClick={() => {
-              setEditAtmosphere(scene.atmosphere);
-              setIsEditingAtmosphere(true);
-            }}
-            className="text-[10px] text-[var(--text-tertiary)] line-clamp-1 mb-3 cursor-pointer hover:text-[var(--text-secondary)] transition-colors"
-          >
-            {scene.atmosphere}
-          </p>
-        )}
+          <InlineEditableText
+            value={scene.time}
+            onSave={(next) => onUpdateInfo({ time: next })}
+            inputClassName="px-1.5 py-0.5 bg-[var(--bg-hover)] border border-[var(--border-secondary)] text-[var(--text-secondary)] text-[9px] rounded uppercase font-mono focus:outline-none focus:border-[var(--accent)] w-24 shrink-0"
+            renderDisplay={(value, startEdit) => (
+              <span
+                onClick={startEdit}
+                className="px-1.5 py-0.5 bg-[var(--bg-elevated)] text-[var(--text-tertiary)] text-[9px] rounded border border-[var(--border-primary)] uppercase font-mono cursor-pointer hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] transition-colors shrink-0 whitespace-nowrap overflow-hidden max-w-[80px] text-center"
+                title={value}
+              >
+                {value}
+              </span>
+            )}
+          />
+        </div>
+        <InlineEditableText
+          value={scene.atmosphere}
+          onSave={(next) => onUpdateInfo({ atmosphere: next })}
+          inputClassName="text-[10px] text-[var(--text-secondary)] w-full bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded px-2 py-1 mb-3 focus:outline-none focus:border-[var(--accent)]"
+          renderDisplay={(value, startEdit) => (
+            <p
+              onClick={startEdit}
+              className="text-[10px] text-[var(--text-tertiary)] line-clamp-1 mb-3 cursor-pointer hover:text-[var(--text-secondary)] transition-colors"
+            >
+              {value}
+            </p>
+          )}
+        />
 
         {/* Scene Prompt Section */}
         <div className="mt-3 pt-3 border-t border-[var(--border-primary)]">

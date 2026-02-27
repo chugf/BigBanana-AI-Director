@@ -14,6 +14,17 @@ const ShotCard: React.FC<ShotCardProps> = ({ shot, index, isActive, onClick, onD
   const sKf = shot.keyframes?.find(k => k.type === 'start');
   const hasImage = !!sKf?.imageUrl;
   const hasVideo = !!shot.interval?.videoUrl;
+  const quality = shot.qualityAssessment;
+  const qualityGradeLabel = quality?.grade === 'pass'
+    ? '通过'
+    : quality?.grade === 'warning'
+      ? '需优化'
+      : '高风险';
+  const qualityBadgeClass = quality?.grade === 'pass'
+    ? 'bg-[var(--success-bg)] text-[var(--success-text)] border-[var(--success-border)]'
+    : quality?.grade === 'warning'
+      ? 'bg-[var(--warning-bg)] text-[var(--warning-text)] border-[var(--warning-border)]'
+      : 'bg-[var(--error-hover-bg)] text-[var(--error-text)] border-[var(--error-border)]';
 
   // 从shot.id中提取显示编号
   // 例如：shot-1 → "SHOT 001", shot-1-1 → "SHOT 001-1", shot-1-2 → "SHOT 001-2"
@@ -79,6 +90,11 @@ const ShotCard: React.FC<ShotCardProps> = ({ shot, index, isActive, onClick, onD
         
         {/* Badges */}
         <div className="absolute top-2 right-2 flex flex-col gap-1 items-end">
+          {quality && (
+            <div className={`px-2 py-1 rounded-full text-[9px] font-bold border ${qualityBadgeClass}`}>
+              评分 {quality.score} · {qualityGradeLabel}
+            </div>
+          )}
           {hasVideo && (
             <div className="px-2 py-1 bg-[var(--success)] text-[var(--text-primary)] rounded-full text-[9px] font-bold uppercase flex items-center gap-1 shadow-lg">
               <Video className="w-2.5 h-2.5" />

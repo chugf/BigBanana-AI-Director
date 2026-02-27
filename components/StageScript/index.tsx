@@ -1,12 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { ProjectState, Shot } from '../../types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { ProjectState, ScriptData, ScriptGenerationCheckpoint, ScriptGenerationStep, Shot } from '../../types';
 import { useAlert } from '../GlobalAlert';
-import { parseScriptToData, generateShotList, continueScript, continueScriptStream, rewriteScript, rewriteScriptStream, setScriptLogCallback, clearScriptLogCallback, logScriptProgress } from '../../services/aiService';
+import {
+  parseScriptStructure,
+  enrichScriptDataVisuals,
+  generateShotList,
+  continueScript,
+  continueScriptStream,
+  rewriteScript,
+  rewriteScriptStream,
+  rewriteScriptSegment,
+  rewriteScriptSegmentStream,
+  setScriptLogCallback,
+  clearScriptLogCallback,
+  logScriptProgress,
+} from '../../services/aiService';
 import { getFinalValue, validateConfig } from './utils';
-import { DEFAULTS } from './constants';
+import { DEFAULTS, SCRIPT_SOFT_LIMIT, SCRIPT_HARD_LIMIT } from './constants';
 import ConfigPanel from './ConfigPanel';
 import ScriptEditor from './ScriptEditor';
 import SceneBreakdown from './SceneBreakdown';
+import AssetMatchDialog from './AssetMatchDialog';
+import { findAssetMatches, applyAssetMatches, AssetMatchResult } from '../../services/assetMatchService';
+import { loadSeriesProject } from '../../services/storageService';
+import { resolvePromptTemplateConfig } from '../../services/promptTemplateService';
 
 interface Props {
   project: ProjectState;
@@ -16,10 +33,264 @@ interface Props {
 }
 
 type TabMode = 'story' | 'script';
+type AnalyzeRunStep = ScriptGenerationStep | 'done';
 
 const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfig, onGeneratingChange }) => {
   const { showAlert } = useAlert();
+  const promptTemplates = useMemo(
+    () => resolvePromptTemplateConfig(project.promptTemplateOverrides),
+    [project.promptTemplateOverrides]
+  );
   const [activeTab, setActiveTab] = useState<TabMode>(project.scriptData ? 'script' : 'story');
+
+  const getDraftValue = (selected: string, customInput: string, fallback: string): string => {
+    if (selected !== 'custom') return selected;
+    const trimmed = customInput.trim();
+    return trimmed || fallback;
+  };
+
+  const hashRaw = (raw: string): string => {
+    let hash = 5381;
+    for (let i = 0; i < raw.length; i += 1) {
+      hash = ((hash << 5) + hash) ^ raw.charCodeAt(i);
+    }
+    return `${(hash >>> 0).toString(16)}-${raw.length}`;
+  };
+
+  const buildAnalyzeConfigKey = (input: {
+    script: string;
+    language: string;
+    targetDuration: string;
+    model: string;
+    visualStyle: string;
+    enableQualityCheck: boolean;
+  }): string => {
+    const raw = JSON.stringify(input);
+    return `v1-${hashRaw(raw)}`;
+  };
+
+  const buildStepKey = (step: ScriptGenerationStep, payload: Record<string, unknown>): string => {
+    return `${step}-${hashRaw(JSON.stringify(payload))}`;
+  };
+
+  const normalizeAssetKey = (value: string): string => {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const cloneScriptData = (data: ScriptData): ScriptData => {
+    if (typeof structuredClone === 'function') {
+      return structuredClone(data);
+    }
+    return JSON.parse(JSON.stringify(data)) as ScriptData;
+  };
+
+  const dedupeByKey = <T,>(items: T[], getKey: (item: T) => string): T[] => {
+    const map = new Map<string, T>();
+    items.forEach(item => map.set(getKey(item), item));
+    return Array.from(map.values());
+  };
+
+  const rebuildAssetRefsFromScriptData = (
+    scriptData: ScriptData
+  ): Pick<ProjectState, 'characterRefs' | 'sceneRefs' | 'propRefs'> => {
+    const characterRefs = dedupeByKey(
+      (scriptData.characters || [])
+        .filter(char => !!char.libraryId)
+        .map(char => ({
+          characterId: char.libraryId as string,
+          syncedVersion: char.libraryVersion || 1,
+          syncStatus: 'synced' as const,
+        })),
+      ref => ref.characterId
+    );
+
+    const sceneRefs = dedupeByKey(
+      (scriptData.scenes || [])
+        .filter(scene => !!scene.libraryId)
+        .map(scene => ({
+          sceneId: scene.libraryId as string,
+          syncedVersion: scene.libraryVersion || 1,
+          syncStatus: 'synced' as const,
+        })),
+      ref => ref.sceneId
+    );
+
+    const propRefs = dedupeByKey(
+      (scriptData.props || [])
+        .filter(prop => !!prop.libraryId)
+        .map(prop => ({
+          propId: prop.libraryId as string,
+          syncedVersion: prop.libraryVersion || 1,
+          syncStatus: 'synced' as const,
+        })),
+      ref => ref.propId
+    );
+
+    return { characterRefs, sceneRefs, propRefs };
+  };
+
+  const attachGenerationMeta = (
+    source: ScriptData,
+    patch: Partial<NonNullable<ScriptData['generationMeta']>>
+  ): ScriptData => ({
+    ...source,
+    generationMeta: {
+      ...(source.generationMeta || {}),
+      ...patch,
+      generatedAt: Date.now()
+    }
+  });
+
+  const buildReuseLookup = <T extends { id: string }>(
+    items: T[],
+    getKey: (item: T) => string
+  ): { byId: Map<string, T>; byKey: Map<string, T> } => {
+    const byId = new Map<string, T>();
+    const byKey = new Map<string, T>();
+    for (const item of items) {
+      const id = String(item.id);
+      byId.set(id, item);
+      const key = normalizeAssetKey(getKey(item));
+      if (key && !byKey.has(key)) {
+        byKey.set(key, item);
+      }
+    }
+    return { byId, byKey };
+  };
+
+  const reuseVisualDataFromPrevious = (
+    current: ScriptData,
+    previous: ScriptData | null,
+    reuseArtDirection: boolean
+  ): ScriptData => {
+    if (!previous) return current;
+    const next = cloneScriptData(current);
+
+    const previousCharacters = buildReuseLookup(previous.characters || [], (item) => item.name);
+    next.characters = (next.characters || []).map((character) => {
+      const direct = previousCharacters.byId.get(String(character.id));
+      const byName = previousCharacters.byKey.get(normalizeAssetKey(character.name));
+      const match = direct || byName;
+      if (!match) return character;
+      return {
+        ...character,
+        visualPrompt: character.visualPrompt || match.visualPrompt,
+        negativePrompt: character.negativePrompt || match.negativePrompt,
+        promptVersions: character.promptVersions || match.promptVersions,
+        referenceImage: character.referenceImage || match.referenceImage,
+        turnaround: character.turnaround || match.turnaround,
+        variations: character.variations?.length ? character.variations : (match.variations || []),
+        status: character.status || match.status,
+        libraryId: character.libraryId || match.libraryId,
+        libraryVersion: character.libraryVersion || match.libraryVersion,
+        version: character.version || match.version
+      };
+    });
+
+    const previousScenes = buildReuseLookup(previous.scenes || [], (item) => item.location);
+    next.scenes = (next.scenes || []).map((scene) => {
+      const direct = previousScenes.byId.get(String(scene.id));
+      const byLocation = previousScenes.byKey.get(normalizeAssetKey(scene.location));
+      const match = direct || byLocation;
+      if (!match) return scene;
+      return {
+        ...scene,
+        visualPrompt: scene.visualPrompt || match.visualPrompt,
+        negativePrompt: scene.negativePrompt || match.negativePrompt,
+        promptVersions: scene.promptVersions || match.promptVersions,
+        referenceImage: scene.referenceImage || match.referenceImage,
+        status: scene.status || match.status,
+        libraryId: scene.libraryId || match.libraryId,
+        libraryVersion: scene.libraryVersion || match.libraryVersion,
+        version: scene.version || match.version
+      };
+    });
+
+    const previousProps = buildReuseLookup(previous.props || [], (item) => item.name);
+    next.props = (next.props || []).map((prop) => {
+      const direct = previousProps.byId.get(String(prop.id));
+      const byName = previousProps.byKey.get(normalizeAssetKey(prop.name));
+      const match = direct || byName;
+      if (!match) return prop;
+      return {
+        ...prop,
+        visualPrompt: prop.visualPrompt || match.visualPrompt,
+        negativePrompt: prop.negativePrompt || match.negativePrompt,
+        promptVersions: prop.promptVersions || match.promptVersions,
+        referenceImage: prop.referenceImage || match.referenceImage,
+        status: prop.status || match.status,
+        libraryId: prop.libraryId || match.libraryId,
+        libraryVersion: prop.libraryVersion || match.libraryVersion,
+        version: prop.version || match.version
+      };
+    });
+
+    if (reuseArtDirection && !next.artDirection && previous.artDirection) {
+      next.artDirection = previous.artDirection;
+    }
+
+    return next;
+  };
+
+  const isPlaceholderProjectTitle = (value: string): boolean => {
+    const trimmed = value.trim();
+    if (!trimmed) return true;
+    if (/^untitled\b/i.test(trimmed)) return true;
+    if (/^episode\s*\d+$/i.test(trimmed)) return true;
+    if (/^project\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$/i.test(trimmed)) return true;
+    return false;
+  };
+
+  const hydrateScriptDataMeta = (
+    source: ScriptData,
+    params: {
+      targetDuration: string;
+      language: string;
+      visualStyle: string;
+      model: string;
+      localTitle: string;
+    }
+  ): ScriptData => {
+    const next: ScriptData = {
+      ...source,
+      targetDuration: params.targetDuration,
+      language: params.language,
+      visualStyle: params.visualStyle,
+      shotGenerationModel: params.model
+    };
+    const trimmedTitle = params.localTitle.trim();
+    if (!isPlaceholderProjectTitle(trimmedTitle)) {
+      next.title = trimmedTitle;
+    }
+    return next;
+  };
+
+  const createAnalyzeCheckpoint = (
+    step: ScriptGenerationStep,
+    configKey: string,
+    scriptData?: ScriptData | null
+  ): ScriptGenerationCheckpoint => ({
+    step,
+    configKey,
+    scriptData: scriptData || null,
+    updatedAt: Date.now()
+  });
+
+  const isAbortError = (err: unknown, signal?: AbortSignal): boolean => {
+    if (signal?.aborted) return true;
+    const message = String((err as any)?.message || '').toLowerCase();
+    return (
+      message.includes('abort') ||
+      message.includes('aborted') ||
+      message.includes('cancel') ||
+      message.includes('canceled') ||
+      message.includes('取消')
+    );
+  };
   
   // Configuration state
   const [localScript, setLocalScript] = useState(project.rawScript);
@@ -28,9 +299,12 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
   const [localLanguage, setLocalLanguage] = useState(project.language || DEFAULTS.language);
   const [localModel, setLocalModel] = useState(project.shotGenerationModel || DEFAULTS.model);
   const [localVisualStyle, setLocalVisualStyle] = useState(project.visualStyle || DEFAULTS.visualStyle);
+  const [enableQualityCheck, setEnableQualityCheck] = useState(true);
   const [customDurationInput, setCustomDurationInput] = useState('');
   const [customModelInput, setCustomModelInput] = useState('');
   const [customStyleInput, setCustomStyleInput] = useState('');
+  const [rewriteInstruction, setRewriteInstruction] = useState('');
+  const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
   
   // Processing state
   const [isProcessing, setIsProcessing] = useState(false);
@@ -39,6 +313,14 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
   const [error, setError] = useState<string | null>(null);
   const [processingMessage, setProcessingMessage] = useState('');
   const [processingLogs, setProcessingLogs] = useState<string[]>([]);
+
+  // Asset match state
+  const [pendingParseResult, setPendingParseResult] = useState<{
+    scriptData: ScriptData;
+    shots: Shot[];
+    matches: AssetMatchResult;
+    title: string;
+  } | null>(null);
 
   // Editing state - unified
   const [editingCharacterId, setEditingCharacterId] = useState<string | null>(null);
@@ -49,6 +331,8 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
   const [editingShotActionId, setEditingShotActionId] = useState<string | null>(null);
   const [editingShotActionText, setEditingShotActionText] = useState('');
   const [editingShotDialogueText, setEditingShotDialogueText] = useState('');
+  const [lastRewriteSnapshot, setLastRewriteSnapshot] = useState<string | null>(null);
+  const analyzeAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setLocalScript(project.rawScript);
@@ -57,6 +341,10 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     setLocalLanguage(project.language || DEFAULTS.language);
     setLocalModel(project.shotGenerationModel || DEFAULTS.model);
     setLocalVisualStyle(project.visualStyle || DEFAULTS.visualStyle);
+    setEnableQualityCheck(true);
+    setRewriteInstruction('');
+    setSelectionRange(null);
+    setLastRewriteSnapshot(null);
   }, [project.id]);
 
   // 上报生成状态给父组件，用于导航锁定
@@ -68,6 +356,7 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
   // 组件卸载时重置生成状态
   useEffect(() => {
     return () => {
+      analyzeAbortControllerRef.current?.abort();
       onGeneratingChange?.(false);
     };
   }, []);
@@ -83,6 +372,59 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     return () => clearScriptLogCallback();
   }, []);
 
+  useEffect(() => {
+    if (isProcessing || isContinuing || isRewriting) return;
+
+    const draftDuration = getDraftValue(localDuration, customDurationInput, project.targetDuration || DEFAULTS.duration);
+    const draftModel = getDraftValue(localModel, customModelInput, project.shotGenerationModel || DEFAULTS.model);
+    const draftVisualStyle = getDraftValue(localVisualStyle, customStyleInput, project.visualStyle || DEFAULTS.visualStyle);
+
+    const draftUpdates = {
+      rawScript: localScript,
+      title: localTitle,
+      targetDuration: draftDuration,
+      language: localLanguage,
+      shotGenerationModel: draftModel,
+      visualStyle: draftVisualStyle,
+    };
+
+    const unchanged =
+      draftUpdates.rawScript === project.rawScript &&
+      draftUpdates.title === project.title &&
+      draftUpdates.targetDuration === project.targetDuration &&
+      draftUpdates.language === project.language &&
+      draftUpdates.shotGenerationModel === project.shotGenerationModel &&
+      draftUpdates.visualStyle === project.visualStyle;
+
+    if (unchanged) return;
+
+    const timeoutId = window.setTimeout(() => {
+      updateProject(draftUpdates);
+    }, 450);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    isProcessing,
+    isContinuing,
+    isRewriting,
+    localScript,
+    localTitle,
+    localDuration,
+    customDurationInput,
+    localLanguage,
+    localModel,
+    customModelInput,
+    localVisualStyle,
+    customStyleInput,
+    project.rawScript,
+    project.title,
+    project.targetDuration,
+    project.language,
+    project.shotGenerationModel,
+    project.visualStyle,
+    updateProject
+  ]);
+
   const handleAnalyze = async () => {
     const finalDuration = getFinalValue(localDuration, customDurationInput);
     const finalModel = getFinalValue(localModel, customModelInput);
@@ -97,20 +439,109 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
 
     if (!validation.valid) {
       setError(validation.error);
+      if (localScript.length > SCRIPT_HARD_LIMIT && validation.error) {
+        showAlert(validation.error, { type: 'warning' });
+      }
       return;
     }
 
-    console.log('🎯 用户选择的模型:', localModel);
-    console.log('🎯 最终使用的模型:', finalModel);
+    const previousScriptData = project.scriptData || null;
+    const previousShots = Array.isArray(project.shots) ? project.shots : [];
+
+    const structureKey = buildStepKey('structure', {
+      script: localScript,
+      language: localLanguage
+    });
+    const visualsKey = buildStepKey('visuals', {
+      structureKey,
+      language: localLanguage,
+      model: finalModel,
+      visualStyle: finalVisualStyle
+    });
+    const shotsKey = buildStepKey('shots', {
+      visualsKey,
+      model: finalModel,
+      targetDuration: finalDuration,
+      enableQualityCheck
+    });
+
+    const analyzeConfigKey = buildAnalyzeConfigKey({
+      script: localScript,
+      language: localLanguage,
+      targetDuration: finalDuration,
+      model: finalModel,
+      visualStyle: finalVisualStyle,
+      enableQualityCheck
+    });
+    const savedCheckpoint = project.scriptGenerationCheckpoint;
+    const resumeCheckpoint =
+      savedCheckpoint && savedCheckpoint.configKey === analyzeConfigKey
+        ? savedCheckpoint
+        : null;
+
+    let nextStep: AnalyzeRunStep = 'structure';
+    let workingScriptData: ScriptData | null = resumeCheckpoint?.scriptData || previousScriptData || null;
+    let shouldGenerateOnlyMissingVisuals = false;
+    let reuseUnchangedScenes = !!previousScriptData && previousShots.length > 0;
+
+    if (resumeCheckpoint?.scriptData) {
+      nextStep = resumeCheckpoint.step;
+      shouldGenerateOnlyMissingVisuals = resumeCheckpoint.step === 'visuals';
+    } else {
+      const meta = previousScriptData?.generationMeta;
+      if (!previousScriptData || !meta?.structureKey) {
+        nextStep = 'structure';
+      } else if (meta.structureKey !== structureKey) {
+        nextStep = 'structure';
+      } else if (meta.visualsKey !== visualsKey) {
+        nextStep = 'visuals';
+      } else if (meta.shotsKey !== shotsKey || previousShots.length === 0) {
+        nextStep = 'shots';
+      } else {
+        nextStep = 'done';
+      }
+
+      const visualsInputStable =
+        !!previousScriptData &&
+        previousScriptData.language === localLanguage &&
+        previousScriptData.visualStyle === finalVisualStyle &&
+        previousScriptData.shotGenerationModel === finalModel;
+      shouldGenerateOnlyMissingVisuals = nextStep === 'structure' && visualsInputStable;
+    }
+
+    if (nextStep === 'done') {
+      setError(null);
+      setProcessingLogs([]);
+      logScriptProgress('配置未变化，已复用现有分镜结果。');
+      showAlert('未检测到变更，已复用现有分镜结果。', { type: 'success' });
+      setActiveTab('script');
+      return;
+    }
+
+    if (!workingScriptData && nextStep !== 'structure') {
+      nextStep = 'structure';
+      shouldGenerateOnlyMissingVisuals = false;
+    }
+
+    analyzeAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    analyzeAbortControllerRef.current = controller;
+
+    console.log('📌 用户选择的模型:', localModel);
+    console.log('📌 最终使用的模型:', finalModel);
     console.log('🎨 视觉风格:', finalVisualStyle);
     logScriptProgress(`已选择模型：${localModel}`);
     logScriptProgress(`最终使用模型：${finalModel}`);
     logScriptProgress(`视觉风格：${finalVisualStyle}`);
+    if (resumeCheckpoint) {
+      logScriptProgress(`检测到断点，将从 ${resumeCheckpoint.step} 步骤继续`);
+    }
 
     setIsProcessing(true);
-    setProcessingMessage('正在解析剧本...');
+    setProcessingMessage('正在准备生成流程...');
     setProcessingLogs([]);
     setError(null);
+
     try {
       updateProject({
         title: localTitle,
@@ -119,50 +550,214 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
         language: localLanguage,
         visualStyle: finalVisualStyle,
         shotGenerationModel: finalModel,
-        isParsingScript: true
+        isParsingScript: true,
+        scriptGenerationCheckpoint: createAnalyzeCheckpoint(nextStep, analyzeConfigKey, workingScriptData)
       });
 
-      console.log('📞 调用 parseScriptToData, 传入模型:', finalModel);
-      logScriptProgress('开始解析剧本...');
-      const scriptData = await parseScriptToData(localScript, localLanguage, finalModel, finalVisualStyle);
-      
-      scriptData.targetDuration = finalDuration;
-      scriptData.language = localLanguage;
-      scriptData.visualStyle = finalVisualStyle;
-      scriptData.shotGenerationModel = finalModel;
-
-      if (localTitle && localTitle !== "未命名项目") {
-        scriptData.title = localTitle;
+      if (nextStep === 'structure' || !workingScriptData) {
+        setProcessingMessage('正在解析剧本结构...');
+        logScriptProgress('开始解析剧本结构...');
+        const structured = await parseScriptStructure(
+          localScript,
+          localLanguage,
+          finalModel,
+          controller.signal
+        );
+        const hydrated = hydrateScriptDataMeta(structured, {
+          targetDuration: finalDuration,
+          language: localLanguage,
+          visualStyle: finalVisualStyle,
+          model: finalModel,
+          localTitle
+        });
+        const canReuseVisualData =
+          !!previousScriptData &&
+          previousScriptData.language === localLanguage &&
+          previousScriptData.visualStyle === finalVisualStyle &&
+          previousScriptData.shotGenerationModel === finalModel;
+        workingScriptData = reuseVisualDataFromPrevious(hydrated, previousScriptData, canReuseVisualData);
+        workingScriptData = attachGenerationMeta(workingScriptData, { structureKey });
+        shouldGenerateOnlyMissingVisuals = canReuseVisualData;
+        nextStep = 'visuals';
+        updateProject({
+          scriptData: workingScriptData,
+          isParsingScript: true,
+          scriptGenerationCheckpoint: createAnalyzeCheckpoint(nextStep, analyzeConfigKey, workingScriptData)
+        });
       }
 
-      console.log('📞 调用 generateShotList, 传入模型:', finalModel);
-      logScriptProgress('开始生成分镜...');
+      if (nextStep === 'visuals') {
+        const visualPassMode = shouldGenerateOnlyMissingVisuals ? '增量补全' : '全量重建';
+        setProcessingMessage(`正在生成角色/场景/道具视觉提示词（${visualPassMode}）...`);
+        logScriptProgress(`开始生成视觉提示词（${visualPassMode}）...`);
+        if (!shouldGenerateOnlyMissingVisuals) {
+          reuseUnchangedScenes = false;
+        }
+        const enriched = await enrichScriptDataVisuals(
+          workingScriptData!,
+          finalModel,
+          finalVisualStyle,
+          localLanguage,
+          {
+            abortSignal: controller.signal,
+            onlyMissing: shouldGenerateOnlyMissingVisuals
+          }
+        );
+        const hydrated = hydrateScriptDataMeta(enriched, {
+          targetDuration: finalDuration,
+          language: localLanguage,
+          visualStyle: finalVisualStyle,
+          model: finalModel,
+          localTitle
+        });
+        workingScriptData = attachGenerationMeta(hydrated, { structureKey, visualsKey });
+        nextStep = 'shots';
+        updateProject({
+          scriptData: workingScriptData,
+          isParsingScript: true,
+          scriptGenerationCheckpoint: createAnalyzeCheckpoint(nextStep, analyzeConfigKey, workingScriptData)
+        });
+      } else {
+        workingScriptData = attachGenerationMeta(workingScriptData!, { structureKey, visualsKey });
+      }
+
       setProcessingMessage('正在生成分镜...');
-      const shots = await generateShotList(scriptData, finalModel);
-
-      updateProject({ 
-        scriptData, 
-        shots, 
-        isParsingScript: false,
-        title: scriptData.title 
+      logScriptProgress(
+        reuseUnchangedScenes
+          ? '开始生成分镜（启用未变场景复用）...'
+          : '开始生成分镜...'
+      );
+      logScriptProgress(enableQualityCheck ? '已启用分镜质量校验与自动修复。' : '分镜质量校验已关闭。');
+      const shots = await generateShotList(workingScriptData!, finalModel, {
+        abortSignal: controller.signal,
+        previousScriptData,
+        previousShots,
+        reuseUnchangedScenes,
+        enableQualityCheck,
+        promptTemplates,
       });
-      
-      setActiveTab('script');
+      workingScriptData = attachGenerationMeta(
+        hydrateScriptDataMeta(workingScriptData!, {
+          targetDuration: finalDuration,
+          language: localLanguage,
+          visualStyle: finalVisualStyle,
+          model: finalModel,
+          localTitle
+        }),
+        { structureKey, visualsKey, shotsKey }
+      );
 
+      if (project.projectId) {
+        try {
+          const seriesProject = await loadSeriesProject(project.projectId);
+          if (seriesProject) {
+            const matches = findAssetMatches(workingScriptData!, seriesProject);
+            if (matches.hasAnyMatch) {
+              setPendingParseResult({
+                scriptData: workingScriptData!,
+                shots,
+                matches,
+                title: workingScriptData!.title
+              });
+              updateProject({
+                isParsingScript: false,
+                scriptGenerationCheckpoint: null
+              });
+              setIsProcessing(false);
+              setProcessingMessage('');
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn('Asset match check failed, proceeding without match:', e);
+        }
+      }
+
+      const rebuiltRefs = rebuildAssetRefsFromScriptData(workingScriptData!);
+      updateProject({
+        scriptData: workingScriptData!,
+        shots,
+        characterRefs: rebuiltRefs.characterRefs,
+        sceneRefs: rebuiltRefs.sceneRefs,
+        propRefs: rebuiltRefs.propRefs,
+        isParsingScript: false,
+        title: workingScriptData!.title,
+        scriptGenerationCheckpoint: null
+      });
+
+      setActiveTab('script');
     } catch (err: any) {
       console.error(err);
-      setError(`错误: ${err.message || "AI 连接失败"}`);
+      if (isAbortError(err, controller.signal)) {
+        setError('已取消生成，可点击“继续生成分镜脚本”从断点继续。');
+        logScriptProgress('生成已取消，可点击继续按钮从断点续跑。');
+      } else {
+        setError(`错误: ${err.message || 'AI 连接失败'}`);
+      }
       updateProject({ isParsingScript: false });
     } finally {
+      if (analyzeAbortControllerRef.current === controller) {
+        analyzeAbortControllerRef.current = null;
+      }
       setIsProcessing(false);
       setProcessingMessage('');
     }
   };
 
+  const handleCancelAnalyze = () => {
+    if (!isProcessing) return;
+    analyzeAbortControllerRef.current?.abort();
+    setProcessingMessage('正在取消生成...');
+    logScriptProgress('正在取消当前生成流程...');
+  };
+
+  const handleAssetMatchConfirm = (finalMatches: AssetMatchResult) => {
+    if (!pendingParseResult) return;
+    const { scriptData, shots } = pendingParseResult;
+    const result = applyAssetMatches(scriptData, shots, finalMatches);
+
+    updateProject({
+      scriptData: result.scriptData,
+      shots: result.shots,
+      characterRefs: result.characterRefs,
+      sceneRefs: result.sceneRefs,
+      propRefs: result.propRefs,
+      isParsingScript: false,
+      title: result.scriptData.title,
+      scriptGenerationCheckpoint: null,
+    });
+
+    setPendingParseResult(null);
+    setActiveTab('script');
+  };
+
+  const handleAssetMatchCancel = () => {
+    if (!pendingParseResult) return;
+    const { scriptData, shots, title } = pendingParseResult;
+    const rebuiltRefs = rebuildAssetRefsFromScriptData(scriptData);
+
+    updateProject({
+      scriptData,
+      shots,
+      characterRefs: rebuiltRefs.characterRefs,
+      sceneRefs: rebuiltRefs.sceneRefs,
+      propRefs: rebuiltRefs.propRefs,
+      isParsingScript: false,
+      title,
+      scriptGenerationCheckpoint: null,
+    });
+
+    setPendingParseResult(null);
+    setActiveTab('script');
+  };
+
   const handleContinueScript = async () => {
     const finalModel = getFinalValue(localModel, customModelInput);
+    const baseScript = localScript;
+    const separator = baseScript.trim() ? '\n\n' : '';
+    const continueBudget = SCRIPT_HARD_LIMIT - baseScript.length - separator.length;
     
-    if (!localScript.trim()) {
+    if (!baseScript.trim()) {
       setError("请先输入一些剧本内容作为基础。");
       return;
     }
@@ -170,36 +765,75 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       setError("请选择或输入模型名称。");
       return;
     }
+    if (continueBudget <= 0) {
+      const message = `当前剧本已达到单集上限 ${SCRIPT_HARD_LIMIT} 字符，无法继续续写，请先拆分为多集。`;
+      setError(message);
+      showAlert(message, { type: 'warning' });
+      return;
+    }
 
     setIsContinuing(true);
     setProcessingMessage('AI续写中...');
     setProcessingLogs([]);
     setError(null);
-    const baseScript = localScript;
     let streamed = '';
+    let wasTruncated = false;
     try {
       const continuedContent = await continueScriptStream(
         baseScript,
         localLanguage,
         finalModel,
         (delta) => {
-          streamed += delta;
-          const newScript = baseScript + '\n\n' + streamed;
+          const remaining = continueBudget - streamed.length;
+          if (remaining <= 0) {
+            wasTruncated = true;
+            return;
+          }
+          const safeDelta = delta.slice(0, remaining);
+          if (!safeDelta) {
+            wasTruncated = true;
+            return;
+          }
+          streamed += safeDelta;
+          const newScript = `${baseScript}${separator}${streamed}`;
           setLocalScript(newScript);
           updateProject({ rawScript: newScript });
+        },
+        {
+          maxAppendChars: continueBudget,
+          maxTotalChars: SCRIPT_HARD_LIMIT
         }
       );
       if (continuedContent) {
-        const newScript = baseScript + '\n\n' + continuedContent;
+        const safeContent = continuedContent.slice(0, continueBudget);
+        if (safeContent.length < continuedContent.length) {
+          wasTruncated = true;
+        }
+        const newScript = `${baseScript}${separator}${safeContent}`;
         setLocalScript(newScript);
         updateProject({ rawScript: newScript });
+      }
+      if (wasTruncated) {
+        showAlert(`续写内容已按单集上限自动截断（最大总长 ${SCRIPT_HARD_LIMIT} 字符）。`, { type: 'warning' });
       }
     } catch (err: any) {
       console.error(err);
       setError(`AI续写失败: ${err.message || "连接失败"}`);
       try {
-        const continuedContent = await continueScript(baseScript, localLanguage, finalModel);
-        const newScript = baseScript + '\n\n' + continuedContent;
+        const continuedContent = await continueScript(
+          baseScript,
+          localLanguage,
+          finalModel,
+          {
+            maxAppendChars: continueBudget,
+            maxTotalChars: SCRIPT_HARD_LIMIT
+          }
+        );
+        const safeContent = continuedContent.slice(0, continueBudget);
+        if (safeContent.length < continuedContent.length) {
+          showAlert(`续写内容已按单集上限自动截断（最大总长 ${SCRIPT_HARD_LIMIT} 字符）。`, { type: 'warning' });
+        }
+        const newScript = `${baseScript}${separator}${safeContent}`;
         setLocalScript(newScript);
         updateProject({ rawScript: newScript });
       } catch (fallbackErr: any) {
@@ -213,8 +847,9 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
 
   const handleRewriteScript = async () => {
     const finalModel = getFinalValue(localModel, customModelInput);
+    const baseScript = localScript;
     
-    if (!localScript.trim()) {
+    if (!baseScript.trim()) {
       setError("请先输入剧本内容。");
       return;
     }
@@ -227,32 +862,171 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
     setProcessingMessage('AI改写中...');
     setProcessingLogs([]);
     setError(null);
-    const baseScript = localScript;
     let streamed = '';
+    let wasTruncated = false;
     try {
-      setLocalScript('');
-      updateProject({ rawScript: '' });
       const rewrittenContent = await rewriteScriptStream(
         baseScript,
         localLanguage,
         finalModel,
         (delta) => {
           streamed += delta;
-          setLocalScript(streamed);
-          updateProject({ rawScript: streamed });
+          const safeStreamed = streamed.slice(0, SCRIPT_HARD_LIMIT);
+          if (safeStreamed.length < streamed.length) {
+            wasTruncated = true;
+          }
+          setLocalScript(safeStreamed);
+        },
+        {
+          maxOutputChars: SCRIPT_HARD_LIMIT
         }
       );
-      if (rewrittenContent) {
-        setLocalScript(rewrittenContent);
-        updateProject({ rawScript: rewrittenContent });
+      const finalContent = (rewrittenContent || streamed).trim().slice(0, SCRIPT_HARD_LIMIT);
+      if (!finalContent) {
+        throw new Error('AI 未返回改写内容');
       }
+      if (finalContent !== baseScript) {
+        setLastRewriteSnapshot(baseScript);
+      }
+      setLocalScript(finalContent);
+      updateProject({ rawScript: finalContent });
+      if (wasTruncated || rewrittenContent.length > SCRIPT_HARD_LIMIT) {
+        showAlert(`改写结果已按单集上限自动截断（最大 ${SCRIPT_HARD_LIMIT} 字符）。`, { type: 'warning' });
+      }
+    } catch (streamErr: any) {
+      console.error(streamErr);
+      try {
+        const rewrittenContent = await rewriteScript(
+          baseScript,
+          localLanguage,
+          finalModel,
+          {
+            maxOutputChars: SCRIPT_HARD_LIMIT
+          }
+        );
+        const safeRewrittenContent = rewrittenContent.trim().slice(0, SCRIPT_HARD_LIMIT);
+        if (!safeRewrittenContent.trim()) {
+          throw new Error('AI 未返回改写内容');
+        }
+        if (safeRewrittenContent !== baseScript) {
+          setLastRewriteSnapshot(baseScript);
+        }
+        if (safeRewrittenContent.length < rewrittenContent.length) {
+          showAlert(`改写结果已按单集上限自动截断（最大 ${SCRIPT_HARD_LIMIT} 字符）。`, { type: 'warning' });
+        }
+        setLocalScript(safeRewrittenContent);
+        updateProject({ rawScript: safeRewrittenContent });
+      } catch (fallbackErr: any) {
+        console.error(fallbackErr);
+        setLocalScript(baseScript);
+        updateProject({ rawScript: baseScript });
+        setError(`AI改写失败，已恢复原稿: ${fallbackErr.message || streamErr?.message || "连接失败"}`);
+      }
+    } finally {
+      setIsRewriting(false);
+      setProcessingMessage('');
+    }
+  };
+
+  const handleSelectionChange = (start: number, end: number) => {
+    if (end <= start) {
+      setSelectionRange(null);
+      return;
+    }
+    setSelectionRange({ start, end });
+  };
+
+  const selectedText = selectionRange
+    ? localScript.slice(selectionRange.start, selectionRange.end)
+    : '';
+
+  const handleRewriteSelection = async () => {
+    const finalModel = getFinalValue(localModel, customModelInput);
+    const currentSelection = selectionRange;
+    const trimmedInstruction = rewriteInstruction.trim();
+
+    if (!localScript.trim()) {
+      setError('请先输入剧本内容。');
+      return;
+    }
+    if (!currentSelection || currentSelection.end <= currentSelection.start) {
+      setError('请先在编辑区选择需要改写的段落。');
+      return;
+    }
+    if (!trimmedInstruction) {
+      setError('请输入改写要求。');
+      return;
+    }
+    if (!finalModel) {
+      setError('请选择或输入模型名称。');
+      return;
+    }
+
+    const baseScript = localScript;
+    const selectedSegment = baseScript.slice(currentSelection.start, currentSelection.end);
+
+    if (!selectedSegment.trim()) {
+      setError('选中内容为空，请重新选择段落。');
+      return;
+    }
+
+    const prefix = baseScript.slice(0, currentSelection.start);
+    const suffix = baseScript.slice(currentSelection.end);
+
+    setIsRewriting(true);
+    setProcessingMessage('AI选段改写中...');
+    setProcessingLogs([]);
+    setError(null);
+
+    let streamed = '';
+
+    try {
+      const rewrittenSegment = await rewriteScriptSegmentStream(
+        baseScript,
+        selectedSegment,
+        trimmedInstruction,
+        localLanguage,
+        finalModel,
+        (delta) => {
+          streamed += delta;
+          const nextScript = prefix + streamed + suffix;
+          setLocalScript(nextScript);
+          updateProject({ rawScript: nextScript });
+        }
+      );
+
+      const finalSegment = rewrittenSegment || streamed;
+      const nextScript = prefix + finalSegment + suffix;
+      if (nextScript !== baseScript) {
+        setLastRewriteSnapshot(baseScript);
+      }
+      setLocalScript(nextScript);
+      updateProject({ rawScript: nextScript });
+      setSelectionRange({
+        start: currentSelection.start,
+        end: currentSelection.start + finalSegment.length,
+      });
     } catch (err: any) {
       console.error(err);
-      setError(`AI改写失败: ${err.message || "连接失败"}`);
+      setError(`AI选段改写失败: ${err.message || '连接失败'}`);
       try {
-        const rewrittenContent = await rewriteScript(baseScript, localLanguage, finalModel);
-        setLocalScript(rewrittenContent);
-        updateProject({ rawScript: rewrittenContent });
+        const rewrittenSegment = await rewriteScriptSegment(
+          baseScript,
+          selectedSegment,
+          trimmedInstruction,
+          localLanguage,
+          finalModel
+        );
+        const nextScript = prefix + rewrittenSegment + suffix;
+        if (nextScript !== baseScript) {
+          setLastRewriteSnapshot(baseScript);
+        }
+        setLocalScript(nextScript);
+        updateProject({ rawScript: nextScript });
+        setSelectionRange({
+          start: currentSelection.start,
+          end: currentSelection.start + rewrittenSegment.length,
+        });
       } catch (fallbackErr: any) {
         console.error(fallbackErr);
       }
@@ -261,6 +1035,34 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
       setProcessingMessage('');
     }
   };
+
+  const handleUndoRewrite = () => {
+    if (!lastRewriteSnapshot) return;
+
+    setLocalScript(lastRewriteSnapshot);
+    updateProject({ rawScript: lastRewriteSnapshot });
+    setSelectionRange(null);
+    setLastRewriteSnapshot(null);
+    showAlert('已撤回上次改写', { type: 'success' });
+  };
+
+  const draftAnalyzeConfigKey = buildAnalyzeConfigKey({
+    script: localScript,
+    language: localLanguage,
+    targetDuration: getDraftValue(localDuration, customDurationInput, project.targetDuration || DEFAULTS.duration),
+    model: getDraftValue(localModel, customModelInput, project.shotGenerationModel || DEFAULTS.model),
+    visualStyle: getDraftValue(localVisualStyle, customStyleInput, project.visualStyle || DEFAULTS.visualStyle),
+    enableQualityCheck
+  });
+  const analyzeCheckpoint = project.scriptGenerationCheckpoint;
+  const hasResumeCheckpoint =
+    !!analyzeCheckpoint &&
+    analyzeCheckpoint.configKey === draftAnalyzeConfigKey &&
+    !!analyzeCheckpoint.scriptData;
+  const analyzeButtonLabel =
+    hasResumeCheckpoint && analyzeCheckpoint?.step !== 'structure'
+      ? '继续生成分镜脚本'
+      : '生成分镜脚本';
 
   const showProcessingToast = isProcessing || isContinuing || isRewriting;
   const toastMessage = processingMessage || (isProcessing
@@ -574,6 +1376,17 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
               ))}
             </div>
           )}
+          {isProcessing && (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={handleCancelAnalyze}
+                className="rounded border border-zinc-400/60 px-2 py-1 text-[11px] text-white/90 transition-colors hover:border-white hover:text-white"
+              >
+                取消生成
+              </button>
+            </div>
+          )}
         </div>
       )}
       {activeTab === 'story' ? (
@@ -598,13 +1411,27 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
             onCustomDurationChange={setCustomDurationInput}
             onCustomModelChange={setCustomModelInput}
             onCustomStyleChange={setCustomStyleInput}
+            enableQualityCheck={enableQualityCheck}
+            onToggleQualityCheck={setEnableQualityCheck}
             onAnalyze={handleAnalyze}
+            analyzeButtonLabel={analyzeButtonLabel}
+            canCancelAnalyze={!!analyzeAbortControllerRef.current}
+            onCancelAnalyze={handleCancelAnalyze}
           />
           <ScriptEditor
             script={localScript}
+            scriptSoftLimit={SCRIPT_SOFT_LIMIT}
+            scriptHardLimit={SCRIPT_HARD_LIMIT}
             onChange={setLocalScript}
             onContinue={handleContinueScript}
             onRewrite={handleRewriteScript}
+            onSelectionChange={handleSelectionChange}
+            selectedText={selectedText}
+            rewriteInstruction={rewriteInstruction}
+            onRewriteInstructionChange={setRewriteInstruction}
+            onRewriteSelection={handleRewriteSelection}
+            onUndoRewrite={handleUndoRewrite}
+            canUndoRewrite={!!lastRewriteSnapshot}
             isContinuing={isContinuing}
             isRewriting={isRewriting}
             lastModified={project.lastModified}
@@ -638,6 +1465,14 @@ const StageScript: React.FC<Props> = ({ project, updateProject, onShowModelConfi
           onAddSubShot={handleAddSubShot}
           onDeleteShot={handleDeleteShot}
           onBackToStory={() => setActiveTab('story')}
+        />
+      )}
+
+      {pendingParseResult && (
+        <AssetMatchDialog
+          matches={pendingParseResult.matches}
+          onConfirm={handleAssetMatchConfirm}
+          onCancel={handleAssetMatchCancel}
         />
       )}
     </div>

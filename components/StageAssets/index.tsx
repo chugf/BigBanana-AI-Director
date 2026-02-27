@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Sparkles, RefreshCw, Loader2, MapPin, Archive, X, Search, Trash2, Package } from 'lucide-react';
+import { Users, Sparkles, RefreshCw, Loader2, MapPin, Archive, X, Search, Trash2, Package, Link2 } from 'lucide-react';
 import { ProjectState, CharacterVariation, Character, Scene, Prop, AspectRatio, AssetLibraryItem, CharacterTurnaroundPanel } from '../../types';
 import { generateImage, generateVisualPrompts, generateCharacterTurnaroundPanels, generateCharacterTurnaroundImage } from '../../services/aiService';
 import { 
@@ -23,6 +23,11 @@ import { getAllAssetLibraryItems, saveAssetToLibrary, deleteAssetFromLibrary } f
 import { applyLibraryItemToProject, createLibraryItemFromCharacter, createLibraryItemFromScene, createLibraryItemFromProp, cloneCharacterForProject } from '../../services/assetLibraryService';
 import { AspectRatioSelector } from '../AspectRatioSelector';
 import { getUserAspectRatio, setUserAspectRatio, getActiveImageModel } from '../../services/modelRegistry';
+import { updatePromptWithVersion } from '../../services/promptVersionService';
+import CharacterLibraryPickerModal from './CharacterLibraryPicker';
+import ProjectAssetPicker from './ProjectAssetPicker';
+import { loadSeriesProject } from '../../services/storageService';
+import { SeriesProject } from '../../types';
 
 interface Props {
   project: ProjectState;
@@ -44,7 +49,123 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const [libraryProjectFilter, setLibraryProjectFilter] = useState('all');
   const [replaceTargetCharId, setReplaceTargetCharId] = useState<string | null>(null);
   const [turnaroundCharId, setTurnaroundCharId] = useState<string | null>(null);
-  
+  const [showCharLibraryPicker, setShowCharLibraryPicker] = useState(false);
+  const [showSceneLibraryPicker, setShowSceneLibraryPicker] = useState(false);
+  const [showPropLibraryPicker, setShowPropLibraryPicker] = useState(false);
+  const [pickerProject, setPickerProject] = useState<SeriesProject | null>(null);
+
+  const loadPickerProject = async (): Promise<SeriesProject | null> => {
+    if (!project.projectId) return null;
+    try {
+      const sp = await loadSeriesProject(project.projectId);
+      setPickerProject(sp);
+      return sp;
+    } catch { return null; }
+  };
+
+  const upsertEpisodeRef = <TRef,>(
+    refs: TRef[] | undefined,
+    key: string,
+    getKey: (ref: TRef) => string,
+    nextRef: TRef
+  ): TRef[] => {
+    const currentRefs = refs || [];
+    const hasRef = currentRefs.some(ref => getKey(ref) === key);
+    if (!hasRef) return [...currentRefs, nextRef];
+    return currentRefs.map(ref => (getKey(ref) === key ? nextRef : ref));
+  };
+
+  const upsertCharacterRef = (characterId: string, syncedVersion: number) =>
+    upsertEpisodeRef(
+      project.characterRefs,
+      characterId,
+      ref => ref.characterId,
+      { characterId, syncedVersion, syncStatus: 'synced' as const }
+    );
+
+  const upsertSceneRef = (sceneId: string, syncedVersion: number) =>
+    upsertEpisodeRef(
+      project.sceneRefs,
+      sceneId,
+      ref => ref.sceneId,
+      { sceneId, syncedVersion, syncStatus: 'synced' as const }
+    );
+
+  const upsertPropRef = (propId: string, syncedVersion: number) =>
+    upsertEpisodeRef(
+      project.propRefs,
+      propId,
+      ref => ref.propId,
+      { propId, syncedVersion, syncStatus: 'synced' as const }
+    );
+
+  const appendLinkedLibraryAsset = <
+    TAsset extends { id: string; version?: number },
+    TField extends 'characters' | 'scenes' | 'props',
+    TRefField extends 'characterRefs' | 'sceneRefs' | 'propRefs'
+  >(params: {
+    asset: TAsset;
+    idPrefix: 'char' | 'scene' | 'prop';
+    field: TField;
+    refField: TRefField;
+    upsertRef: (assetId: string, syncedVersion: number) => ProjectState[TRefField];
+    onDone: () => void;
+  }) => {
+    if (!project.scriptData) return;
+
+    const { asset, idPrefix, field, refField, upsertRef, onDone } = params;
+    const linkedAsset = {
+      ...asset,
+      id: generateId(idPrefix),
+      libraryId: asset.id,
+      libraryVersion: asset.version || 1,
+    };
+    const nextRefs = upsertRef(asset.id, asset.version || 1);
+
+    updateProject(prev => {
+      const currentScriptData = prev.scriptData!;
+      const currentItems = ((currentScriptData as any)[field] || []) as any[];
+      return {
+        ...prev,
+        scriptData: invalidateShotGenerationMeta({
+          ...currentScriptData,
+          [field]: [...currentItems, linkedAsset],
+        }),
+        [refField]: nextRefs,
+      };
+    });
+
+    onDone();
+  };
+
+  const cloneScriptData = <T extends ProjectState['scriptData']>(scriptData: T): T => {
+    if (!scriptData) return scriptData;
+    if (typeof structuredClone === 'function') {
+      return structuredClone(scriptData);
+    }
+    return JSON.parse(JSON.stringify(scriptData)) as T;
+  };
+
+  const invalidateShotGenerationMeta = <T extends ProjectState['scriptData']>(scriptData: T): T => {
+    if (!scriptData) return scriptData;
+    return {
+      ...scriptData,
+      generationMeta: {
+        ...(scriptData.generationMeta || {}),
+        shotsKey: undefined,
+        generatedAt: Date.now()
+      }
+    } as T;
+  };
+
+  useEffect(() => {
+    const handler = () => {
+      loadPickerProject().then(sp => { if (sp) setShowCharLibraryPicker(true); });
+    };
+    window.addEventListener('openCharacterLibraryPicker', handler);
+    return () => window.removeEventListener('openCharacterLibraryPicker', handler);
+  }, [project.projectId]);
+
   // 横竖屏选择状态（从持久化配置读取）
   const [aspectRatio, setAspectRatioState] = useState<AspectRatio>(() => getUserAspectRatio());
   
@@ -59,6 +180,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const language = getProjectLanguage(project.language, project.scriptData?.language);
   const visualStyle = getProjectVisualStyle(project.visualStyle, project.scriptData?.visualStyle);
   const genre = project.scriptData?.genre || DEFAULTS.genre;
+  const shotPromptModel = project.shotGenerationModel || project.scriptData?.shotGenerationModel || DEFAULTS.modelVersion;
 
   /**
    * 组件加载时，检测并重置卡住的生成状态
@@ -85,35 +207,35 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
     if (hasStuckCharacters || hasStuckScenes || hasStuckProps) {
       console.log('🔧 检测到卡住的生成状态，正在重置...');
-      const newData = { ...project.scriptData };
+      const newData = cloneScriptData(project.scriptData);
       
       // 重置角色状态
       newData.characters = newData.characters.map(char => ({
         ...char,
-        status: char.status === 'generating' && !char.referenceImage ? 'failed' as const : char.status,
+        status: char.status === 'generating' ? 'failed' as const : char.status,
         variations: char.variations?.map(v => ({
           ...v,
-          status: v.status === 'generating' && !v.referenceImage ? 'failed' as const : v.status
+          status: v.status === 'generating' ? 'failed' as const : v.status
         }))
       }));
       
       // 重置场景状态
       newData.scenes = newData.scenes.map(scene => ({
         ...scene,
-        status: scene.status === 'generating' && !scene.referenceImage ? 'failed' as const : scene.status
+        status: scene.status === 'generating' ? 'failed' as const : scene.status
       }));
 
       // 重置道具状态
       if (newData.props) {
         newData.props = newData.props.map(prop => ({
           ...prop,
-          status: prop.status === 'generating' && !prop.referenceImage ? 'failed' as const : prop.status
+          status: prop.status === 'generating' ? 'failed' as const : prop.status
         }));
       }
       
       updateProject({ scriptData: newData });
     }
-  }, [project.id]); // 仅在项目ID变化时运行，避免重复执行
+  }, []); // 进入资产页时执行一次，清理离开页面后遗留的 generating 状态
 
   /**
    * 上报生成状态给父组件，用于导航锁定
@@ -146,7 +268,6 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   }, []);
 
   const refreshLibrary = async () => {
-    setLibraryLoading(true);
     try {
       const items = await getAllAssetLibraryItems();
       setLibraryItems(items);
@@ -157,25 +278,25 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     }
   };
 
-  useEffect(() => {
-    if (showLibraryModal) {
-      refreshLibrary();
-    }
-  }, [showLibraryModal]);
-
   const openLibrary = (filter: 'all' | 'character' | 'scene' | 'prop', targetCharId: string | null = null) => {
     setLibraryFilter(filter);
     setReplaceTargetCharId(targetCharId);
+    setLibraryLoading(true);
     setShowLibraryModal(true);
+    void refreshLibrary();
   };
 
   /**
    * 生成资源（角色或场景）
    */
   const handleGenerateAsset = async (type: 'character' | 'scene', id: string) => {
-    // 设置生成状态
-    if (project.scriptData) {
-      const newData = { ...project.scriptData };
+    const scriptSnapshot = project.scriptData;
+    if (!scriptSnapshot) return;
+
+    // 璁剧疆鐢熸垚鐘舵€?
+    updateProject(prev => {
+      if (!prev.scriptData) return prev;
+      const newData = cloneScriptData(prev.scriptData);
       if (type === 'character') {
         const c = newData.characters.find(c => compareIds(c.id, id));
         if (c) c.status = 'generating';
@@ -183,70 +304,121 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         const s = newData.scenes.find(s => compareIds(s.id, id));
         if (s) s.status = 'generating';
       }
-      updateProject({ scriptData: newData });
-    }
+      return { ...prev, scriptData: newData };
+    });
+
     try {
       let prompt = "";
-      
+      let negativePrompt = "";
+      let characterReferenceImages: string[] = [];
+      let characterHasTurnaroundReference = false;
+
       if (type === 'character') {
-        const char = project.scriptData?.characters.find(c => compareIds(c.id, id));
+        const char = scriptSnapshot.characters.find(c => compareIds(c.id, id));
         if (char) {
+          if (char.referenceImage) {
+            characterReferenceImages.push(char.referenceImage);
+          }
+          if (char.turnaround?.status === 'completed' && char.turnaround.imageUrl && !characterReferenceImages.includes(char.turnaround.imageUrl)) {
+            characterReferenceImages.push(char.turnaround.imageUrl);
+            characterHasTurnaroundReference = true;
+          }
+
           if (char.visualPrompt) {
             prompt = char.visualPrompt;
+            negativePrompt = char.negativePrompt || '';
           } else {
-            const prompts = await generateVisualPrompts('character', char, genre, DEFAULTS.modelVersion, visualStyle, language);
+            const prompts = await generateVisualPrompts('character', char, genre, shotPromptModel, visualStyle, language);
             prompt = prompts.visualPrompt;
-            
-            // 保存生成的提示词
-            if (project.scriptData) {
-              const newData = { ...project.scriptData };
+            negativePrompt = prompts.negativePrompt;
+
+            // 淇濆瓨鐢熸垚鐨勬彁绀鸿瘝
+            updateProject(prev => {
+              if (!prev.scriptData) return prev;
+              const newData = cloneScriptData(prev.scriptData);
               const c = newData.characters.find(c => compareIds(c.id, id));
               if (c) {
+                c.promptVersions = updatePromptWithVersion(
+                  c.visualPrompt,
+                  prompts.visualPrompt,
+                  c.promptVersions,
+                  'ai-generated',
+                  'Auto-generated character prompt'
+                );
                 c.visualPrompt = prompts.visualPrompt;
                 c.negativePrompt = prompts.negativePrompt;
               }
-              updateProject({ scriptData: newData });
-            }
+              return { ...prev, scriptData: newData };
+            });
           }
         }
       } else {
-        const scene = project.scriptData?.scenes.find(s => compareIds(s.id, id));
+        const scene = scriptSnapshot.scenes.find(s => compareIds(s.id, id));
         if (scene) {
           if (scene.visualPrompt) {
             prompt = scene.visualPrompt;
+            negativePrompt = scene.negativePrompt || '';
           } else {
-            const prompts = await generateVisualPrompts('scene', scene, genre, DEFAULTS.modelVersion, visualStyle, language);
+            const prompts = await generateVisualPrompts('scene', scene, genre, shotPromptModel, visualStyle, language);
             prompt = prompts.visualPrompt;
-            
-            // 保存生成的提示词
-            if (project.scriptData) {
-              const newData = { ...project.scriptData };
+            negativePrompt = prompts.negativePrompt;
+
+            // 淇濆瓨鐢熸垚鐨勬彁绀鸿瘝
+            updateProject(prev => {
+              if (!prev.scriptData) return prev;
+              const newData = cloneScriptData(prev.scriptData);
               const s = newData.scenes.find(s => compareIds(s.id, id));
               if (s) {
+                s.promptVersions = updatePromptWithVersion(
+                  s.visualPrompt,
+                  prompts.visualPrompt,
+                  s.promptVersions,
+                  'ai-generated',
+                  'Auto-generated scene prompt'
+                );
                 s.visualPrompt = prompts.visualPrompt;
                 s.negativePrompt = prompts.negativePrompt;
               }
-              updateProject({ scriptData: newData });
-            }
+              return { ...prev, scriptData: newData };
+            });
           }
         }
       }
 
-      // 添加地域特征前缀
+      // 娣诲姞鍦板煙鐗瑰緛鍓嶇紑
       const regionalPrefix = getRegionalPrefix(language, type);
       let enhancedPrompt = regionalPrefix + prompt;
 
-      // 场景图片：追加"纯环境/无人物"指令，避免生成人物干扰角色一致性
+      // Scene image: enforce environment-only composition to avoid accidental people.
       if (type === 'scene') {
         enhancedPrompt += '. IMPORTANT: This is a pure environment/background scene with absolutely NO people, NO human figures, NO characters, NO silhouettes, NO crowds - empty scene only.';
       }
 
-      // 生成图片（使用选择的横竖屏比例）
-      const imageUrl = await generateImage(enhancedPrompt, [], aspectRatio);
+      // 鐢熸垚鍥剧墖锛堜娇鐢ㄩ€夋嫨鐨勬í绔栧睆姣斾緥锛?
+      if (type === 'character' && characterReferenceImages.length > 0) {
+        enhancedPrompt += '\n\nIMPORTANT IDENTITY LOCK: Use the provided references as the same character identity anchor. Keep face, hairstyle, body proportions, outfit materials, and signature accessories consistent. Do NOT redesign this character.';
+        if (characterHasTurnaroundReference) {
+          enhancedPrompt += ' If a 3x3 turnaround sheet is included, prioritize the panel that matches the camera angle and preserve angle-specific details.';
+        }
+      }
 
-      // 更新状态
-      if (project.scriptData) {
-        const newData = { ...project.scriptData };
+      const referenceImagesForGeneration = type === 'character' ? characterReferenceImages : [];
+      const imageUrl = await generateImage(
+        enhancedPrompt,
+        referenceImagesForGeneration,
+        aspectRatio,
+        false,
+        type === 'character' ? characterHasTurnaroundReference : false,
+        negativePrompt,
+        type === 'character'
+          ? { referencePackType: 'character' }
+          : { referencePackType: 'scene' }
+      );
+
+      // 鏇存柊鐘舵€?
+      updateProject(prev => {
+        if (!prev.scriptData) return prev;
+        const newData = cloneScriptData(prev.scriptData);
         if (type === 'character') {
           const c = newData.characters.find(c => compareIds(c.id, id));
           if (c) {
@@ -260,14 +432,15 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
             s.status = 'completed';
           }
         }
-        updateProject({ scriptData: newData });
-      }
+        return { ...prev, scriptData: newData };
+      });
 
     } catch (e: any) {
       console.error(e);
-      // 设置失败状态
-      if (project.scriptData) {
-        const newData = { ...project.scriptData };
+      // 璁剧疆澶辫触鐘舵€?
+      updateProject(prev => {
+        if (!prev.scriptData) return prev;
+        const newData = cloneScriptData(prev.scriptData);
         if (type === 'character') {
           const c = newData.characters.find(c => compareIds(c.id, id));
           if (c) c.status = 'failed';
@@ -275,17 +448,13 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
           const s = newData.scenes.find(s => compareIds(s.id, id));
           if (s) s.status = 'failed';
         }
-        updateProject({ scriptData: newData });
-      }
+        return { ...prev, scriptData: newData };
+      });
       if (onApiKeyError && onApiKeyError(e)) {
         return;
       }
     }
   };
-
-  /**
-   * 批量生成资源
-   */
   const handleBatchGenerate = async (type: 'character' | 'scene') => {
     const items = type === 'character' 
       ? project.scriptData?.characters 
@@ -332,7 +501,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const char = newData.characters.find(c => compareIds(c.id, charId));
         if (char) {
           char.referenceImage = base64;
@@ -354,7 +523,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const scene = newData.scenes.find(s => compareIds(s.id, sceneId));
         if (scene) {
           scene.referenceImage = base64;
@@ -418,7 +587,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const handleImportFromLibrary = (item: AssetLibraryItem) => {
     try {
       const updated = applyLibraryItemToProject(project, item);
-      updateProject(() => updated);
+      updateProject(() => ({
+        ...updated,
+        scriptData: invalidateShotGenerationMeta(updated.scriptData)
+      }));
       showAlert(`已导入：${item.name}`, { type: 'success' });
     } catch (e: any) {
       showAlert(e?.message || '导入失败', { type: 'error' });
@@ -432,7 +604,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     }
     if (!project.scriptData) return;
 
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const index = newData.characters.findIndex((c) => compareIds(c.id, targetId));
     if (index === -1) return;
 
@@ -453,7 +625,19 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       };
     });
 
-    updateProject({ scriptData: newData, shots: nextShots });
+    let nextRefs = project.characterRefs || [];
+    if (previous.libraryId) {
+      const hasOtherLinked = newData.characters.some(c => c.libraryId === previous.libraryId);
+      if (!hasOtherLinked) {
+        nextRefs = nextRefs.filter(ref => ref.characterId !== previous.libraryId);
+      }
+    }
+
+    updateProject({
+      scriptData: invalidateShotGenerationMeta(newData),
+      shots: nextShots,
+      characterRefs: nextRefs
+    });
     showAlert(`已替换角色：${previous.name} → ${cloned.name}`, { type: 'success' });
     setShowLibraryModal(false);
     setReplaceTargetCharId(null);
@@ -473,11 +657,17 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleSaveCharacterPrompt = (charId: string, newPrompt: string) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const char = newData.characters.find(c => compareIds(c.id, charId));
     if (char) {
+      char.promptVersions = updatePromptWithVersion(
+        char.visualPrompt,
+        newPrompt,
+        char.promptVersions,
+        'manual-edit'
+      );
       char.visualPrompt = newPrompt;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
@@ -486,14 +676,14 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleUpdateCharacterInfo = (charId: string, updates: { name?: string; gender?: string; age?: string; personality?: string }) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const char = newData.characters.find(c => compareIds(c.id, charId));
     if (char) {
       if (updates.name !== undefined) char.name = updates.name;
       if (updates.gender !== undefined) char.gender = updates.gender;
       if (updates.age !== undefined) char.age = updates.age;
       if (updates.personality !== undefined) char.personality = updates.personality;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
@@ -502,11 +692,17 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleSaveScenePrompt = (sceneId: string, newPrompt: string) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const scene = newData.scenes.find(s => compareIds(s.id, sceneId));
     if (scene) {
+      scene.promptVersions = updatePromptWithVersion(
+        scene.visualPrompt,
+        newPrompt,
+        scene.promptVersions,
+        'manual-edit'
+      );
       scene.visualPrompt = newPrompt;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
@@ -515,13 +711,13 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleUpdateSceneInfo = (sceneId: string, updates: { location?: string; time?: string; atmosphere?: string }) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const scene = newData.scenes.find(s => compareIds(s.id, sceneId));
     if (scene) {
       if (updates.location !== undefined) scene.location = updates.location;
       if (updates.time !== undefined) scene.time = updates.time;
       if (updates.atmosphere !== undefined) scene.atmosphere = updates.atmosphere;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
@@ -542,9 +738,9 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       status: 'pending'
     };
 
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     newData.characters.push(newChar);
-    updateProject({ scriptData: newData });
+    updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     showAlert('新角色已创建，请编辑提示词并生成图片', { type: 'success' });
   };
 
@@ -565,9 +761,44 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         confirmText: '删除',
         cancelText: '取消',
         onConfirm: () => {
-          const newData = { ...project.scriptData! };
+          const newData = cloneScriptData(project.scriptData!);
           newData.characters = newData.characters.filter(c => !compareIds(c.id, charId));
-          updateProject({ scriptData: newData });
+          const nextShots = project.shots.map(shot => {
+            const nextCharacters = shot.characters.filter(cid => !compareIds(cid, charId));
+            if (!shot.characterVariations) {
+              if (nextCharacters.length === shot.characters.length) return shot;
+              return { ...shot, characters: nextCharacters };
+            }
+
+            const nextVariations: Record<string, string> = {};
+            Object.entries(shot.characterVariations as Record<string, string>).forEach(([key, value]) => {
+              if (!compareIds(key, charId)) nextVariations[key] = value;
+            });
+
+            const hasVariationChanged = Object.keys(nextVariations).length !== Object.keys(shot.characterVariations).length;
+            const hasCharacterChanged = nextCharacters.length !== shot.characters.length;
+            if (!hasVariationChanged && !hasCharacterChanged) return shot;
+
+            return {
+              ...shot,
+              characters: nextCharacters,
+              characterVariations: Object.keys(nextVariations).length > 0 ? nextVariations : undefined,
+            };
+          });
+
+          let nextRefs = project.characterRefs || [];
+          if (char.libraryId) {
+            const hasOtherLinkedCharacter = newData.characters.some(c => c.libraryId === char.libraryId);
+            if (!hasOtherLinkedCharacter) {
+              nextRefs = nextRefs.filter(ref => ref.characterId !== char.libraryId);
+            }
+          }
+
+          updateProject({
+            scriptData: invalidateShotGenerationMeta(newData),
+            shots: nextShots,
+            characterRefs: nextRefs
+          });
           showAlert(`角色 "${char.name}" 已删除`, { type: 'success' });
         }
       }
@@ -589,9 +820,9 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       status: 'pending'
     };
 
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     newData.scenes.push(newScene);
-    updateProject({ scriptData: newData });
+    updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     showAlert('新场景已创建，请编辑提示词并生成图片', { type: 'success' });
   };
 
@@ -612,9 +843,21 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         confirmText: '删除',
         cancelText: '取消',
         onConfirm: () => {
-          const newData = { ...project.scriptData! };
+          const newData = cloneScriptData(project.scriptData!);
           newData.scenes = newData.scenes.filter(s => !compareIds(s.id, sceneId));
-          updateProject({ scriptData: newData });
+          const nextShots = project.shots.filter(shot => !compareIds(shot.sceneId, sceneId));
+          let nextRefs = project.sceneRefs || [];
+          if (scene.libraryId) {
+            const hasOtherLinkedScene = newData.scenes.some(s => s.libraryId === scene.libraryId);
+            if (!hasOtherLinkedScene) {
+              nextRefs = nextRefs.filter(ref => ref.sceneId !== scene.libraryId);
+            }
+          }
+          updateProject({
+            scriptData: invalidateShotGenerationMeta(newData),
+            shots: nextShots,
+            sceneRefs: nextRefs
+          });
           showAlert(`场景 "${scene.location}" 已删除`, { type: 'success' });
         }
       }
@@ -640,10 +883,10 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       status: 'pending'
     };
 
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     if (!newData.props) newData.props = [];
     newData.props.push(newProp);
-    updateProject({ scriptData: newData });
+    updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     showAlert('新道具已创建，请编辑描述和提示词并生成图片', { type: 'success' });
   };
 
@@ -664,14 +907,27 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         confirmText: '删除',
         cancelText: '取消',
         onConfirm: () => {
-          const newData = { ...project.scriptData! };
+          const newData = cloneScriptData(project.scriptData!);
           newData.props = (newData.props || []).filter(p => !compareIds(p.id, propId));
           // 清除所有镜头中对该道具的引用
           const nextShots = project.shots.map(shot => {
-            if (!shot.props || !shot.props.includes(propId)) return shot;
-            return { ...shot, props: shot.props.filter(id => id !== propId) };
+            if (!shot.props || !shot.props.some(id => compareIds(id, propId))) return shot;
+            return { ...shot, props: shot.props.filter(id => !compareIds(id, propId)) };
           });
-          updateProject({ scriptData: newData, shots: nextShots });
+
+          let nextRefs = project.propRefs || [];
+          if (prop.libraryId) {
+            const hasOtherLinkedProp = (newData.props || []).some(p => p.libraryId === prop.libraryId);
+            if (!hasOtherLinkedProp) {
+              nextRefs = nextRefs.filter(ref => ref.propId !== prop.libraryId);
+            }
+          }
+
+          updateProject({
+            scriptData: invalidateShotGenerationMeta(newData),
+            shots: nextShots,
+            propRefs: nextRefs
+          });
           showAlert(`道具 "${prop.name}" 已删除`, { type: 'success' });
         }
       }
@@ -682,61 +938,114 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    * 生成道具图片
    */
   const handleGeneratePropAsset = async (propId: string) => {
-    if (!project.scriptData) return;
-    
-    // 设置生成状态
-    const newData = { ...project.scriptData };
-    const p = (newData.props || []).find(p => compareIds(p.id, propId));
-    if (p) p.status = 'generating';
-    updateProject({ scriptData: newData });
+    const scriptSnapshot = project.scriptData;
+    if (!scriptSnapshot) return;
+
+    // 璁剧疆鐢熸垚鐘舵€?
+    updateProject(prev => {
+      if (!prev.scriptData) return prev;
+      const newData = cloneScriptData(prev.scriptData);
+      const p = (newData.props || []).find(prop => compareIds(prop.id, propId));
+      if (p) p.status = 'generating';
+      return { ...prev, scriptData: newData };
+    });
 
     try {
-      const prop = project.scriptData.props?.find(p => compareIds(p.id, propId));
+      const prop = scriptSnapshot.props?.find(p => compareIds(p.id, propId));
       if (!prop) return;
 
       let prompt = '';
+      let negativePrompt = prop.negativePrompt || '';
       if (prop.visualPrompt) {
         prompt = prop.visualPrompt;
       } else {
-        // 自动生成提示词
-        prompt = `A detailed product shot of "${prop.name}". ${prop.description || ''}. Category: ${prop.category}. High quality, studio lighting, clean background, detailed texture and material rendering.`;
+        const prompts = await generateVisualPrompts(
+          'prop',
+          prop,
+          genre,
+          shotPromptModel,
+          visualStyle,
+          language,
+          scriptSnapshot.artDirection
+        );
+        prompt = prompts.visualPrompt;
+        negativePrompt = prompts.negativePrompt || negativePrompt;
+
+        // 保存 AI 生成的道具提示词和负面词，保证与角色/场景一致走统一链路
+        updateProject(prev => {
+          if (!prev.scriptData) return prev;
+          const newData = cloneScriptData(prev.scriptData);
+          const p = (newData.props || []).find(item => compareIds(item.id, propId));
+          if (p) {
+            p.promptVersions = updatePromptWithVersion(
+              p.visualPrompt,
+              prompts.visualPrompt,
+              p.promptVersions,
+              'ai-generated',
+              'Auto-generated prop prompt'
+            );
+            p.visualPrompt = prompts.visualPrompt;
+            p.negativePrompt = prompts.negativePrompt;
+          }
+          return { ...prev, scriptData: newData };
+        });
       }
 
-      // 道具图片：追加"纯物品/无人物"指令
+      // Prop image: enforce object-only shot without human figures.
       prompt += '. IMPORTANT: This is a standalone prop/item shot with absolutely NO people, NO human figures, NO characters - object only on clean/simple background.';
 
-      const imageUrl = await generateImage(prompt, [], aspectRatio);
+      const imageUrl = await generateImage(
+        prompt,
+        [],
+        aspectRatio,
+        false,
+        false,
+        negativePrompt,
+        { referencePackType: 'prop' }
+      );
 
-      // 更新状态
-      const updatedData = { ...project.scriptData };
-      const updated = (updatedData.props || []).find(p => compareIds(p.id, propId));
-      if (updated) {
-        updated.referenceImage = imageUrl;
-        updated.status = 'completed';
-        if (!updated.visualPrompt) {
-          updated.visualPrompt = prompt;
+      // 鏇存柊鐘舵€?
+      updateProject(prev => {
+        if (!prev.scriptData) return prev;
+        const updatedData = cloneScriptData(prev.scriptData);
+        const updated = (updatedData.props || []).find(p => compareIds(p.id, propId));
+        if (updated) {
+          updated.referenceImage = imageUrl;
+          updated.status = 'completed';
+          if (!updated.visualPrompt) {
+            updated.promptVersions = updatePromptWithVersion(
+              updated.visualPrompt,
+              prompt,
+              updated.promptVersions,
+              'ai-generated',
+              'Auto-generated prop prompt'
+            );
+            updated.visualPrompt = prompt;
+          }
+          if (!updated.negativePrompt && negativePrompt) {
+            updated.negativePrompt = negativePrompt;
+          }
         }
-      }
-      updateProject({ scriptData: updatedData });
+        return { ...prev, scriptData: updatedData };
+      });
     } catch (e: any) {
       console.error(e);
-      const errData = { ...project.scriptData };
-      const errP = (errData.props || []).find(p => compareIds(p.id, propId));
-      if (errP) errP.status = 'failed';
-      updateProject({ scriptData: errData });
+      updateProject(prev => {
+        if (!prev.scriptData) return prev;
+        const errData = cloneScriptData(prev.scriptData);
+        const errP = (errData.props || []).find(p => compareIds(p.id, propId));
+        if (errP) errP.status = 'failed';
+        return { ...prev, scriptData: errData };
+      });
       if (onApiKeyError && onApiKeyError(e)) return;
     }
   };
-
-  /**
-   * 上传道具图片
-   */
   const handleUploadPropImage = async (propId: string, file: File) => {
     try {
       const base64 = await handleImageUpload(file);
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const prop = (newData.props || []).find(p => compareIds(p.id, propId));
         if (prop) {
           prop.referenceImage = base64;
@@ -754,11 +1063,17 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleSavePropPrompt = (propId: string, newPrompt: string) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const prop = (newData.props || []).find(p => compareIds(p.id, propId));
     if (prop) {
+      prop.promptVersions = updatePromptWithVersion(
+        prop.visualPrompt,
+        newPrompt,
+        prop.promptVersions,
+        'manual-edit'
+      );
       prop.visualPrompt = newPrompt;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
@@ -767,13 +1082,13 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleUpdatePropInfo = (propId: string, updates: { name?: string; category?: string; description?: string }) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const prop = (newData.props || []).find(p => compareIds(p.id, propId));
     if (prop) {
       if (updates.name !== undefined) prop.name = updates.name;
       if (updates.category !== undefined) prop.category = updates.category;
       if (updates.description !== undefined) prop.description = updates.description;
-      updateProject({ scriptData: newData });
+      updateProject({ scriptData: invalidateShotGenerationMeta(newData) });
     }
   };
 
@@ -845,7 +1160,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleAddVariation = (charId: string, name: string, prompt: string) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const char = newData.characters.find(c => compareIds(c.id, charId));
     if (!char) return;
 
@@ -867,7 +1182,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
    */
   const handleDeleteVariation = (charId: string, varId: string) => {
     if (!project.scriptData) return;
-    const newData = { ...project.scriptData };
+    const newData = cloneScriptData(project.scriptData);
     const char = newData.characters.find(c => compareIds(c.id, charId));
     if (!char) return;
     
@@ -885,7 +1200,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
     // 设置生成状态
     if (project.scriptData) {
-      const newData = { ...project.scriptData };
+      const newData = cloneScriptData(project.scriptData);
       const c = newData.characters.find(c => compareIds(c.id, charId));
       const v = c?.variations?.find(v => compareIds(v.id, varId));
       if (v) v.status = 'generating';
@@ -896,11 +1211,20 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       const regionalPrefix = getRegionalPrefix(language, 'character');
       // 构建变体专用提示词：强调服装变化
       const enhancedPrompt = `${regionalPrefix}Character "${char.name}" wearing NEW OUTFIT: ${variation.visualPrompt}. This is a costume/outfit change - the character's face and identity must remain identical to the reference, but they should be wearing the described new outfit.`;
+      const negativePrompt = variation.negativePrompt || char.negativePrompt || '';
       
       // 使用选择的横竖屏比例，启用变体模式
-      const imageUrl = await generateImage(enhancedPrompt, refImages, aspectRatio, true);
+      const imageUrl = await generateImage(
+        enhancedPrompt,
+        refImages,
+        aspectRatio,
+        true,
+        false,
+        negativePrompt,
+        { referencePackType: 'character' }
+      );
 
-      const newData = { ...project.scriptData! };
+      const newData = cloneScriptData(project.scriptData!);
       const c = newData.characters.find(c => compareIds(c.id, charId));
       const v = c?.variations?.find(v => compareIds(v.id, varId));
       if (v) {
@@ -913,7 +1237,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       console.error(e);
       // 设置失败状态
       if (project.scriptData) {
-        const newData = { ...project.scriptData };
+        const newData = cloneScriptData(project.scriptData);
         const c = newData.characters.find(c => compareIds(c.id, charId));
         const v = c?.variations?.find(v => compareIds(v.id, varId));
         if (v) v.status = 'failed';
@@ -935,7 +1259,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
 
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const char = newData.characters.find(c => compareIds(c.id, charId));
         const variation = char?.variations?.find(v => compareIds(v.id, varId));
         if (variation) {
@@ -963,7 +1287,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     // 设置状态为 generating_panels
     updateProject((prev) => {
       if (!prev.scriptData) return prev;
-      const newData = { ...prev.scriptData };
+      const newData = cloneScriptData(prev.scriptData);
       const c = newData.characters.find(c => compareIds(c.id, charId));
       if (c) {
         c.turnaround = {
@@ -979,13 +1303,14 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         char,
         visualStyle,
         project.scriptData?.artDirection,
-        language
+        language,
+        shotPromptModel
       );
 
       // 更新状态为 panels_ready
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const c = newData.characters.find(c => compareIds(c.id, charId));
         if (c) {
           c.turnaround = {
@@ -999,7 +1324,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       console.error('九宫格视角描述生成失败:', e);
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const c = newData.characters.find(c => compareIds(c.id, charId));
         if (c && c.turnaround) {
           c.turnaround.status = 'failed';
@@ -1021,7 +1346,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
     // 设置状态为 generating_image
     updateProject((prev) => {
       if (!prev.scriptData) return prev;
-      const newData = { ...prev.scriptData };
+      const newData = cloneScriptData(prev.scriptData);
       const c = newData.characters.find(c => compareIds(c.id, charId));
       if (c && c.turnaround) {
         c.turnaround.status = 'generating_image';
@@ -1042,7 +1367,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       // 更新状态为 completed
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const c = newData.characters.find(c => compareIds(c.id, charId));
         if (c && c.turnaround) {
           c.turnaround.imageUrl = imageUrl;
@@ -1054,7 +1379,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
       console.error('九宫格造型图片生成失败:', e);
       updateProject((prev) => {
         if (!prev.scriptData) return prev;
-        const newData = { ...prev.scriptData };
+        const newData = cloneScriptData(prev.scriptData);
         const c = newData.characters.find(c => compareIds(c.id, charId));
         if (c && c.turnaround) {
           c.turnaround.status = 'failed';
@@ -1072,7 +1397,7 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const handleUpdateTurnaroundPanel = (charId: string, index: number, updates: Partial<CharacterTurnaroundPanel>) => {
     updateProject((prev) => {
       if (!prev.scriptData) return prev;
-      const newData = { ...prev.scriptData };
+      const newData = cloneScriptData(prev.scriptData);
       const c = newData.characters.find(c => compareIds(c.id, charId));
       if (c && c.turnaround && c.turnaround.panels[index]) {
         c.turnaround.panels[index] = { ...c.turnaround.panels[index], ...updates };
@@ -1113,15 +1438,20 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
   const allScenesReady = project.scriptData.scenes.every(s => s.referenceImage);
   const allPropsReady = (project.scriptData.props || []).length > 0 && (project.scriptData.props || []).every(p => p.referenceImage);
   const selectedChar = project.scriptData.characters.find(c => compareIds(c.id, selectedCharId));
-  const projectNameOptions = Array.from(
-    new Set(
-      libraryItems.map((item) => (item.projectName && item.projectName.trim()) || '未知项目')
+  const getLibraryProjectName = (item: AssetLibraryItem): string => {
+    const projectName = typeof item.projectName === 'string' ? item.projectName.trim() : '';
+    return projectName || 'Unknown Project';
+  };
+
+  const projectNameOptions = Array.from<string>(
+    new Set<string>(
+      libraryItems.map((item) => getLibraryProjectName(item))
     )
   ).sort((a, b) => a.localeCompare(b, 'zh-CN'));
   const filteredLibraryItems = libraryItems.filter((item) => {
     if (libraryFilter !== 'all' && item.type !== libraryFilter) return false;
     if (libraryProjectFilter !== 'all') {
-      const projectName = (item.projectName && item.projectName.trim()) || '未知项目';
+      const projectName = getLibraryProjectName(item);
       if (projectName !== libraryProjectFilter) return false;
     }
     if (!libraryQuery.trim()) return true;
@@ -1407,6 +1737,20 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
                 <Users className="w-3 h-3" />
                 新建角色
               </button>
+              {project.projectId && (
+                <button
+                  onClick={() => {
+                    if (project.projectId) {
+                      loadSeriesProject(project.projectId).then(sp => { setPickerProject(sp); setShowCharLibraryPicker(true); }).catch(() => {});
+                    }
+                  }}
+                  disabled={!!batchProgress}
+                  className={STYLES.secondaryButton}
+                >
+                  <Link2 className="w-3 h-3" />
+                  从角色库添加
+                </button>
+              )}
               <button 
                 onClick={() => openLibrary('character')}
                 disabled={!!batchProgress}
@@ -1466,6 +1810,16 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
                 <MapPin className="w-3 h-3" />
                 新建场景
               </button>
+              {project.projectId && (
+                <button
+                  onClick={() => { loadPickerProject().then(sp => { if (sp) setShowSceneLibraryPicker(true); }); }}
+                  disabled={!!batchProgress}
+                  className={STYLES.secondaryButton}
+                >
+                  <Link2 className="w-3 h-3" />
+                  从场景库添加
+                </button>
+              )}
               <button 
                 onClick={() => openLibrary('scene')}
                 disabled={!!batchProgress}
@@ -1522,6 +1876,16 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
                 <Package className="w-3 h-3" />
                 新建道具
               </button>
+              {project.projectId && (
+                <button
+                  onClick={() => { loadPickerProject().then(sp => { if (sp) setShowPropLibraryPicker(true); }); }}
+                  disabled={!!batchProgress}
+                  className={STYLES.secondaryButton}
+                >
+                  <Link2 className="w-3 h-3" />
+                  从道具库添加
+                </button>
+              )}
               <button 
                 onClick={() => openLibrary('prop')}
                 disabled={!!batchProgress}
@@ -1568,6 +1932,70 @@ const StageAssets: React.FC<Props> = ({ project, updateProject, onApiKeyError, o
         </section>
       </div>
 
+      {/* Character Library Picker */}
+      {showCharLibraryPicker && (
+        <CharacterLibraryPickerModal
+          isOpen={showCharLibraryPicker}
+          onClose={() => setShowCharLibraryPicker(false)}
+          project={pickerProject}
+          existingCharacterIds={(project.scriptData?.characters || []).filter(c => c.libraryId).map(c => c.libraryId!)}
+          onSelect={(libChar) => {
+            appendLinkedLibraryAsset({
+              asset: {
+                ...libChar,
+                variations: libChar.variations?.map(v => ({ ...v })) || [],
+              },
+              idPrefix: 'char',
+              field: 'characters',
+              refField: 'characterRefs',
+              upsertRef: upsertCharacterRef,
+              onDone: () => setShowCharLibraryPicker(false),
+            });
+          }}
+        />
+      )}
+
+      {/* Scene Library Picker */}
+      {showSceneLibraryPicker && (
+        <ProjectAssetPicker
+          isOpen={showSceneLibraryPicker}
+          onClose={() => setShowSceneLibraryPicker(false)}
+          project={pickerProject}
+          assetType="scene"
+          existingIds={(project.scriptData?.scenes || []).filter(s => !!s.libraryId).map(s => s.libraryId!)}
+          onSelectScene={(libScene) => {
+            appendLinkedLibraryAsset({
+              asset: libScene,
+              idPrefix: 'scene',
+              field: 'scenes',
+              refField: 'sceneRefs',
+              upsertRef: upsertSceneRef,
+              onDone: () => setShowSceneLibraryPicker(false),
+            });
+          }}
+        />
+      )}
+
+      {/* Prop Library Picker */}
+      {showPropLibraryPicker && (
+        <ProjectAssetPicker
+          isOpen={showPropLibraryPicker}
+          onClose={() => setShowPropLibraryPicker(false)}
+          project={pickerProject}
+          assetType="prop"
+          existingIds={(project.scriptData?.props || []).filter(p => !!p.libraryId).map(p => p.libraryId!)}
+          onSelectProp={(libProp) => {
+            appendLinkedLibraryAsset({
+              asset: libProp,
+              idPrefix: 'prop',
+              field: 'props',
+              refField: 'propRefs',
+              upsertRef: upsertPropRef,
+              onDone: () => setShowPropLibraryPicker(false),
+            });
+          }}
+        />
+      )}
     </div>
   );
 };

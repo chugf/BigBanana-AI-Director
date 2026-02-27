@@ -2,13 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { Video, Loader2, Edit2 } from 'lucide-react';
 import { Shot, AspectRatio, VideoDuration } from '../../types';
 import { VideoSettingsPanel } from '../AspectRatioSelector';
+import { resolveVideoModelRouting } from './utils';
 import { 
   getDefaultAspectRatio, 
   getDefaultVideoDuration,
   getVideoModels,
   getActiveVideoModel,
+  getProviderById,
 } from '../../services/modelRegistry';
 import { VideoModelDefinition } from '../../types/model';
+import { useResolvedVideoUrl } from '../../hooks/useResolvedVideoUrl';
 
 interface VideoGeneratorProps {
   shot: Shot;
@@ -53,13 +56,45 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
   
   // 当前选中的模型
   const selectedModel = videoModels.find(m => m.id === selectedModelId) as VideoModelDefinition | undefined;
+  const selectedProvider = selectedModel ? getProviderById(selectedModel.providerId) : undefined;
+  const requiresDedicatedApiKey = selectedModel?.providerId === 'volcengine';
+  const hasDedicatedApiKey = Boolean(
+    (selectedModel?.apiKey && selectedModel.apiKey.trim()) ||
+    (selectedProvider?.apiKey && selectedProvider.apiKey.trim())
+  );
+  const isMissingVolcengineApiKey = Boolean(requiresDedicatedApiKey && !hasDedicatedApiKey);
   const modelType: 'sora' | 'veo' = selectedModel?.params.mode === 'async' ? 'sora' : 'veo';
   const effectiveModelId = selectedModelId === 'veo_3_1-fast'
     ? (veoFastQuality === '4k' ? 'veo_3_1-fast-4K' : 'veo_3_1-fast')
     : selectedModelId;
+  const modelRouting = resolveVideoModelRouting(effectiveModelId || selectedModelId || 'sora-2');
+  const routingLabel =
+    modelRouting.family === 'sora'
+      ? 'Sora'
+      : modelRouting.family === 'doubao-task'
+        ? 'Doubao Task'
+      : modelRouting.family === 'veo-sync'
+        ? 'Veo Sync'
+        : modelRouting.family === 'veo-fast'
+          ? 'Veo Fast'
+          : 'Unknown';
+  const getRecommendedModeLabel = (modelId: string): string => {
+    const routing = resolveVideoModelRouting(modelId);
+    if (routing.family === 'sora' || routing.family === 'doubao-task') {
+      return '推荐网格分镜';
+    }
+    if (routing.family === 'veo-sync') {
+      return '推荐首尾帧';
+    }
+    if (routing.family === 'veo-fast') {
+      return '网格/首尾帧';
+    }
+    return '按镜头选择';
+  };
   
   const isGenerating = shot.interval?.status === 'generating';
   const hasVideo = !!shot.interval?.videoUrl;
+  const resolvedVideoSrc = useResolvedVideoUrl(shot.interval?.videoUrl);
 
   // 当模型变化时，更新横竖屏和时长的默认值
   useEffect(() => {
@@ -93,7 +128,7 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
     }
   };
 
-  const canGenerate = hasStartFrame;
+  const canGenerate = hasStartFrame && !isMissingVolcengineApiKey;
 
   return (
     <div className="bg-[var(--bg-surface)] rounded-xl p-5 border border-[var(--border-primary)] space-y-4">
@@ -137,9 +172,10 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
           {videoModels.map((model) => {
             const vm = model as VideoModelDefinition;
             const modeLabel = vm.params.mode === 'async' ? '异步' : '首尾帧';
+            const recommendationLabel = getRecommendedModeLabel(model.id);
             return (
               <option key={model.id} value={model.id}>
-                {model.name} ({modeLabel})
+                {model.name}（{modeLabel} · {recommendationLabel}）
               </option>
             );
           })}
@@ -151,8 +187,64 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
               ? ` 支持 ${selectedModel.params.supportedAspectRatios.join('/')}，可选 ${selectedModel.params.supportedDurations.join('/')}秒`
               : ` 首尾帧模式，支持 ${selectedModel.params.supportedAspectRatios.join('/')}`
             }
+            {` ｜${getRecommendedModeLabel(effectiveModelId || selectedModel.id)}`}
           </p>
         )}
+        {isMissingVolcengineApiKey && (
+          <div className="rounded-lg border border-[var(--error-border)] bg-[var(--error-bg)] px-3 py-2">
+            <p className="text-[10px] text-[var(--error-text)] font-bold">
+              当前模型需要火山引擎专用 API Key
+            </p>
+            <p className="text-[9px] text-[var(--error-text)]/90 mt-1">
+              未检测到该模型或 Volcengine 提供商的 Key。此模型不会使用 AntSK 全局 Key，请先到模型配置里设置后再生成。
+            </p>
+          </div>
+        )}
+        <div className="bg-[var(--bg-base)] border border-[var(--border-secondary)] rounded-lg p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]">
+              模型能力卡
+            </span>
+            <span className="text-[10px] font-mono text-[var(--text-secondary)]">
+              {routingLabel}
+            </span>
+          </div>
+          {[
+            {
+              key: 'start-only',
+              label: '首帧支持',
+              enabled: modelRouting.supportsStartFrame,
+            },
+            {
+              key: 'start-end',
+              label: '首尾帧支持',
+              enabled: modelRouting.supportsStartFrame && modelRouting.supportsEndFrame,
+            },
+            {
+              key: 'nine-grid-priority',
+              label: '九宫格优先',
+              enabled: modelRouting.prefersNineGridStoryboard,
+            },
+          ].map((capability) => (
+            <div key={capability.key} className="flex items-center justify-between text-[10px]">
+              <span className="text-[var(--text-secondary)]">{capability.label}</span>
+              <span
+                className={`px-2 py-0.5 rounded border font-mono ${
+                  capability.enabled
+                    ? 'text-[var(--success)] border-[var(--success)]/40 bg-[var(--success)]/10'
+                    : 'text-[var(--text-muted)] border-[var(--border-primary)] bg-[var(--bg-hover)]'
+                }`}
+              >
+                {capability.enabled ? 'ON' : 'OFF'}
+              </span>
+            </div>
+          ))}
+          {hasEndFrame && !modelRouting.supportsEndFrame && (
+            <p className="text-[9px] text-[var(--warning-text)] font-mono">
+              当前模型会自动忽略尾帧输入，仅使用首帧驱动。
+            </p>
+          )}
+        </div>
         {selectedModelId === 'veo_3_1-fast' && (
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-[var(--text-tertiary)] uppercase">清晰度</span>
@@ -210,7 +302,7 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
       {/* Video Preview */}
       {hasVideo ? (
         <div className="w-full aspect-video bg-[var(--bg-base)] rounded-lg overflow-hidden border border-[var(--border-secondary)] relative shadow-lg">
-          <video src={shot.interval.videoUrl} controls className="w-full h-full" />
+          <video src={resolvedVideoSrc} controls className="w-full h-full" />
         </div>
       ) : (
         <div className="w-full aspect-video bg-[var(--nav-hover-bg)] rounded-lg border border-dashed border-[var(--border-primary)] flex items-center justify-center">
@@ -237,6 +329,11 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
           <>{hasVideo ? '重新生成视频' : '开始生成视频'}</>
         )}
       </button>
+      {isMissingVolcengineApiKey && (
+        <div className="text-[9px] text-[var(--error-text)] text-center font-mono">
+          * 请选择并配置火山引擎 API Key（模型 Key 或 Volcengine 提供商 Key）
+        </div>
+      )}
       
       {/* Status Messages */}
       {!hasEndFrame && (

@@ -1,8 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Film } from 'lucide-react';
 import { ProjectState } from '../../types';
-import { downloadMasterVideo, downloadSourceAssets } from '../../services/exportService';
-import { exportProjectData, importIndexedDBData } from '../../services/storageService';
+import {
+  downloadMasterVideo,
+  downloadSourceAssets,
+  MasterExportMode,
+  MasterVideoQuality,
+} from '../../services/exportService';
+import { exportProjectData } from '../../services/storageService';
 import { STYLES } from './constants';
 import {
   calculateEstimatedDuration,
@@ -18,6 +23,11 @@ import SecondaryOptions from './SecondaryOptions';
 import VideoPlayerModal from './VideoPlayerModal';
 import RenderLogsModal from './RenderLogsModal';
 import { useAlert } from '../GlobalAlert';
+import {
+  useBackupTransfer,
+  EPISODE_BACKUP_TRANSFER_MESSAGES,
+  episodeBackupFileName,
+} from '../../hooks/useBackupTransfer';
 
 interface Props {
   project: ProjectState;
@@ -33,6 +43,8 @@ const StageExport: React.FC<Props> = ({ project }) => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadPhase, setDownloadPhase] = useState('');
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [exportMode, setExportMode] = useState<MasterExportMode>('master-video');
+  const [exportQuality, setExportQuality] = useState<MasterVideoQuality>('balanced');
 
   // Source Assets Download state
   const [isDownloadingAssets, setIsDownloadingAssets] = useState(false);
@@ -48,10 +60,6 @@ const StageExport: React.FC<Props> = ({ project }) => {
   const [currentShotIndex, setCurrentShotIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
-
-  const [isDataExporting, setIsDataExporting] = useState(false);
-  const [isDataImporting, setIsDataImporting] = useState(false);
 
   // Auto-play when shot changes
   useEffect(() => {
@@ -113,7 +121,10 @@ const StageExport: React.FC<Props> = ({ project }) => {
 
   // Handle master video download
   const handleDownloadMaster = async () => {
-    if (isDownloading || progress < 100) return;
+    const canDownloadMaster = progress === 100;
+    const canDownloadSegments = completedShots.length > 0;
+    const canDownloadByMode = exportMode === 'segments-zip' ? canDownloadSegments : canDownloadMaster;
+    if (isDownloading || !canDownloadByMode) return;
     
     setIsDownloading(true);
     setDownloadProgress(0);
@@ -122,6 +133,9 @@ const StageExport: React.FC<Props> = ({ project }) => {
       await downloadMasterVideo(project, (phase, prog) => {
         setDownloadPhase(phase);
         setDownloadProgress(prog);
+      }, {
+        mode: exportMode,
+        quality: exportQuality,
       });
       
       setTimeout(() => {
@@ -170,77 +184,19 @@ const StageExport: React.FC<Props> = ({ project }) => {
     }
   };
 
-  const handleExportData = async () => {
-    if (isDataExporting) return;
-
-    setIsDataExporting(true);
-    try {
-      const payload = await exportProjectData(project);
-      const json = JSON.stringify(payload, null, 2);
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `bigbanana_project_${project.id}_${timestamp}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      showAlert('当前项目已导出，备份文件已下载。', { type: 'success' });
-    } catch (error) {
-      console.error('Export failed:', error);
-      showAlert(`导出失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-    } finally {
-      setIsDataExporting(false);
-    }
-  };
-
-  const handleImportData = () => {
-    if (isDataImporting) return;
-    importInputRef.current?.click();
-  };
-
-  const handleImportFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-
-    if (!file.name.endsWith('.json')) {
-      showAlert('请选择 .json 备份文件。', { type: 'warning' });
-      return;
-    }
-
-    try {
-      const text = await file.text();
-      const payload = JSON.parse(text);
-      const projectCount = payload?.stores?.projects?.length || 0;
-      const assetCount = payload?.stores?.assetLibrary?.length || 0;
-      const confirmMessage = `将导入 ${projectCount} 个项目和 ${assetCount} 个资产。若 ID 冲突将覆盖现有数据。是否继续？`;
-
-      showAlert(confirmMessage, {
-        type: 'warning',
-        showCancel: true,
-        onConfirm: async () => {
-          try {
-            setIsDataImporting(true);
-            const result = await importIndexedDBData(payload, { mode: 'merge' });
-            showAlert(`导入完成：项目 ${result.projects} 个，资产 ${result.assets} 个。`, { type: 'success' });
-          } catch (error) {
-            console.error('Import failed:', error);
-            showAlert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-          } finally {
-            setIsDataImporting(false);
-          }
-        }
-      });
-    } catch (error) {
-      console.error('Import failed:', error);
-      showAlert(`导入失败: ${error instanceof Error ? error.message : '未知错误'}`, { type: 'error' });
-    }
-  };
+  const {
+    importInputRef,
+    isDataExporting,
+    isDataImporting,
+    handleExportData,
+    handleImportData,
+    handleImportFileChange,
+  } = useBackupTransfer({
+    exporter: () => exportProjectData(project),
+    exportFileName: (timestamp) => episodeBackupFileName(project.id, timestamp),
+    showAlert,
+    messages: EPISODE_BACKUP_TRANSFER_MESSAGES,
+  });
 
   return (
     <div className={STYLES.container}>
@@ -249,13 +205,12 @@ const StageExport: React.FC<Props> = ({ project }) => {
         <div className="flex items-center gap-4">
           <h2 className={STYLES.header.title}>
             <Film className="w-5 h-5 text-[var(--accent)]" />
-            成片与导出
-            <span className={STYLES.header.subtitle}>Rendering & Export</span>
+            成片与导出 <span className={STYLES.header.subtitle}>渲染与导出</span>
           </h2>
         </div>
         <div className="flex items-center gap-2">
           <span className={STYLES.header.status}>
-            Status: {progress === 100 ? 'READY' : 'IN PROGRESS'}
+            状态：{progress === 100 ? '已就绪' : '进行中'}
           </span>
         </div>
       </div>
@@ -285,6 +240,10 @@ const StageExport: React.FC<Props> = ({ project }) => {
                 phase: downloadPhase,
                 progress: downloadProgress
               }}
+              exportMode={exportMode}
+              exportQuality={exportQuality}
+              onExportModeChange={setExportMode}
+              onExportQualityChange={setExportQuality}
               onPreview={openVideoPlayer}
               onDownloadMaster={handleDownloadMaster}
             />
@@ -346,3 +305,4 @@ const StageExport: React.FC<Props> = ({ project }) => {
 };
 
 export default StageExport;
+

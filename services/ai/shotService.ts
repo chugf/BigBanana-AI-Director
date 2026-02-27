@@ -3,7 +3,12 @@
  * 包含关键帧优化、动作生成、镜头拆分、九宫格分镜等功能
  */
 
-import { AspectRatio, NineGridPanel } from "../../types";
+import {
+  AspectRatio,
+  NineGridPanel,
+  PromptTemplateConfig,
+  StoryboardGridPanelCount,
+} from "../../types";
 import { addRenderLogWithTokens } from '../renderLogService';
 import {
   retryOperation,
@@ -13,6 +18,22 @@ import {
 } from './apiCore';
 import { getStylePromptCN, getStylePrompt } from './promptConstants';
 import { generateImage } from './visualService';
+import {
+  NINE_GRID_SPLIT_PROMPT,
+  NINE_GRID_IMAGE_PROMPT_TEMPLATE,
+  resolveStoryboardGridLayout,
+} from './storyboardPromptTemplates';
+import {
+  DEFAULT_PROMPT_TEMPLATE_CONFIG,
+  renderPromptTemplate,
+  resolvePromptTemplateConfig,
+  withTemplateFallback,
+} from '../promptTemplateService';
+
+const countEnglishWords = (text: string): number => {
+  const matches = String(text || '').trim().match(/[A-Za-z0-9'-]+/g);
+  return matches ? matches.length : 0;
+};
 
 // ============================================
 // 关键帧优化
@@ -27,7 +48,7 @@ export const optimizeBothKeyframes = async (
   sceneInfo: { location: string; time: string; atmosphere: string },
   characterInfo: string[],
   visualStyle: string,
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.2'
 ): Promise<{ startPrompt: string; endPrompt: string }> => {
   console.log('🎨 optimizeBothKeyframes 调用 - 同时优化起始帧和结束帧 - 使用模型:', model);
   const startTime = Date.now();
@@ -177,7 +198,7 @@ export const optimizeKeyframePrompt = async (
   sceneInfo: { location: string; time: string; atmosphere: string },
   characterInfo: string[],
   visualStyle: string,
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.2'
 ): Promise<string> => {
   console.log(`🎨 optimizeKeyframePrompt 调用 - ${frameType === 'start' ? '起始帧' : '结束帧'} - 使用模型:`, model);
   const startTime = Date.now();
@@ -309,42 +330,31 @@ export const generateActionSuggestion = async (
   startFramePrompt: string,
   endFramePrompt: string,
   cameraMovement: string,
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.2',
+  targetDurationSeconds: number = 8
 ): Promise<string> => {
   console.log('🎬 generateActionSuggestion 调用 - 使用模型:', model);
   const startTime = Date.now();
+  const normalizedDuration = Math.max(2, Math.min(20, Math.round(targetDurationSeconds * 10) / 10));
 
   const actionReferenceExamples = `
-## 高质量动作提示词参考示例
+## 单镜头高质量参考（结构参考，不要照抄）
 
-### 特效魔法戏示例
-与男生飞在空中，随着抬起手臂，镜头迅速拉远到大远景，天空不断劈下密密麻麻的闪电，男生的机甲化作蓝光，形成一个压迫感拉满，巨大的魔法冲向镜头，震撼感和压迫感拉满。要求电影级运镜，有多个镜头的转换，内容动作符合要求，运镜要有大片的既视感，动作炫酷且合理，迅速且富有张力。
+### 示例A：压迫推进
+角色在雨夜天台静立，镜头低位缓慢推近，背景霓虹被雨幕拉出光带。角色抬手瞬间，画面出现短促电弧与风压波纹，镜头保持连续推进，最终停在半身近景，表情从平静过渡到决断，动作收于蓄力完成。
 
-### 打斗戏示例
-面具人和白发男生赤手空拳展开肉搏，他们会使用魔法。要求拥有李小龙、成龙级别的打斗动作。要求电影级运镜，有多个镜头的转换，内容动作符合要求，运镜要有大片的既视感，动作炫酷且合理，迅速且富有张力。
+### 示例B：高速位移
+镜头与角色平行跟拍，先中景稳定滑行，随后角色突然加速，画面边缘出现可控运动模糊与拖影。镜头不切换，只做同向快速平移并微微拉近，最终在角色前方刹停，落在近景对峙姿态。
 
-### 蓄力攻击示例
-机甲蓄力，朝天空猛开几炮，震撼感和压迫感拉满。要求电影级运镜，有多个镜头的转换，内容动作符合要求，运镜要有大片的既视感，动作炫酷且合理，迅速且富有张力。
-
-### 魔法展开示例
-男生脚下的地面突然剧烈震动，一根根粗壮的石刺破土而出如同怪兽的獠牙，压迫感拉满，疯狂地朝他刺来(给石刺特写)！男生快速跃起，同时双手在胸前合拢。眼睛散发出蓝色的魔法光芒，大喊：领域展开·无尽冰原！嗡！一股肉眼可见的蓝色波纹瞬间扩散开来，所过之处，无论是地面、墙壁全都被一层厚厚的坚冰覆盖！整个仓库还是废弃的集装箱，瞬间变成了一片光滑的溜冰场！石刺也被冻住。要求电影级运镜，有多个镜头的转换，内容动作符合要求，运镜要有大片的既视感，动作炫酷且合理，迅速且富有张力。
-
-### 快速移动示例
-镜头1：天台左侧中景，郑一剑初始站立，背后是夜色笼罩下灯火闪烁的城市，圆月高悬。他保持着一种蓄势待发的静态站立姿态，周身氛围沉静。
-镜头2：郑一剑消失："模糊拖影"特效与空气扰动，画面瞬间触发"模糊拖影"特效，身影如被快速拉扯的幻影般，以极快的速度淡化、消失，原地只残留极其轻微的空气扰动波纹。
-镜头3：镜头急速移至曲飞面前，从郑一剑消失的位置，以迅猛的速度横向移动，画面里天台的栏杆、地面等景物飞速掠过，产生强烈的动态模糊效果。最终镜头定格在曲飞面前，脸上露出明显的惊讶与警惕。
-镜头4：郑一剑突然出现准备出拳，毫无征兆地出现在画面中央，身体大幅度前倾，呈现出极具张力的准备出拳姿势，右手紧紧握拳，带起的劲风使得衣角大幅度向后飘动。
-
-### 能量爆发示例
-镜头在倾盆大雨中快速抖动向前推进，对准在黑暗海平面中屹立不动的黑影。几道闪电快速划过，轮廓在雨幕中若隐若现。突然，一股巨大的雷暴能量在他身后快速汇聚，光芒猛烈爆发。镜头立刻快速向地面猛冲，并同时向上极度仰起，锁定他被能量光芒完全照亮的、张开双臂的威严姿态。
-`;
+### 示例C：情绪爆发
+镜头从肩后视角开始缓慢环绕，角色呼吸急促、手部发抖，环境光由冷色逐步转暖。环绕到正面时角色完成关键动作，粒子与体积光同步增强，镜头在特写处稳定落点，形成情绪高潮与动作终点。`;
 
   const prompt = `
 你是一位专业的电影动作导演和叙事顾问。请根据提供的首帧和尾帧信息，结合镜头运动，设计一个既符合叙事逻辑又充满视觉冲击力的动作场景。
 
 ## 重要约束
-⏱️ **时长限制**：这是一个8-10秒的单镜头场景，请严格控制动作复杂度
-📹 **镜头要求**：这是一个连续镜头，不要设计多个镜头切换（除非绝对必要，最多2-3个快速切换）
+⏱️ **时长限制**：目标总时长约 ${normalizedDuration} 秒（允许±0.5秒），请严格控制动作复杂度
+📹 **镜头要求**：这是一个连续镜头，不要设计多个镜头切换
 
 ## 输入信息
 **首帧描述：** ${startFramePrompt}
@@ -354,7 +364,7 @@ export const generateActionSuggestion = async (
 ${actionReferenceExamples}
 
 ## 任务要求
-1. **时长适配**：动作设计必须在8-10秒内完成，避免过于复杂的多步骤动作
+1. **时长适配**：动作设计必须能在约 ${normalizedDuration} 秒内完成，避免超负荷动作链
 2. **单镜头思维**：优先设计一个连贯的镜头内动作，而非多镜头组合
 3. **自然衔接**：动作需要自然地从首帧过渡到尾帧，确保逻辑合理
 4. **风格借鉴**：参考上述示例的风格和语言，但要简化步骤：
@@ -366,13 +376,13 @@ ${actionReferenceExamples}
 
 ## 输出格式
 请直接输出动作描述文本，无需JSON格式或额外标记。内容应包含：
-- 简洁的单镜头动作场景描述（不要"镜头1、镜头2..."的分段，除非场景确实需要快速切换）
+- 简洁的单镜头动作场景描述（不要“镜头1、镜头2...”分段）
 - 关键的运镜说明（推拉摇移等）
 - 核心的视觉特效或情感氛围
 - 确保描述具有电影感但控制篇幅
 
-❌ 避免：过多的镜头切换、冗长的分步描述、超过10秒的复杂动作序列
-✅ 追求：精炼、有冲击力、符合8-10秒时长的单镜头动作
+❌ 避免：任何多镜头切换、冗长分步描述、时长明显超出 ${normalizedDuration} 秒负荷的复杂动作序列
+✅ 追求：精炼、有冲击力、符合约 ${normalizedDuration} 秒时长的单镜头动作
 
 请开始创作：
 `;
@@ -402,7 +412,7 @@ export const splitShotIntoSubShots = async (
   sceneInfo: { location: string; time: string; atmosphere: string },
   characterNames: string[],
   visualStyle: string,
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.2'
 ): Promise<{ subShots: any[] }> => {
   console.log('✂️ splitShotIntoSubShots 调用 - 使用模型:', model);
   const startTime = Date.now();
@@ -584,7 +594,7 @@ export const enhanceKeyframePrompt = async (
   visualStyle: string,
   cameraMovement: string,
   frameType: 'start' | 'end',
-  model: string = 'gpt-5.1'
+  model: string = 'gpt-5.2'
 ): Promise<string> => {
   console.log(`🎨 enhanceKeyframePrompt 调用 - ${frameType === 'start' ? '起始帧' : '结束帧'} - 使用模型:`, model);
   const startTime = Date.now();
@@ -593,7 +603,7 @@ export const enhanceKeyframePrompt = async (
   const frameLabel = frameType === 'start' ? '起始帧' : '结束帧';
 
   const prompt = `
-你是一位资深的电影摄影指导和视觉特效专家。请基于以下基础提示词,生成一个包含详细技术规格和视觉细节的专业级${frameLabel}描述。
+你是一位资深的电影摄影指导与提示词工程师。请将“基础提示词”重写为可直接用于图像生成的最终提示词。
 
 ## 基础提示词
 ${basePrompt}
@@ -604,76 +614,28 @@ ${styleDesc}
 ## 镜头运动
 ${cameraMovement}
 
-## ${frameLabel}要求
-${frameType === 'start' ? '建立清晰的初始状态、起始姿态、为后续运动预留空间' : '展现最终状态、动作完成、情绪高潮'}
+## ${frameLabel}重点
+${frameType === 'start'
+  ? '建立清晰起点：主体初始姿态、空间关系、光线基调，并为后续运动预留视觉空间。'
+  : '呈现明确终点：动作结果、姿态与情绪变化，并与起始状态形成可推导的连续变化。'}
 
-## 任务
-请在基础提示词的基础上,添加以下专业的电影级视觉规格描述:
+## 任务要求
+1. 必须保留并整合基础提示词中的核心信息，不丢失主体、场景、动作与镜头运动。
+2. 强化电影感细节（构图、光影、景深、材质、氛围），但不要堆砌术语。
+3. 如存在角色一致性要求，必须保留并强调“外观不可漂移”。
+4. 输出必须是“单段中文提示词”，不要分节、不要项目符号、不要Markdown。
+5. 不要重复基础提示词同义句，避免冗长；控制在120-220字。
 
-### 1. 技术规格 (Technical Specifications)
-- 分辨率规格 (8K等)
-- 镜头语言和摄影美学
-- 景深控制和焦点策略
-
-### 2. 视觉细节 (Visual Details)  
-- 光影层次: 三点布光、阴影与高光的配置
-- 色彩饱和度: 色彩分级、色温控制
-- 材质质感: 表面纹理、细节丰富度
-- 大气效果: 体积光、雾气、粒子、天气效果
-
-### 3. 角色要求 (Character Details) - 如果有角色
-⚠️ 最高优先级: 如果提供了角色参考图,必须严格保持人物外观的完全一致性!
-- 面部表情: 在保持外观一致的基础上,添加微表情、情绪真实度、眼神方向
-- 肢体语言: 在保持体型一致的基础上,展现自然的身体姿态、重心分布、肌肉张力
-- 服装细节: 服装的运动感、物理真实性、纹理细节
-- 毛发细节: 头发丝、自然的毛发运动
-
-### 4. 环境要求 (Environment Details)
-- 背景层次: 前景、中景、背景的深度分离
-- 空间透视: 准确的线性透视、大气透视
-- 环境光影: 光源的真实性、阴影投射
-- 细节丰富度: 环境叙事元素、纹理变化
-
-### 5. 氛围营造 (Mood & Atmosphere)
-- 情绪基调与场景情感的匹配
-- 色彩心理学的运用
-- 视觉节奏的平衡
-- 叙事的视觉暗示
-
-### 6. 质量保证 (Quality Assurance)
-- 主体清晰度和轮廓
-- 背景过渡的自然性
-- 光影一致性
-- 色彩协调性
-- 构图平衡(三分法或黄金比例)
-- 动作连贯性
-
-## 输出格式
-请使用清晰的分节格式输出,包含上述所有要素。使用中文输出,保持专业性和可读性。
-
-格式示例:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【技术规格】Technical Specifications
-• 分辨率: ...
-
-【视觉细节】Visual Details  
-• 光影层次: ...
-• 色彩饱和度: ...
-
-(依次类推)
-
-请开始创作:
+仅输出最终提示词文本:
 `;
 
   try {
-    const result = await retryOperation(() => chatCompletion(prompt, model, 0.7, 3072));
+    const result = await retryOperation(() => chatCompletion(prompt, model, 0.6, 1536));
     const duration = Date.now() - startTime;
 
     console.log(`✅ AI ${frameLabel}增强成功，耗时:`, duration, 'ms');
 
-    return `${basePrompt}
-
-${result.trim()}`;
+    return result.trim();
   } catch (error: any) {
     console.error(`❌ AI ${frameLabel}增强失败:`, error);
     console.warn('⚠️ 回退到基础提示词');
@@ -686,7 +648,7 @@ ${result.trim()}`;
 // ============================================
 
 /**
- * 使用 Chat 模型将镜头动作拆分为 9 个不同的摄影视角
+ * 使用 Chat 模型将镜头动作拆分为网格分镜（4/6/9）
  */
 export const generateNineGridPanels = async (
   actionSummary: string,
@@ -694,134 +656,213 @@ export const generateNineGridPanels = async (
   sceneInfo: { location: string; time: string; atmosphere: string },
   characterNames: string[],
   visualStyle: string,
-  model?: string
+  model?: string,
+  panelCount: StoryboardGridPanelCount = 9,
+  promptTemplates?: PromptTemplateConfig
 ): Promise<NineGridPanel[]> => {
   const startTime = Date.now();
-  console.log('🎬 九宫格分镜 - 开始AI拆分视角...');
+  const layout = resolveStoryboardGridLayout(panelCount);
+  const gridLayout = `${layout.cols}x${layout.rows}`;
+  const templates = promptTemplates || resolvePromptTemplateConfig();
+  const splitSystemTemplate = withTemplateFallback(
+    templates.nineGrid.splitSystem,
+    withTemplateFallback(
+      DEFAULT_PROMPT_TEMPLATE_CONFIG.nineGrid.splitSystem,
+      NINE_GRID_SPLIT_PROMPT.system
+    )
+  );
+  const splitUserTemplate = withTemplateFallback(
+    templates.nineGrid.splitUser,
+    withTemplateFallback(
+      DEFAULT_PROMPT_TEMPLATE_CONFIG.nineGrid.splitUser,
+      NINE_GRID_SPLIT_PROMPT.user
+    )
+  );
+  console.log(`🎬 ${layout.label}分镜 - 开始AI拆分视角...`);
 
-  const resolvedModel = model || getActiveChatModel()?.id || 'gpt-5.1';
-
-  const systemPrompt = `你是一位专业的电影分镜师和摄影指导。你的任务是将一个镜头动作拆解为9个不同的摄影视角，用于九宫格分镜预览。
-每个视角必须展示相同场景的不同景别和机位角度组合，确保覆盖从远景到特写、从俯拍到仰拍的多样化视角。`;
-
-  const userPrompt = `请将以下镜头动作拆解为9个不同的摄影视角，用于生成一张3x3九宫格分镜图。
-
-【镜头动作】${actionSummary}
-【原始镜头运动】${cameraMovement}
-【场景信息】地点: ${sceneInfo.location}, 时间: ${sceneInfo.time}, 氛围: ${sceneInfo.atmosphere}
-【角色】${characterNames.length > 0 ? characterNames.join('、') : '无特定角色'}
-【视觉风格】${visualStyle}
-
-请按照以下要求返回JSON格式数据：
-1. 9个视角必须覆盖不同的景别和角度组合，避免重复
-2. 建议覆盖：建立镜头(远/全景)、人物交互(中景)、情绪表达(近景/特写)、氛围细节(各种角度)
-3. 每个视角的description必须包含具体的画面内容描述（角色位置、动作、表情、环境细节等）
-4. description使用英文撰写，但可以包含场景和角色的中文名称
-
-请严格按照以下JSON格式输出，不要包含其他文字：
-{
-  "panels": [
+  const resolvedModel = model || getActiveChatModel()?.id || 'gpt-5.2';
+  const systemPrompt = renderPromptTemplate(
+    splitSystemTemplate,
     {
-      "index": 0,
-      "shotSize": "远景",
-      "cameraAngle": "俯拍",
-      "description": "Establishing aerial shot showing..."
-    },
-    {
-      "index": 1,
-      "shotSize": "中景",
-      "cameraAngle": "平视",
-      "description": "Medium shot at eye level..."
+      panelCount: layout.panelCount,
+      gridLayout,
     }
-  ]
-}
-
-注意：必须恰好返回9个panel（index 0-8），按照九宫格从左到右、从上到下的顺序排列。`;
+  );
+  const userPrompt = renderPromptTemplate(
+    splitUserTemplate,
+    {
+      panelCount: layout.panelCount,
+      lastIndex: layout.panelCount - 1,
+      gridLayout,
+      actionSummary,
+      cameraMovement,
+      location: sceneInfo.location,
+      time: sceneInfo.time,
+      atmosphere: sceneInfo.atmosphere,
+      characters: characterNames.length > 0 ? characterNames.join('、') : '无特定角色',
+      visualStyle,
+    }
+  );
 
   const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+
+  const parsePanels = (responseText: string): NineGridPanel[] => {
+    const cleaned = cleanJsonString(responseText);
+    const parsed = JSON.parse(cleaned);
+    const rawPanels = Array.isArray(parsed?.panels) ? parsed.panels : [];
+
+    if (rawPanels.length !== layout.panelCount) {
+      throw new Error(`AI返回的panel数量为 ${rawPanels.length}，必须为 ${layout.panelCount}`);
+    }
+
+    const normalizedPanels = rawPanels.map((p: any, idx: number) => ({
+      index: idx,
+      shotSize: String(p?.shotSize || '').trim(),
+      cameraAngle: String(p?.cameraAngle || '').trim(),
+      description: String(p?.description || '').trim(),
+    }));
+
+    const invalidPanel = normalizedPanels.find(p => !p.shotSize || !p.cameraAngle || !p.description);
+    if (invalidPanel) {
+      throw new Error('AI返回的panel字段不完整（shotSize/cameraAngle/description 不能为空）');
+    }
+
+    const invalidLengthPanel = normalizedPanels.find((p) => {
+      const words = countEnglishWords(p.description);
+      return words < 10 || words > 30;
+    });
+    if (invalidLengthPanel) {
+      const words = countEnglishWords(invalidLengthPanel.description);
+      throw new Error(`panel description 词数超出范围（当前 ${words}，要求 10-30）`);
+    }
+
+    return normalizedPanels;
+  };
 
   try {
     const responseText = await retryOperation(() => chatCompletion(fullPrompt, resolvedModel, 0.7, 4096, 'json_object'));
     const duration = Date.now() - startTime;
 
-    const cleaned = cleanJsonString(responseText);
-    const parsed = JSON.parse(cleaned);
+    let panels: NineGridPanel[];
+    try {
+      panels = parsePanels(responseText);
+    } catch (parseError: any) {
+      console.warn(`⚠️ ${layout.label}首次解析不符合规范，尝试自动纠偏重试:`, parseError.message);
+      const repairPrompt = `${fullPrompt}
 
-    let panels: NineGridPanel[] = parsed.panels || [];
+你上一次输出不符合要求（原因：${parseError.message}）。
+请严格重新输出 JSON 对象，且必须满足：
+1) "panels" 恰好 ${layout.panelCount} 个（index 0-${layout.panelCount - 1}，按从左到右、从上到下）
+2) 每个 panel 必须包含非空的 shotSize、cameraAngle、description
+3) description 使用英文单句，严格控制在 10-30 词
+4) 只输出 JSON，不要任何解释文字`;
 
-    if (panels.length < 9) {
-      for (let i = panels.length; i < 9; i++) {
-        panels.push({
-          index: i,
-          shotSize: '中景',
-          cameraAngle: '平视',
-          description: `${actionSummary} - alternate angle ${i + 1}`
-        });
-      }
-    } else if (panels.length > 9) {
-      panels = panels.slice(0, 9);
+      const repairedText = await retryOperation(() => chatCompletion(repairPrompt, resolvedModel, 0.4, 4096, 'json_object'));
+      panels = parsePanels(repairedText);
     }
 
-    panels = panels.map((p, idx) => ({ ...p, index: idx }));
-
-    console.log(`✅ 九宫格分镜 - AI拆分完成，耗时: ${duration}ms`);
+    console.log(`✅ ${layout.label}分镜 - AI拆分完成，耗时: ${duration}ms`);
     return panels;
   } catch (error: any) {
-    console.error('❌ 九宫格分镜 - AI拆分失败:', error);
-    throw new Error(`九宫格视角拆分失败: ${error.message}`);
+    console.error(`❌ ${layout.label}分镜 - AI拆分失败:`, error);
+    throw new Error(`${layout.label}视角拆分失败: ${error.message}`);
   }
 };
 
 /**
- * 使用图像模型生成九宫格分镜图片
+ * 使用图像模型生成网格分镜图片（4/6/9）
  */
 export const generateNineGridImage = async (
   panels: NineGridPanel[],
   referenceImages: string[] = [],
   visualStyle: string,
-  aspectRatio: AspectRatio = '16:9'
+  aspectRatio: AspectRatio = '16:9',
+  options?: {
+    hasTurnaround?: boolean;
+    panelCount?: StoryboardGridPanelCount;
+    promptTemplates?: PromptTemplateConfig;
+  }
 ): Promise<string> => {
   const startTime = Date.now();
-  console.log('🎬 九宫格分镜 - 开始生成九宫格图片...');
+  const layout = resolveStoryboardGridLayout(options?.panelCount || panels.length);
+  const gridLayout = `${layout.cols}x${layout.rows}`;
+  const templates = options?.promptTemplates || resolvePromptTemplateConfig();
+  const imagePrefixTemplate = withTemplateFallback(
+    templates.nineGrid.imagePrefix,
+    withTemplateFallback(
+      DEFAULT_PROMPT_TEMPLATE_CONFIG.nineGrid.imagePrefix,
+      NINE_GRID_IMAGE_PROMPT_TEMPLATE.prefix
+    )
+  );
+  const imagePanelTemplate = withTemplateFallback(
+    templates.nineGrid.imagePanelTemplate,
+    withTemplateFallback(
+      DEFAULT_PROMPT_TEMPLATE_CONFIG.nineGrid.imagePanelTemplate,
+      NINE_GRID_IMAGE_PROMPT_TEMPLATE.panelTemplate
+    )
+  );
+  const imageSuffixTemplate = withTemplateFallback(
+    templates.nineGrid.imageSuffix,
+    withTemplateFallback(
+      DEFAULT_PROMPT_TEMPLATE_CONFIG.nineGrid.imageSuffix,
+      NINE_GRID_IMAGE_PROMPT_TEMPLATE.suffix
+    )
+  );
+  console.log(`🎬 ${layout.label}分镜 - 开始生成网格图片...`);
 
   const stylePrompt = getStylePrompt(visualStyle);
 
-  const positionLabels = [
-    'Top-Left', 'Top-Center', 'Top-Right',
-    'Middle-Left', 'Center', 'Middle-Right',
-    'Bottom-Left', 'Bottom-Center', 'Bottom-Right'
-  ];
+  if (panels.length !== layout.panelCount) {
+    throw new Error(`网格图片生成前校验失败：panels 数量为 ${panels.length}，必须为 ${layout.panelCount}`);
+  }
 
   const panelDescriptions = panels.map((panel, idx) =>
-    `Panel ${idx + 1} (${positionLabels[idx]}): [${panel.shotSize} / ${panel.cameraAngle}] - ${panel.description}`
+    renderPromptTemplate(
+      imagePanelTemplate,
+      {
+        index: idx + 1,
+        position: layout.positionLabels[idx] || `Panel-${idx + 1}`,
+        shotSize: panel.shotSize,
+        cameraAngle: panel.cameraAngle,
+        description: panel.description,
+      }
+    )
   ).join('\n');
 
-  const nineGridPrompt = `Generate a SINGLE image composed as a cinematic storyboard with a 3x3 grid layout (9 equal panels).
-The image shows the SAME scene from 9 DIFFERENT camera angles and shot sizes.
-Each panel is separated by thin white borders.
-
-Visual Style: ${stylePrompt}
-
-Grid Layout (left to right, top to bottom):
+  const nineGridPrompt = `${renderPromptTemplate(
+    imagePrefixTemplate,
+    {
+      gridLayout,
+      panelCount: layout.panelCount,
+      visualStyle: stylePrompt,
+    }
+  )}
 ${panelDescriptions}
 
-CRITICAL REQUIREMENTS:
-- The output MUST be a SINGLE image divided into exactly 9 equal rectangular panels in a 3x3 grid layout
-- Each panel MUST have a thin white border/separator (2-3px) between panels
-- All 9 panels show the SAME scene from DIFFERENT camera angles and shot sizes
-- Maintain STRICT character consistency across ALL panels (same face, hair, clothing, body proportions)
-- Maintain consistent lighting, color palette, and atmosphere across all panels
-- Each panel should be a complete, well-composed frame suitable for use as a keyframe
-- The overall image should read as a professional cinematographer's shot planning board`;
+${renderPromptTemplate(
+  imageSuffixTemplate,
+  {
+    gridLayout,
+    panelCount: layout.panelCount,
+  }
+)}`;
 
   try {
-    const imageUrl = await generateImage(nineGridPrompt, referenceImages, aspectRatio);
+    const imageUrl = await generateImage(
+      nineGridPrompt,
+      referenceImages,
+      aspectRatio,
+      false,
+      !!options?.hasTurnaround,
+      '',
+      { referencePackType: 'shot' }
+    );
     const duration = Date.now() - startTime;
 
-    console.log(`✅ 九宫格分镜 - 图片生成完成，耗时: ${duration}ms`);
+    console.log(`✅ ${layout.label}分镜 - 图片生成完成，耗时: ${duration}ms`);
     return imageUrl;
   } catch (error: any) {
-    console.error('❌ 九宫格分镜 - 图片生成失败:', error);
-    throw new Error(`九宫格图片生成失败: ${error.message}`);
+    console.error(`❌ ${layout.label}分镜 - 图片生成失败:`, error);
+    throw new Error(`${layout.label}图片生成失败: ${error.message}`);
   }
 };

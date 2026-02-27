@@ -19,8 +19,8 @@ export const LANGUAGE_OPTIONS = [
 ];
 
 export const MODEL_OPTIONS = [
-  { label: 'GPT-5.1 (推荐)', value: 'gpt-5.1' },
-  { label: 'GPT-5.2', value: 'gpt-5.2' },
+  { label: 'GPT-5.2 (推荐)', value: 'gpt-5.2' },
+  { label: 'GPT-5.1', value: 'gpt-5.1' },
   { label: 'GPT-4.1', value: 'gpt-41' },
   { label: 'Claude Sonnet 4.5', value: 'claude-sonnet-4-5-20250929' },
   { label: '其他 (自定义)', value: 'custom' }
@@ -56,6 +56,14 @@ export const STYLES = {
 export const DEFAULTS = {
   duration: '60s',
   language: '中文',
-  model: 'gpt-5.1',
-  visualStyle: 'live-action'
+  model: 'gpt-5.2',
+  visualStyle: '3d-animation'
 };
+
+/**
+ * 单集故事/剧本字数限制
+ * soft: 超过后给出提示，不阻断流程
+ * hard: 超过后阻断生成，建议拆分分集
+ */
+export const SCRIPT_SOFT_LIMIT = 8000;
+export const SCRIPT_HARD_LIMIT = 20000;

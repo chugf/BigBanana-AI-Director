@@ -22,8 +22,12 @@ const retryOperation = async <T>(
       return await operation();
     } catch (error: any) {
       lastError = error;
+      const status = error?.status;
       // 400/401/403 错误不重试
-      if (error.message?.includes('400') || 
+      if (status === 400 ||
+          status === 401 ||
+          status === 403 ||
+          error.message?.includes('400') || 
           error.message?.includes('401') || 
           error.message?.includes('403')) {
         throw error;
@@ -35,6 +39,56 @@ const retryOperation = async <T>(
   }
   
   throw lastError;
+};
+
+const parseHttpErrorBody = async (res: Response): Promise<string> => {
+  let errorMessage = `HTTP 错误: ${res.status}`;
+  try {
+    const errorData = await res.json();
+    errorMessage = errorData.error?.message || errorMessage;
+  } catch (e) {
+    const errorText = await res.text();
+    if (errorText) errorMessage = errorText;
+  }
+  return errorMessage;
+};
+
+const buildImageApiError = (status: number, backendMessage?: string): Error => {
+  const detail = backendMessage?.trim();
+  const withDetail = (message: string): string => (detail ? `${message}（接口信息：${detail}）` : message);
+
+  let message: string;
+  if (status === 400) {
+    message = withDetail('图片生成失败：提示词可能被风控拦截，请修改提示词后重试。');
+  } else if (status === 500 || status === 503) {
+    message = withDetail('图片生成失败：服务器繁忙，请稍后重试。');
+  } else if (status === 429) {
+    message = withDetail('图片生成失败：请求过于频繁，请稍后再试。');
+  } else {
+    message = withDetail(`图片生成失败：接口请求异常（HTTP ${status}）。`);
+  }
+
+  const err: any = new Error(message);
+  err.status = status;
+  return err;
+};
+
+const MAX_IMAGE_PROMPT_CHARS = 5000;
+
+const truncatePromptToMaxChars = (
+  input: string,
+  maxChars: number
+): { text: string; wasTruncated: boolean; originalLength: number } => {
+  const chars = Array.from(input);
+  const originalLength = chars.length;
+  if (originalLength <= maxChars) {
+    return { text: input, wasTruncated: false, originalLength };
+  }
+  return {
+    text: chars.slice(0, maxChars).join(''),
+    wasTruncated: true,
+    originalLength,
+  };
 };
 
 /**
@@ -94,6 +148,15 @@ export const callImageApi = async (
     `;
   }
 
+  const promptLimitResult = truncatePromptToMaxChars(finalPrompt, MAX_IMAGE_PROMPT_CHARS);
+  if (promptLimitResult.wasTruncated) {
+    console.warn(
+      `[ImagePrompt] Prompt exceeded ${MAX_IMAGE_PROMPT_CHARS} chars ` +
+      `(${promptLimitResult.originalLength}). Truncated before image request.`
+    );
+  }
+  finalPrompt = promptLimitResult.text;
+
   // 构建请求 parts
   const parts: any[] = [{ text: finalPrompt }];
 
@@ -143,22 +206,8 @@ export const callImageApi = async (
     });
 
     if (!res.ok) {
-      if (res.status === 400) {
-        throw new Error('提示词可能包含不安全或违规内容，未能处理。请修改后重试。');
-      }
-      if (res.status === 500) {
-        throw new Error('当前请求较多，暂时未能处理成功，请稍后重试。');
-      }
-      
-      let errorMessage = `HTTP 错误: ${res.status}`;
-      try {
-        const errorData = await res.json();
-        errorMessage = errorData.error?.message || errorMessage;
-      } catch (e) {
-        const errorText = await res.text();
-        if (errorText) errorMessage = errorText;
-      }
-      throw new Error(errorMessage);
+      const backendMessage = await parseHttpErrorBody(res);
+      throw buildImageApiError(res.status, backendMessage);
     }
 
     return await res.json();
@@ -174,7 +223,18 @@ export const callImageApi = async (
     }
   }
 
-  throw new Error('图片生成失败：未能从响应中提取图片数据');
+  const hasSafetyBlock =
+    !!response?.promptFeedback?.blockReason ||
+    candidates.some((candidate: any) => {
+      const finishReason = String(candidate?.finishReason || '').toUpperCase();
+      return finishReason.includes('SAFETY') || finishReason.includes('BLOCK');
+    });
+
+  if (hasSafetyBlock) {
+    throw new Error('图片生成失败：提示词可能被风控拦截，请修改提示词后重试。');
+  }
+
+  throw new Error('图片生成失败：未返回有效图片数据，请重试或调整提示词。');
 };
 
 /**

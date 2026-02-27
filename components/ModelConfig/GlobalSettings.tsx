@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Key, Loader2, CheckCircle, AlertCircle, ExternalLink, Gift, Sparkles } from 'lucide-react';
 import { getGlobalApiKey, setGlobalApiKey } from '../../services/modelRegistry';
 import { verifyApiKey } from '../../services/modelService';
+import { USER_MANUAL_URL } from '../../constants/links';
 
 interface GlobalSettingsProps {
   onRefresh: () => void;
@@ -94,7 +95,7 @@ const GlobalSettings: React.FC<GlobalSettingsProps> = ({ onRefresh }) => {
                 <ExternalLink className="w-3 h-3" />
               </a>
               <a 
-                href="https://ocnf8yod3ljg.feishu.cn/wiki/MgFVw2EoQieTLKktaf2cHvu6nY3" 
+                href={USER_MANUAL_URL}
                 target="_blank" 
                 rel="noreferrer"
                 className="px-4 py-2 bg-[var(--bg-hover)] text-[var(--text-secondary)] text-xs font-bold rounded-lg hover:bg-[var(--border-secondary)] transition-colors inline-flex items-center gap-1.5"

@@ -35,7 +35,7 @@ export const STYLES = {
   }
 };
 
-export type PromptCategory = 'characters' | 'scenes' | 'props' | 'keyframes' | 'all';
+export type PromptCategory = 'characters' | 'scenes' | 'props' | 'keyframes' | 'templates' | 'all';
 
 export type EditingPrompt = {
   type: 'character' | 'character-variation' | 'scene' | 'prop' | 'keyframe' | 'video';

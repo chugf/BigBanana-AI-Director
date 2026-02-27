@@ -254,6 +254,11 @@ const callSoraApi = async (
   const useReferenceArray = resolvedModel.toLowerCase().startsWith('veo_3_1-fast');
 
   if (resolvedModel === 'sora-2' && references.length >= 2) {
+    console.warn('⚠️ Capability routing: sora-2 only supports start-frame reference. End-frame reference will be ignored.');
+    references.splice(1);
+  }
+
+  if (resolvedModel === 'sora-2' && references.length >= 2) {
     throw new Error('Sora-2 不支持首尾帧模式，请只传一张参考图。');
   }
   

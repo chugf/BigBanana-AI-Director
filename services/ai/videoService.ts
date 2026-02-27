@@ -17,6 +17,33 @@ import {
   getSoraVideoSize,
 } from './apiCore';
 
+const VOLCENGINE_TASK_DEFAULT_ENDPOINT = '/api/v3/contents/generations/tasks';
+const VOLCENGINE_DEFAULT_MODEL = 'doubao-seedance-1-5-pro-251215';
+
+const mapVolcengineRatio = (
+  aspectRatio: AspectRatio,
+  hasImageInput: boolean
+): '16:9' | '9:16' | 'adaptive' => {
+  if (hasImageInput) return 'adaptive';
+  return aspectRatio === '9:16' ? '9:16' : '16:9';
+};
+
+const tryConvertVideoUrlToBase64 = async (
+  videoUrl: string,
+  label: string
+): Promise<string> => {
+  try {
+    const videoBase64 = await convertVideoUrlToBase64(videoUrl);
+    console.log(`✅ ${label} 视频已转换为base64格式`);
+    return videoBase64;
+  } catch (error: any) {
+    // 浏览器直接请求 TOS 常出现 CORS，保留 URL 继续流程，避免整次生成失败
+    const message = error?.message || String(error);
+    console.warn(`⚠️ ${label} 视频转base64失败，回退为原始URL: ${message}`);
+    return videoUrl;
+  }
+};
+
 // ============================================
 // 异步视频生成
 // ============================================
@@ -34,9 +61,13 @@ const generateVideoAsync = async (
   duration: VideoDuration = 8,
   modelName: string = 'sora-2'
 ): Promise<string> => {
-  const references = [startImageBase64, endImageBase64].filter(Boolean) as string[];
+  let references = [startImageBase64, endImageBase64].filter(Boolean) as string[];
   const resolvedModelName = modelName || 'sora-2';
   const useReferenceArray = resolvedModelName.toLowerCase().startsWith('veo_3_1-fast');
+  if (resolvedModelName === 'sora-2' && references.length >= 2) {
+    console.warn('⚠️ Capability routing: sora-2 only supports start-frame reference. End-frame reference will be ignored.');
+    references = references.slice(0, 1);
+  }
 
   if (resolvedModelName === 'sora-2' && references.length >= 2) {
     throw new Error('Sora-2 不支持首尾帧模式，请只传一张参考图。');
@@ -176,9 +207,7 @@ const generateVideoAsync = async (
   console.log(`✅ ${resolvedModelName} 视频生成完成，视频ID:`, videoId);
 
   if (videoUrlFromStatus) {
-    const videoBase64 = await convertVideoUrlToBase64(videoUrlFromStatus);
-    console.log(`✅ ${resolvedModelName} 视频已转换为base64格式`);
-    return videoBase64;
+    return tryConvertVideoUrlToBase64(videoUrlFromStatus, resolvedModelName);
   }
 
   // Step 3: 下载视频内容
@@ -234,9 +263,7 @@ const generateVideoAsync = async (
           throw new Error('未获取到视频下载地址');
         }
 
-        const videoBase64 = await convertVideoUrlToBase64(videoUrl);
-        console.log(`✅ ${resolvedModelName} 视频已转换为base64格式`);
-        return videoBase64;
+        return tryConvertVideoUrlToBase64(videoUrl, resolvedModelName);
       }
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -258,6 +285,188 @@ const generateVideoAsync = async (
   throw new Error('下载视频失败：已达最大重试次数');
 };
 
+const normalizeEndpoint = (endpoint?: string, fallback: string = VOLCENGINE_TASK_DEFAULT_ENDPOINT): string => {
+  const normalized = (endpoint || fallback).trim();
+  if (!normalized) return fallback;
+  return normalized.startsWith('/') ? normalized : `/${normalized}`;
+};
+
+const safeJsonParse = async (response: Response): Promise<any | null> => {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+};
+
+const getNestedValue = (obj: any, path: string): any => {
+  return path.split('.').reduce((acc, key) => acc?.[key], obj);
+};
+
+const extractVideoUrlFromTaskPayload = (payload: any): string | null => {
+  const candidatePaths = [
+    'content.video_url',
+    'content.videoUrl',
+    'data.content.video_url',
+    'data.content.videoUrl',
+    'result.video_url',
+    'result.videoUrl',
+    'output.video_url',
+    'output.videoUrl',
+    'video_url',
+    'videoUrl',
+    'url',
+  ];
+
+  for (const path of candidatePaths) {
+    const value = getNestedValue(payload, path);
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+};
+
+/**
+ * 火山引擎任务模式视频生成
+ * 流程：1) POST 创建任务 2) GET 轮询任务 3) 下载 video_url
+ */
+const generateVideoVolcengineTask = async (
+  prompt: string,
+  startImageBase64: string | undefined,
+  endImageBase64: string | undefined,
+  apiKey: string,
+  apiBase: string,
+  aspectRatio: AspectRatio = '16:9',
+  duration: VideoDuration = 5,
+  modelName: string = VOLCENGINE_DEFAULT_MODEL,
+  endpoint: string = VOLCENGINE_TASK_DEFAULT_ENDPOINT
+): Promise<string> => {
+  const taskEndpoint = normalizeEndpoint(endpoint, VOLCENGINE_TASK_DEFAULT_ENDPOINT);
+
+  if (endImageBase64) {
+    console.warn('⚠️ Volcengine task mode currently uses start-frame only. End frame will be ignored.');
+  }
+
+  const normalizeImageUrl = (image: string): string => {
+    if (image.startsWith('http://') || image.startsWith('https://') || image.startsWith('data:image/')) {
+      return image;
+    }
+    const clean = image.replace(/^data:image\/(png|jpeg|jpg);base64,/, '');
+    return `data:image/png;base64,${clean}`;
+  };
+
+  const content: any[] = [
+    {
+      type: 'text',
+      text: prompt,
+    },
+  ];
+
+  if (startImageBase64) {
+    content.push({
+      type: 'image_url',
+      image_url: {
+        url: normalizeImageUrl(startImageBase64),
+      },
+    });
+  }
+
+  const hasImageInput = !!startImageBase64;
+  const ratio = mapVolcengineRatio(aspectRatio, hasImageInput);
+
+  const createResponse = await fetch(`${apiBase}${taskEndpoint}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: modelName || VOLCENGINE_DEFAULT_MODEL,
+      content,
+      ratio,
+      duration,
+      watermark: false,
+    }),
+  });
+
+  if (!createResponse.ok) {
+    if (createResponse.status === 400) {
+      throw new Error('提示词或输入图片不符合要求，请调整后重试。');
+    }
+    if (createResponse.status >= 500) {
+      throw new Error('火山引擎服务繁忙，请稍后重试。');
+    }
+    throw await parseHttpError(createResponse);
+  }
+
+  const createData = await safeJsonParse(createResponse);
+  const taskId =
+    createData?.id ||
+    createData?.task_id ||
+    createData?.data?.id ||
+    createData?.data?.task_id;
+
+  if (!taskId) {
+    throw new Error('创建视频任务失败：未返回任务 ID');
+  }
+
+  console.log('📋 Volcengine 任务已创建，任务ID:', taskId);
+
+  const pollingInterval = 5000;
+  const maxPollingTime = 1200000; // 20 分钟
+  const startTime = Date.now();
+  const successStates = new Set(['succeeded', 'completed', 'success', 'done']);
+  const failedStates = new Set(['failed', 'error', 'canceled', 'cancelled']);
+
+  while (Date.now() - startTime < maxPollingTime) {
+    await new Promise(resolve => setTimeout(resolve, pollingInterval));
+
+    const statusResponse = await fetch(`${apiBase}${taskEndpoint}/${taskId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    });
+
+    if (!statusResponse.ok) {
+      console.warn('⚠️ Volcengine 任务查询失败，继续轮询...');
+      continue;
+    }
+
+    const statusData = await safeJsonParse(statusResponse);
+    const rawStatus = (
+      statusData?.status ||
+      statusData?.data?.status ||
+      ''
+    ).toString().toLowerCase();
+
+    console.log('🔄 Volcengine 任务状态:', rawStatus || 'unknown');
+
+    if (successStates.has(rawStatus)) {
+      const videoUrl = extractVideoUrlFromTaskPayload(statusData);
+      if (!videoUrl) {
+        throw new Error('任务已完成，但未返回视频地址');
+      }
+      return tryConvertVideoUrlToBase64(videoUrl, 'Volcengine');
+    }
+
+    if (failedStates.has(rawStatus)) {
+      const errorMessage =
+        statusData?.error?.message ||
+        statusData?.error?.code ||
+        statusData?.message ||
+        statusData?.msg ||
+        '未知错误';
+      throw new Error(`视频生成失败: ${errorMessage}`);
+    }
+  }
+
+  throw new Error('视频生成超时 (20分钟)');
+};
+
 // ============================================
 // 统一视频生成入口
 // ============================================
@@ -270,7 +479,7 @@ export const generateVideo = async (
   prompt: string,
   startImageBase64?: string,
   endImageBase64?: string,
-  model: string = 'veo',
+  model: string = 'sora-2',
   aspectRatio: AspectRatio = '16:9',
   duration: VideoDuration = 8
 ): Promise<string> => {
@@ -278,6 +487,26 @@ export const generateVideo = async (
   const requestModel = resolveRequestModel('video', model) || model;
   const apiKey = checkApiKey('video', model);
   const apiBase = getApiBase('video', model);
+  const resolvedEndpoint = (resolvedVideoModel as any)?.endpoint || '';
+  const normalizedRequestModel = (requestModel || '').toLowerCase();
+  const isVolcengineTaskMode =
+    resolvedEndpoint.includes('/contents/generations/tasks') ||
+    normalizedRequestModel.startsWith('doubao-seedance');
+
+  if (isVolcengineTaskMode) {
+    return generateVideoVolcengineTask(
+      prompt,
+      startImageBase64,
+      endImageBase64,
+      apiKey,
+      apiBase,
+      aspectRatio,
+      duration,
+      requestModel || VOLCENGINE_DEFAULT_MODEL,
+      resolvedEndpoint || VOLCENGINE_TASK_DEFAULT_ENDPOINT
+    );
+  }
+
   const isAsyncMode =
     (resolvedVideoModel?.params as any)?.mode === 'async' ||
     requestModel === 'sora-2' ||

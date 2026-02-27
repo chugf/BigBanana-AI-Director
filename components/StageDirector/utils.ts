@@ -1,6 +1,26 @@
-import { Shot, ProjectState, Keyframe, NineGridPanel, NineGridData } from '../../types';
-import { VISUAL_STYLE_PROMPTS, VIDEO_PROMPT_TEMPLATES, NINE_GRID } from './constants';
+import {
+  Shot,
+  ProjectState,
+  Keyframe,
+  NineGridPanel,
+  NineGridData,
+  PromptTemplateConfig,
+} from '../../types';
+import {
+  VISUAL_STYLE_PROMPTS,
+  getStoryboardPositionLabel,
+  resolveStoryboardGridLayout,
+} from './constants';
 import { getCameraMovementCompositionGuide } from './cameraMovementGuides';
+import { enhanceKeyframePrompt } from '../../services/aiService';
+import {
+  DEFAULT_PROMPT_TEMPLATE_CONFIG,
+  renderPromptTemplate,
+  resolvePromptTemplateConfig,
+  withTemplateFallback,
+} from '../../services/promptTemplateService';
+
+const KEYFRAME_META_SPLITTER = '\n\n---PROMPT_META_START---';
 
 /**
  * getRefImagesForShot 的返回类型
@@ -11,6 +31,124 @@ export interface RefImagesResult {
   images: string[];
   hasTurnaround: boolean;
 }
+
+export type VideoModelFamily = 'sora' | 'doubao-task' | 'veo-sync' | 'veo-fast' | 'unknown';
+
+export interface VideoModelRouting {
+  family: VideoModelFamily;
+  normalizedModelId: string;
+  supportsStartFrame: boolean;
+  supportsEndFrame: boolean;
+  prefersNineGridStoryboard: boolean;
+}
+
+export interface VideoPromptContext {
+  hasStartFrame?: boolean;
+  hasEndFrame?: boolean;
+}
+
+const normalizeVideoModelIdForRouting = (videoModel: string): string => {
+  const raw = (videoModel || '').trim();
+  if (!raw) return 'sora-2';
+
+  const normalized = raw.toLowerCase();
+
+  if (normalized === 'veo_3_1-fast-4k') {
+    return 'veo_3_1-fast';
+  }
+
+  if (
+    normalized === 'veo_3_1' ||
+    normalized === 'veo-r2v' ||
+    normalized.startsWith('veo_3_0_r2v')
+  ) {
+    return 'veo';
+  }
+
+  return raw;
+};
+
+export const resolveVideoModelRouting = (videoModel: string): VideoModelRouting => {
+  const normalizedModelId = normalizeVideoModelIdForRouting(videoModel);
+  const id = normalizedModelId.toLowerCase();
+
+  if (id.startsWith('doubao-seedance')) {
+    return {
+      family: 'doubao-task',
+      normalizedModelId,
+      supportsStartFrame: true,
+      supportsEndFrame: false,
+      prefersNineGridStoryboard: true,
+    };
+  }
+
+  if (id === 'sora-2' || id.startsWith('sora')) {
+    return {
+      family: 'sora',
+      normalizedModelId,
+      supportsStartFrame: true,
+      supportsEndFrame: false,
+      prefersNineGridStoryboard: true,
+    };
+  }
+
+  if (
+    id.startsWith('veo_3_1-fast') ||
+    id.startsWith('veo_3_1_t2v_fast') ||
+    id.startsWith('veo_3_1_i2v_s_fast')
+  ) {
+    return {
+      family: 'veo-fast',
+      normalizedModelId,
+      supportsStartFrame: true,
+      supportsEndFrame: true,
+      prefersNineGridStoryboard: true,
+    };
+  }
+
+  if (id === 'veo' || id.startsWith('veo_')) {
+    return {
+      family: 'veo-sync',
+      normalizedModelId,
+      supportsStartFrame: true,
+      supportsEndFrame: true,
+      prefersNineGridStoryboard: false,
+    };
+  }
+
+  return {
+    family: 'unknown',
+    normalizedModelId,
+    supportsStartFrame: true,
+    supportsEndFrame: true,
+    prefersNineGridStoryboard: false,
+  };
+};
+
+export const routeVideoFrameInputs = (
+  videoModel: string,
+  startImage?: string,
+  endImage?: string,
+  videoInputMode: 'keyframes' | 'storyboard-grid' = 'keyframes'
+): {
+  startImage?: string;
+  endImage?: string;
+  routing: VideoModelRouting;
+  ignoredEndFrame: boolean;
+} => {
+  const routing = resolveVideoModelRouting(videoModel);
+  const routedStartImage = startImage;
+  const shouldIgnoreEndFrame =
+    !!endImage && (!routing.supportsEndFrame || videoInputMode === 'storyboard-grid');
+  const routedEndImage = shouldIgnoreEndFrame ? undefined : endImage;
+
+  return {
+    startImage: routedStartImage,
+    endImage: routedEndImage,
+    routing,
+    ignoredEndFrame: shouldIgnoreEndFrame,
+  };
+};
 
 /**
  * 获取镜头的参考图片
@@ -94,24 +232,40 @@ export const buildKeyframePrompt = (
   visualStyle: string,
   cameraMovement: string,
   frameType: 'start' | 'end',
-  propsInfo?: { name: string; description: string; hasImage: boolean }[]
+  propsInfo?: { name: string; description: string; hasImage: boolean }[],
+  promptTemplates?: PromptTemplateConfig
 ): string => {
+  const templates = promptTemplates || resolvePromptTemplateConfig();
   const stylePrompt = VISUAL_STYLE_PROMPTS[visualStyle] || visualStyle;
   const cameraGuide = getCameraMovementCompositionGuide(cameraMovement, frameType);
+  const startFrameGuideTemplate = withTemplateFallback(
+    templates.keyframe.startFrameGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.startFrameGuide
+  );
+  const endFrameGuideTemplate = withTemplateFallback(
+    templates.keyframe.endFrameGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.endFrameGuide
+  );
+  const characterConsistencyTemplate = withTemplateFallback(
+    templates.keyframe.characterConsistencyGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.characterConsistencyGuide
+  );
+  const propWithImageTemplate = withTemplateFallback(
+    templates.keyframe.propWithImageGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.propWithImageGuide
+  );
+  const propWithoutImageTemplate = withTemplateFallback(
+    templates.keyframe.propWithoutImageGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.propWithoutImageGuide
+  );
   
   // 针对起始帧和结束帧的特定指导
-  const frameSpecificGuide = frameType === 'start' 
-    ? `【起始帧要求】建立清晰的初始状态和场景氛围,人物/物体的起始位置、姿态和表情要明确,为后续运动预留视觉空间和动势。`
-    : `【结束帧要求】展现动作完成后的最终状态,人物/物体的终点位置、姿态和情绪变化,体现镜头运动带来的视角变化。`;
+  const frameSpecificGuide = frameType === 'start'
+    ? startFrameGuideTemplate
+    : endFrameGuideTemplate;
 
   // 角色一致性要求
-  const characterConsistencyGuide = `【角色一致性要求】CHARACTER CONSISTENCY REQUIREMENTS - CRITICAL
-⚠️ 如果提供了角色参考图,画面中的人物外观必须严格遵循参考图:
-• 面部特征: 五官轮廓、眼睛颜色和形状、鼻子和嘴巴的结构必须完全一致
-• 发型发色: 头发的长度、颜色、质感、发型样式必须保持一致
-• 服装造型: 服装的款式、颜色、材质、配饰必须与参考图匹配
-• 体型特征: 身材比例、身高体型必须保持一致
-⚠️ 这是最高优先级要求,不可妥协!`;
+  const characterConsistencyGuide = characterConsistencyTemplate;
 
   // 道具一致性要求（仅在有道具时添加）
   let propConsistencyGuide = '';
@@ -124,21 +278,17 @@ export const buildKeyframePrompt = (
     // 有参考图的道具：要求严格遵循参考图
     if (propsWithImage.length > 0) {
       const list = propsWithImage.map(p => `- ${p.name}: ${p.description}`).join('\n');
-      sections.push(`⚠️ 以下道具已提供参考图,画面中出现时必须严格遵循参考图:
-• 外形特征: 道具的形状、大小、比例必须与参考图一致
-• 颜色材质: 颜色、材质、纹理必须保持一致
-• 细节元素: 图案、文字、装饰细节必须与参考图匹配
-⚠️ 这是高优先级要求!
-
-有参考图的道具:
-${list}`);
+      sections.push(
+        renderPromptTemplate(propWithImageTemplate, { propList: list })
+      );
     }
 
     // 无参考图的道具：仅文字描述约束
     if (propsWithoutImage.length > 0) {
       const list = propsWithoutImage.map(p => `- ${p.name}: ${p.description}`).join('\n');
-      sections.push(`以下道具无参考图,请根据文字描述准确呈现:
-${list}`);
+      sections.push(
+        renderPromptTemplate(propWithoutImageTemplate, { propList: list })
+      );
     }
 
     propConsistencyGuide = `
@@ -148,7 +298,7 @@ ${list}`);
 ${sections.join('\n\n')}`;
   }
 
-  return `${basePrompt}
+  return `${basePrompt}${KEYFRAME_META_SPLITTER}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【视觉风格】Visual Style
@@ -184,19 +334,26 @@ export const buildKeyframePromptWithAI = async (
   cameraMovement: string,
   frameType: 'start' | 'end',
   enhanceWithAI: boolean = true,
-  propsInfo?: { name: string; description: string; hasImage: boolean }[]
+  propsInfo?: { name: string; description: string; hasImage: boolean }[],
+  promptTemplates?: PromptTemplateConfig
 ): Promise<string> => {
   // 先构建基础提示词
-  const basicPrompt = buildKeyframePrompt(basePrompt, visualStyle, cameraMovement, frameType, propsInfo);
+  const basicPrompt = buildKeyframePrompt(
+    basePrompt,
+    visualStyle,
+    cameraMovement,
+    frameType,
+    propsInfo,
+    promptTemplates
+  );
   
   // 如果不需要AI增强,直接返回基础提示词
   if (!enhanceWithAI) {
     return basicPrompt;
   }
   
-  // 动态导入aiService以避免循环依赖
+  // Use direct import from aiService; keep fallback behavior if enhancement fails.
   try {
-    const { enhanceKeyframePrompt } = await import('../../services/aiService');
     const enhanced = await enhanceKeyframePrompt(basicPrompt, visualStyle, cameraMovement, frameType);
     return enhanced;
   } catch (error) {
@@ -207,74 +364,257 @@ export const buildKeyframePromptWithAI = async (
 
 /**
  * 构建视频生成提示词
+ * @param visualStyle - 项目视觉风格，用于给视频生成添加风格锚点
  * @param nineGrid - 可选，如果首帧来自九宫格整图，则使用九宫格分镜模式的视频提示词
  * @param videoDuration - 视频总时长（秒），用于计算九宫格模式下每个面板的停留时间
  */
+const MAX_VIDEO_PROMPT_CHARS = 5000;
+
+const normalizePromptField = (input: string): string =>
+  String(input || '')
+    .replace(/\r/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const compactPromptField = (
+  input: string,
+  maxChars: number,
+  maxWords: number
+): string => {
+  const normalized = normalizePromptField(input);
+  if (!normalized) return '';
+
+  let candidate = normalized;
+  const words = candidate.split(/\s+/).filter(Boolean);
+  if (words.length > maxWords) {
+    candidate = words.slice(0, maxWords).join(' ');
+  }
+
+  const chars = Array.from(candidate);
+  if (chars.length > maxChars) {
+    candidate = chars.slice(0, maxChars).join('');
+  }
+
+  candidate = candidate.replace(/[,\s;:.!?]+$/g, '');
+  return candidate.length < normalized.length ? `${candidate}...` : candidate;
+};
+
+const buildNineGridPanelDescriptionsWithBudget = (
+  panels: NineGridPanel[],
+  budgetChars: number
+): string => {
+  if (!panels.length) return '';
+
+  const prefixes = panels.map((panel, idx) => {
+    const shotSize = normalizePromptField(panel.shotSize) || 'shot';
+    const cameraAngle = normalizePromptField(panel.cameraAngle) || 'angle';
+    return `${idx + 1}. ${shotSize}/${cameraAngle} - `;
+  });
+
+  const overhead = prefixes.reduce((sum, prefix) => sum + Array.from(prefix).length, 0) + Math.max(0, panels.length - 1);
+  const availableForDescriptions = Math.max(9 * 28, budgetChars - overhead);
+  const perPanelChars = Math.max(28, Math.floor(availableForDescriptions / panels.length));
+  const perPanelWords = Math.max(8, Math.min(24, Math.floor(perPanelChars / 5)));
+
+  return panels
+    .map((panel, idx) => {
+      const description = compactPromptField(panel.description, perPanelChars, perPanelWords);
+      return `${prefixes[idx]}${description || 'subject action and composition continuity.'}`;
+    })
+    .join('\n');
+};
+
+const fitVideoPromptLength = (input: string, maxChars: number = MAX_VIDEO_PROMPT_CHARS): string => {
+  let prompt = String(input || '')
+    .replace(/\r/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  const length = () => Array.from(prompt).length;
+  if (length() <= maxChars) return prompt;
+
+  prompt = prompt
+    .split('\n')
+    .map((line) => {
+      if (Array.from(line).length <= 220) return line;
+      return compactPromptField(line, 200, 42);
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  if (length() <= maxChars) return prompt;
+
+  const chars = Array.from(prompt);
+  const hardCut = chars.slice(0, maxChars).join('');
+  const breakpoints = ['\n\n', '\n', '. ', '; '];
+  let best = -1;
+  breakpoints.forEach((marker) => {
+    const idx = hardCut.lastIndexOf(marker);
+    if (idx > best) best = idx;
+  });
+
+  if (best > Math.floor(maxChars * 0.6)) {
+    return hardCut.slice(0, best).trimEnd();
+  }
+
+  return hardCut.trimEnd();
+};
+
 export const buildVideoPrompt = (
   actionSummary: string,
   cameraMovement: string,
   videoModel: 'sora-2' | 'veo' | 'veo_3_1-fast' | 'veo_3_1-fast-4K' | 'veo_3_1_t2v_fast_landscape' | 'veo_3_1_t2v_fast_portrait' | 'veo_3_1_i2v_s_fast_fl_landscape' | 'veo_3_1_i2v_s_fast_fl_portrait' | string,
   language: string,
+  visualStyle: string,
   nineGrid?: NineGridData,
-  videoDuration?: number
+  videoDuration?: number,
+  context?: VideoPromptContext,
+  promptTemplates?: PromptTemplateConfig
 ): string => {
+  const templates = promptTemplates || resolvePromptTemplateConfig();
   const isChinese = language === '中文' || language === 'Chinese';
+  const stylePrompt = VISUAL_STYLE_PROMPTS[visualStyle] || visualStyle;
+  const visualStyleAnchor = compactPromptField(`${visualStyle} (${stylePrompt})`, 220, 40);
+  const compactActionSummary = compactPromptField(actionSummary, 900, 160);
+  const compactCameraMovement = compactPromptField(cameraMovement, 220, 48);
   
-  const isAsyncVideoModel = videoModel === 'sora-2' || videoModel.toLowerCase().startsWith('veo_3_1-fast');
+  const routing = resolveVideoModelRouting(videoModel);
+  const hasUsableEndFrame = !!context?.hasEndFrame && routing.supportsEndFrame;
+  const hasIgnoredEndFrame = !!context?.hasEndFrame && !routing.supportsEndFrame;
 
-  // 九宫格分镜模式：有九宫格数据时，使用异步模型专用精简提示词
-  // 保留9个面板的景别/角度顺序，但 description 截断到60字符以内，避免超过 Sora-2 的 8192 字符限制
-  if (nineGrid && nineGrid.panels.length > 0 && isAsyncVideoModel) {
-    const DESC_MAX_LEN = 60;
-    const panelDescriptions = nineGrid.panels.map((p, idx) => {
-      const desc = p.description.length > DESC_MAX_LEN 
-        ? p.description.slice(0, DESC_MAX_LEN) + '...' 
-        : p.description;
-      return `${idx + 1}. ${p.shotSize}/${p.cameraAngle} - ${desc}`;
-    }).join('\n');
+  const appendCapabilityNotes = (prompt: string): string => {
+    const endFrameConstraint = hasUsableEndFrame
+      ? '\n\nEND FRAME CONSTRAINT: Drive the final moment toward the provided end-frame composition, pose, and scene continuity.'
+      : '';
+    const ignoredEndFrameNote = hasIgnoredEndFrame
+      ? '\n\nCapability routing: this model is start-frame-driven, so end-frame input is ignored automatically.'
+      : '';
+    return fitVideoPromptLength(`${prompt}${endFrameConstraint}${ignoredEndFrameNote}`);
+  };
+
+  // 网格分镜模式：按总预算动态压缩每个 panel 描述，保留顺序与镜头意图
+  if (nineGrid && nineGrid.panels.length > 0 && routing.prefersNineGridStoryboard) {
+    const layout = resolveStoryboardGridLayout(nineGrid.layout?.panelCount, nineGrid.panels.length);
+    const panelCount = Math.max(1, Math.min(layout.panelCount, nineGrid.panels.length));
+    const orderedPanels = nineGrid.panels.slice(0, panelCount);
+    const gridLayoutText = `${layout.cols}x${layout.rows}`;
+    const totalDuration = Math.max(1, videoDuration || 8);
+    // Keep per-panel pacing compatible with very short durations (e.g. 4s) without exceeding total duration.
+    const secondsPerPanel = Math.max(0.2, Math.floor((totalDuration / panelCount) * 100) / 100);
     
-    const totalDuration = videoDuration || 8;
-    const secondsPerPanel = Math.max(0.5, Math.round((totalDuration / 9) * 10) / 10);
-    
-    const templateGroup = VIDEO_PROMPT_TEMPLATES.sora2NineGrid;
-    
-    const template = isChinese ? templateGroup.chinese : templateGroup.english;
-    
-    return template
-      .replace('{actionSummary}', actionSummary)
-      .replace('{panelDescriptions}', panelDescriptions)
+    const template = isChinese
+      ? withTemplateFallback(
+          templates.video.sora2NineGridChinese,
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.sora2NineGridChinese
+        )
+      : withTemplateFallback(
+          templates.video.sora2NineGridEnglish,
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.sora2NineGridEnglish
+        );
+    const promptWithoutPanels = template
+      .replace('{actionSummary}', compactActionSummary)
+      .replace('{panelDescriptions}', '')
+      .replace(/\{gridLayout\}/g, gridLayoutText)
+      .replace(/\{panelCount\}/g, String(panelCount))
       .replace(/\{secondsPerPanel\}/g, String(secondsPerPanel))
-      .replace('{cameraMovement}', cameraMovement)
+      .replace('{cameraMovement}', compactCameraMovement)
+      .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', language);
+    const panelBudget = Math.max(900, MAX_VIDEO_PROMPT_CHARS - Array.from(promptWithoutPanels).length - 180);
+    const panelDescriptions = buildNineGridPanelDescriptionsWithBudget(orderedPanels, panelBudget);
+    
+    const routedPrompt = template
+      .replace('{actionSummary}', compactActionSummary)
+      .replace('{panelDescriptions}', panelDescriptions)
+      .replace(/\{gridLayout\}/g, gridLayoutText)
+      .replace(/\{panelCount\}/g, String(panelCount))
+      .replace(/\{secondsPerPanel\}/g, String(secondsPerPanel))
+      .replace('{cameraMovement}', compactCameraMovement)
+      .replace('{visualStyle}', visualStyleAnchor)
+      .replace('{language}', language);
+    return appendCapabilityNotes(routedPrompt);
   }
   
   // 普通模式
-  if (isAsyncVideoModel) {
-    const template = isChinese 
-      ? VIDEO_PROMPT_TEMPLATES.sora2.chinese 
-      : VIDEO_PROMPT_TEMPLATES.sora2.english;
+  if (routing.family === 'sora' || routing.family === 'doubao-task') {
+    const template = isChinese
+      ? withTemplateFallback(
+          templates.video.sora2Chinese,
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.sora2Chinese
+        )
+      : withTemplateFallback(
+          templates.video.sora2English,
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.sora2English
+        );
     
-    return template
-      .replace('{actionSummary}', actionSummary)
-      .replace('{cameraMovement}', cameraMovement)
+    const routedPrompt = template
+      .replace('{actionSummary}', compactActionSummary)
+      .replace('{cameraMovement}', compactCameraMovement)
+      .replace('{visualStyle}', visualStyleAnchor)
       .replace('{language}', language);
-  } else {
-    return VIDEO_PROMPT_TEMPLATES.veo.simple
-      .replace('{actionSummary}', actionSummary)
-      .replace('{cameraMovement}', cameraMovement)
-      .replace('{language}', isChinese ? '中文' : language);
+    return appendCapabilityNotes(routedPrompt);
   }
+  const fallbackStartOnly = `Use the provided start frame as the exact opening composition.
+Action: {actionSummary}
+Camera Movement: {cameraMovement}
+Visual Style Anchor: {visualStyle}
+Language: {language}
+Keep identity, scene lighting, and prop details consistent throughout the shot.`;
+  const fallbackStartEnd = `Use the provided START and END frames as hard constraints.
+Action: {actionSummary}
+Camera Movement: {cameraMovement}
+Visual Style Anchor: {visualStyle}
+Language: {language}
+The video must start from the start frame composition and progress naturally to a final state that matches the end frame.`;
+  const template = hasUsableEndFrame
+    ? withTemplateFallback(
+        templates.video.veoStartEnd,
+        withTemplateFallback(
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.veoStartEnd,
+          fallbackStartEnd
+        )
+      )
+    : withTemplateFallback(
+        templates.video.veoStartOnly,
+        withTemplateFallback(
+          DEFAULT_PROMPT_TEMPLATE_CONFIG.video.veoStartOnly,
+          fallbackStartOnly
+        )
+      );
+
+  const routedPrompt = template
+      .replace('{actionSummary}', compactActionSummary)
+      .replace('{cameraMovement}', compactCameraMovement)
+      .replace('{visualStyle}', visualStyleAnchor)
+      .replace('{language}', isChinese ? '中文' : language);
+  return appendCapabilityNotes(routedPrompt);
 };
 
 /**
  * 从现有提示词中提取基础部分（移除追加的样式信息）
  */
 export const extractBasePrompt = (fullPrompt: string, fallback: string): string => {
-  const visualStyleIndex = fullPrompt.indexOf('\n\nVisual Style:');
-  if (visualStyleIndex > 0) {
-    return fullPrompt.substring(0, visualStyleIndex);
+  const sourcePrompt = (fullPrompt || '').trim();
+  if (!sourcePrompt) {
+    return fallback;
   }
-  return fullPrompt || fallback;
+
+  const splitters = [
+    KEYFRAME_META_SPLITTER,
+    '\n\n【视觉风格】Visual Style',
+    '\n\nVisual Style:'
+  ];
+
+  for (const splitter of splitters) {
+    const splitIndex = sourcePrompt.indexOf(splitter);
+    if (splitIndex > 0) {
+      return sourcePrompt.substring(0, splitIndex);
+    }
+  }
+
+  return sourcePrompt;
 };
 
 /**
@@ -338,7 +678,11 @@ export const updateKeyframeInShot = (
   const idx = newKeyframes.findIndex(k => k.type === type);
   
   if (idx >= 0) {
-    newKeyframes[idx] = keyframe;
+    const previous = newKeyframes[idx];
+    newKeyframes[idx] =
+      keyframe.promptVersions === undefined
+        ? { ...keyframe, promptVersions: previous.promptVersions }
+        : keyframe;
   } else {
     newKeyframes.push(keyframe);
   }
@@ -448,18 +792,36 @@ export const buildPromptFromNineGridPanel = (
   actionSummary: string,
   visualStyle: string,
   cameraMovement: string,
-  propsInfo?: { name: string; description: string; hasImage: boolean }[]
+  propsInfo?: { name: string; description: string; hasImage: boolean }[],
+  layout?: NineGridData['layout'],
+  promptTemplates?: PromptTemplateConfig
 ): string => {
+  const templates = promptTemplates || resolvePromptTemplateConfig();
   const stylePrompt = VISUAL_STYLE_PROMPTS[visualStyle] || visualStyle;
+  const characterConsistencyTemplate = withTemplateFallback(
+    templates.keyframe.characterConsistencyGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.characterConsistencyGuide
+  );
+  const propWithImageTemplate = withTemplateFallback(
+    templates.keyframe.propWithImageGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.propWithImageGuide
+  );
+  const propWithoutImageTemplate = withTemplateFallback(
+    templates.keyframe.propWithoutImageGuide,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.propWithoutImageGuide
+  );
+  const nineGridSourceMetaTemplate = withTemplateFallback(
+    templates.keyframe.nineGridSourceMeta,
+    DEFAULT_PROMPT_TEMPLATE_CONFIG.keyframe.nineGridSourceMeta
+  );
+  const sourceLabel = getStoryboardPositionLabel(
+    panel.index,
+    layout?.panelCount,
+    layout?.panelCount
+  );
   
   // 角色一致性要求
-  const characterConsistencyGuide = `【角色一致性要求】CHARACTER CONSISTENCY REQUIREMENTS - CRITICAL
-⚠️ 如果提供了角色参考图,画面中的人物外观必须严格遵循参考图:
-• 面部特征: 五官轮廓、眼睛颜色和形状、鼻子和嘴巴的结构必须完全一致
-• 发型发色: 头发的长度、颜色、质感、发型样式必须保持一致
-• 服装造型: 服装的款式、颜色、材质、配饰必须与参考图匹配
-• 体型特征: 身材比例、身高体型必须保持一致
-⚠️ 这是最高优先级要求,不可妥协!`;
+  const characterConsistencyGuide = characterConsistencyTemplate;
 
   // 道具一致性要求（仅在有道具时添加）
   let propConsistencyGuide = '';
@@ -471,20 +833,16 @@ export const buildPromptFromNineGridPanel = (
 
     if (propsWithImage.length > 0) {
       const list = propsWithImage.map(p => `- ${p.name}: ${p.description}`).join('\n');
-      sections.push(`⚠️ 以下道具已提供参考图,画面中出现时必须严格遵循参考图:
-• 外形特征: 道具的形状、大小、比例必须与参考图一致
-• 颜色材质: 颜色、材质、纹理必须保持一致
-• 细节元素: 图案、文字、装饰细节必须与参考图匹配
-⚠️ 这是高优先级要求!
-
-有参考图的道具:
-${list}`);
+      sections.push(
+        renderPromptTemplate(propWithImageTemplate, { propList: list })
+      );
     }
 
     if (propsWithoutImage.length > 0) {
       const list = propsWithoutImage.map(p => `- ${p.name}: ${p.description}`).join('\n');
-      sections.push(`以下道具无参考图,请根据文字描述准确呈现:
-${list}`);
+      sections.push(
+        renderPromptTemplate(propWithoutImageTemplate, { propList: list })
+      );
     }
 
     propConsistencyGuide = `
@@ -494,13 +852,15 @@ ${list}`);
 ${sections.join('\n\n')}`;
   }
 
-  return `${panel.description}
+  return `${panel.description}${KEYFRAME_META_SPLITTER}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【来源】九宫格分镜预览 - ${NINE_GRID.positionLabels[panel.index]}
-【景别】${panel.shotSize}
-【机位角度】${panel.cameraAngle}
-【原始动作】${actionSummary}
+${renderPromptTemplate(nineGridSourceMetaTemplate, {
+  sourceLabel,
+  shotSize: panel.shotSize,
+  cameraAngle: panel.cameraAngle,
+  actionSummary,
+})}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【视觉风格】Visual Style
@@ -515,20 +875,28 @@ ${characterConsistencyGuide}${propConsistencyGuide}`;
 };
 
 /**
- * 从九宫格图片中裁剪出指定面板的图片
- * 将 3x3 网格中的某一格裁剪为独立的 base64 图片
- * @param nineGridImageUrl - 九宫格整图 (base64)
- * @param panelIndex - 面板索引 (0-8)
+ * 从网格分镜图中裁剪出指定面板的图片
+ * 支持 2x2 / 3x2 / 3x3 网格布局
+ * @param nineGridImageUrl - 网格整图 (base64)
+ * @param panelIndex - 面板索引 (0-(panelCount-1))
+ * @param layout - 网格布局（可选，默认按 3x3 兼容）
  * @returns 裁剪后的 base64 图片
  */
 export const cropPanelFromNineGrid = (
   nineGridImageUrl: string,
-  panelIndex: number
+  panelIndex: number,
+  layout?: NineGridData['layout']
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       try {
+        const resolvedLayout = resolveStoryboardGridLayout(layout?.panelCount, layout?.panelCount);
+        if (panelIndex < 0 || panelIndex >= resolvedLayout.panelCount) {
+          reject(new Error(`面板索引越界: ${panelIndex}`));
+          return;
+        }
+
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) {
@@ -536,12 +904,12 @@ export const cropPanelFromNineGrid = (
           return;
         }
         
-        // 计算裁剪区域：3x3 网格
-        const col = panelIndex % 3;        // 列 (0, 1, 2)
-        const row = Math.floor(panelIndex / 3); // 行 (0, 1, 2)
+        // 计算裁剪区域：动态网格（2x2 / 3x2 / 3x3）
+        const col = panelIndex % resolvedLayout.cols;
+        const row = Math.floor(panelIndex / resolvedLayout.cols);
         
-        const panelWidth = img.width / 3;
-        const panelHeight = img.height / 3;
+        const panelWidth = img.width / resolvedLayout.cols;
+        const panelHeight = img.height / resolvedLayout.rows;
         
         const sx = col * panelWidth;
         const sy = row * panelHeight;
@@ -567,7 +935,7 @@ export const cropPanelFromNineGrid = (
       }
     };
     img.onerror = () => {
-      reject(new Error('九宫格图片加载失败'));
+      reject(new Error('网格分镜图片加载失败'));
     };
     img.src = nineGridImageUrl;
   });

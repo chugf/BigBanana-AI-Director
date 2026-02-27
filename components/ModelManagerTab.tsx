@@ -36,6 +36,7 @@ import {
   AVAILABLE_IMAGE_MODELS,
   AVAILABLE_VIDEO_MODELS
 } from '../services/modelConfigService';
+import { USER_MANUAL_URL } from '../constants/links';
 
 interface ModelManagerTabProps {
   onConfigChange?: () => void;
@@ -175,7 +176,7 @@ const ModelManagerTab: React.FC<ModelManagerTabProps> = ({ onConfigChange }) => 
                 <ExternalLink className="w-3 h-3" />
               </a>
               <a 
-                href="https://ocnf8yod3ljg.feishu.cn/wiki/MgFVw2EoQieTLKktaf2cHvu6nY3" 
+                href={USER_MANUAL_URL}
                 target="_blank" 
                 rel="noreferrer"
                 className="px-4 py-2 bg-[var(--bg-hover)] text-[var(--text-secondary)] text-xs font-bold rounded-lg hover:bg-[var(--border-secondary)] transition-colors inline-flex items-center gap-1.5"

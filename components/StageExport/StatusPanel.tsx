@@ -9,6 +9,18 @@ interface Props {
   estimatedDuration: number;
 }
 
+const formatTargetDuration = (targetDuration?: string): string => {
+  if (!targetDuration) return '--';
+
+  const normalized = targetDuration.trim();
+  const secondsMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*s$/i);
+  if (secondsMatch) {
+    return `${secondsMatch[1]}秒`;
+  }
+
+  return normalized;
+};
+
 const StatusPanel: React.FC<Props> = ({ project, progress, estimatedDuration }) => {
   return (
     <div className={STYLES.statusPanel.container}>
@@ -23,23 +35,23 @@ const StatusPanel: React.FC<Props> = ({ project, progress, estimatedDuration }) 
               {project.scriptData?.title || '未命名项目'}
             </h3>
             <span className="px-2 py-0.5 bg-[var(--bg-elevated)] border border-[var(--border-secondary)] text-[var(--text-tertiary)] text-[10px] rounded uppercase font-mono tracking-wider">
-              Master Sequence
+              主序列
             </span>
           </div>
           <div className="flex items-center gap-6 mt-3">
             <div className={STYLES.statusPanel.stat}>
-              <span className={STYLES.statusPanel.statLabel}>Shots</span>
+              <span className={STYLES.statusPanel.statLabel}>镜头数</span>
               <span className={STYLES.statusPanel.statValue}>{project.shots.length}</span>
             </div>
             <div className="w-px h-6 bg-[var(--bg-hover)]"></div>
             <div className={STYLES.statusPanel.stat}>
-              <span className={STYLES.statusPanel.statLabel}>Est. Duration</span>
-              <span className={STYLES.statusPanel.statValue}>~{estimatedDuration}s</span>
+              <span className={STYLES.statusPanel.statLabel}>预估时长</span>
+              <span className={STYLES.statusPanel.statValue}>约 {estimatedDuration} 秒</span>
             </div>
             <div className="w-px h-6 bg-[var(--bg-hover)]"></div>
             <div className={STYLES.statusPanel.stat}>
-              <span className={STYLES.statusPanel.statLabel}>Target</span>
-              <span className={STYLES.statusPanel.statValue}>{project.targetDuration}</span>
+              <span className={STYLES.statusPanel.statLabel}>目标时长</span>
+              <span className={STYLES.statusPanel.statValue}>{formatTargetDuration(project.targetDuration)}</span>
             </div>
           </div>
         </div>
@@ -51,7 +63,7 @@ const StatusPanel: React.FC<Props> = ({ project, progress, estimatedDuration }) 
           </div>
           <div className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest flex items-center justify-end gap-2">
             {progress === 100 ? <CheckCircle className="w-3 h-3 text-[var(--success)]" /> : <BarChart3 className="w-3 h-3" />}
-            Render Status
+            渲染状态
           </div>
         </div>
       </div>

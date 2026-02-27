@@ -43,8 +43,8 @@ const SecondaryOptions: React.FC<Props> = ({
           isDownloading ? 'text-[var(--accent-text)]' : 'text-[var(--text-muted)] group-hover:text-[var(--accent-text)]'
         }`} />
         <div>
-          <h4 className="text-sm font-bold text-[var(--text-primary)] mb-1">Source Assets</h4>
-          <p className="text-[10px] text-[var(--text-tertiary)]">Download all generated images and raw video clips.</p>
+          <h4 className="text-sm font-bold text-[var(--text-primary)] mb-1">源素材</h4>
+          <p className="text-[10px] text-[var(--text-tertiary)]">下载全部已生成图片和原始视频片段。</p>
         </div>
       </div>
 
@@ -52,8 +52,8 @@ const SecondaryOptions: React.FC<Props> = ({
       <div className={STYLES.card.base}>
         <Database className="w-5 h-5 text-[var(--text-muted)] group-hover:text-[var(--accent-text)] mb-4 transition-colors" />
         <div>
-          <h4 className="text-sm font-bold text-[var(--text-primary)] mb-1">Export / Import</h4>
-          <p className="text-[10px] text-[var(--text-tertiary)]">Back up all IndexedDB data or import on another device.</p>
+          <h4 className="text-sm font-bold text-[var(--text-primary)] mb-1">数据备份</h4>
+          <p className="text-[10px] text-[var(--text-tertiary)]">导出当前剧集数据，或导入其他设备备份。</p>
           <div className="mt-3 flex gap-2">
             <button
               type="button"
@@ -68,7 +68,7 @@ const SecondaryOptions: React.FC<Props> = ({
                   : 'px-3 py-2 text-[10px] rounded-md bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:bg-[var(--border-secondary)]'
               }
             >
-              {isDataExporting ? 'Exporting...' : 'Export'}
+              {isDataExporting ? '导出中...' : '导出当前集'}
             </button>
             <button
               type="button"
@@ -83,7 +83,7 @@ const SecondaryOptions: React.FC<Props> = ({
                   : 'px-3 py-2 text-[10px] rounded-md bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:bg-[var(--border-secondary)]'
               }
             >
-              {isDataImporting ? 'Importing...' : 'Import'}
+              {isDataImporting ? '导入中...' : '导入'}
             </button>
           </div>
         </div>
@@ -96,8 +96,8 @@ const SecondaryOptions: React.FC<Props> = ({
       >
         <Clock className="w-5 h-5 text-[var(--text-muted)] group-hover:text-[var(--accent-text)] mb-4 transition-colors" />
         <div>
-          <h4 className="text-sm font-bold text-[var(--text-primary)] mb-1">Render Logs</h4>
-          <p className="text-[10px] text-[var(--text-tertiary)]">View generation history and status.</p>
+          <h4 className="text-sm font-bold text-[var(--text-primary)] mb-1">渲染日志</h4>
+          <p className="text-[10px] text-[var(--text-tertiary)]">查看生成历史与状态。</p>
         </div>
       </div>
     </div>
