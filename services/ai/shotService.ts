@@ -720,19 +720,40 @@ export const generateNineGridPanels = async (
       throw new Error(`AI返回的panel数量为 ${rawPanels.length}，必须为 ${layout.panelCount}`);
     }
 
-    const normalizedPanels = rawPanels.map((p: any, idx: number) => ({
-      index: idx,
-      shotSize: String(p?.shotSize || '').trim(),
-      cameraAngle: String(p?.cameraAngle || '').trim(),
-      description: String(p?.description || '').trim(),
-    }));
+    const usedIndexes = new Set<number>();
+    const normalizedPanels = rawPanels.map((p: any) => {
+      const rawIndex = Number(p?.index);
+      if (!Number.isInteger(rawIndex)) {
+        throw new Error('panel.index 必须为整数');
+      }
+      if (rawIndex < 0 || rawIndex >= layout.panelCount) {
+        throw new Error(`panel.index 超出范围（当前 ${rawIndex}，要求 0-${layout.panelCount - 1}）`);
+      }
+      if (usedIndexes.has(rawIndex)) {
+        throw new Error(`panel.index 重复（index=${rawIndex}）`);
+      }
+      usedIndexes.add(rawIndex);
 
-    const invalidPanel = normalizedPanels.find(p => !p.shotSize || !p.cameraAngle || !p.description);
+      return {
+        index: rawIndex,
+        shotSize: String(p?.shotSize || '').trim(),
+        cameraAngle: String(p?.cameraAngle || '').trim(),
+        description: String(p?.description || '').trim(),
+      };
+    });
+
+    const orderedPanels = [...normalizedPanels].sort((a, b) => a.index - b.index);
+    const missingIndex = orderedPanels.findIndex((p, idx) => p.index !== idx);
+    if (missingIndex !== -1) {
+      throw new Error(`panel.index 缺失或乱序（期望 index=${missingIndex}）`);
+    }
+
+    const invalidPanel = orderedPanels.find(p => !p.shotSize || !p.cameraAngle || !p.description);
     if (invalidPanel) {
       throw new Error('AI返回的panel字段不完整（shotSize/cameraAngle/description 不能为空）');
     }
 
-    const invalidLengthPanel = normalizedPanels.find((p) => {
+    const invalidLengthPanel = orderedPanels.find((p) => {
       const words = countEnglishWords(p.description);
       return words < 10 || words > 30;
     });
@@ -741,7 +762,22 @@ export const generateNineGridPanels = async (
       throw new Error(`panel description 词数超出范围（当前 ${words}，要求 10-30）`);
     }
 
-    return normalizedPanels;
+    const seenViewCombos = new Set<string>();
+    for (const panel of orderedPanels) {
+      const combo = `${panel.shotSize}__${panel.cameraAngle}`;
+      if (seenViewCombos.has(combo)) {
+        throw new Error(`存在重复视角组合：${panel.shotSize}/${panel.cameraAngle}`);
+      }
+      seenViewCombos.add(combo);
+    }
+
+    const uniqueShotSizes = new Set(orderedPanels.map((p) => p.shotSize)).size;
+    const requiredShotSizeKinds = layout.panelCount >= 6 ? 3 : 2;
+    if (uniqueShotSizes < requiredShotSizeKinds) {
+      throw new Error(`shotSize 多样性不足（当前 ${uniqueShotSizes}，至少 ${requiredShotSizeKinds}）`);
+    }
+
+    return orderedPanels;
   };
 
   try {
@@ -757,10 +793,11 @@ export const generateNineGridPanels = async (
 
 你上一次输出不符合要求（原因：${parseError.message}）。
 请严格重新输出 JSON 对象，且必须满足：
-1) "panels" 恰好 ${layout.panelCount} 个（index 0-${layout.panelCount - 1}，按从左到右、从上到下）
+1) "panels" 恰好 ${layout.panelCount} 个，且每项必须包含唯一 index（0-${layout.panelCount - 1}）
 2) 每个 panel 必须包含非空的 shotSize、cameraAngle、description
 3) description 使用英文单句，严格控制在 10-30 词
-4) 只输出 JSON，不要任何解释文字`;
+4) shotSize + cameraAngle 组合不得重复，且 shotSize 至少包含 ${layout.panelCount >= 6 ? 3 : 2} 种
+5) 只输出 JSON，不要任何解释文字`;
 
       const repairedText = await retryOperation(() => chatCompletion(repairPrompt, resolvedModel, 0.4, 4096, 'json_object'));
       panels = parsePanels(repairedText);

@@ -152,9 +152,12 @@ Requirements:
 
 输出规则（只输出JSON）：
 1) 顶层为 {"panels":[...]}
-2) panels 必须恰好{panelCount}项，index=0-{lastIndex}，顺序为左到右、上到下
+2) panels 必须恰好{panelCount}项；每项必须显式包含 index 字段，index=0-{lastIndex}，不可重复，整体顺序为左到右、上到下
 3) 每项含 shotSize、cameraAngle、description，均不能为空
-4) shotSize/cameraAngle 用简短中文；description 用英文单句（10-30词），聚焦主体、动作、构图`,
+4) shotSize/cameraAngle 用简短中文；description 用英文单句（10-30词），聚焦主体、动作、构图
+5) 视角多样性：shotSize + cameraAngle 组合不得重复；当{panelCount}>=6时，至少使用3种不同 shotSize（否则至少2种）
+6) 叙事节奏：index=0 建立场景与主体，最后一格呈现动作结果/情绪落点，中间格逐步推进动作
+7) 连续性：保持角色外观、服装、道具、主运动方向一致；若需要反打/轴线跨越，必须在 description 明确说明动机`,
     imagePrefix: `Create ONE cinematic storyboard image in a {gridLayout} grid ({panelCount} equal panels, thin white separators).
 All panels depict the SAME scene; vary camera angle and shot size only.
 Style: {visualStyle}

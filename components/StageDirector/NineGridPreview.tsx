@@ -17,6 +17,56 @@ interface NineGridPreviewProps {
   aspectRatio?: AspectRatio;
 }
 
+const countEnglishWords = (text: string): number => {
+  const matches = String(text || '').trim().match(/[A-Za-z0-9'-]+/g);
+  return matches ? matches.length : 0;
+};
+
+const validateNineGridPanels = (
+  panels: NineGridPanel[],
+  expectedCount: number
+): string | null => {
+  if (panels.length !== expectedCount) {
+    return `面板数量异常：当前 ${panels.length}，应为 ${expectedCount}。`;
+  }
+
+  const seenCombos = new Set<string>();
+  for (let idx = 0; idx < panels.length; idx += 1) {
+    const panel = panels[idx];
+    const panelNo = idx + 1;
+    const shotSize = String(panel.shotSize || '').trim();
+    const cameraAngle = String(panel.cameraAngle || '').trim();
+    const description = String(panel.description || '').trim();
+    if (!shotSize || !cameraAngle || !description) {
+      return `第 ${panelNo} 格存在空字段，请补全景别、机位和描述。`;
+    }
+    if (panel.index !== idx) {
+      return `第 ${panelNo} 格 index 异常（当前 ${panel.index}，应为 ${idx}），请重新生成描述。`;
+    }
+
+    const wordCount = countEnglishWords(description);
+    if (wordCount < 10 || wordCount > 30) {
+      return `第 ${panelNo} 格 description 需为 10-30 个英文词（当前 ${wordCount}）。`;
+    }
+
+    const combo = `${shotSize}__${cameraAngle}`;
+    if (seenCombos.has(combo)) {
+      return `存在重复视角组合：${shotSize}/${cameraAngle}。请调整为不同机位或景别。`;
+    }
+    seenCombos.add(combo);
+  }
+
+  const uniqueShotSizes = new Set(
+    panels.map((panel) => String(panel.shotSize || '').trim()).filter(Boolean)
+  ).size;
+  const minShotSizes = expectedCount >= 6 ? 3 : 2;
+  if (uniqueShotSizes < minShotSizes) {
+    return `景别多样性不足：当前仅 ${uniqueShotSizes} 种，至少需要 ${minShotSizes} 种。`;
+  }
+
+  return null;
+};
+
 const NineGridPreview: React.FC<NineGridPreviewProps> = ({
   isOpen,
   nineGrid,
@@ -32,6 +82,7 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
   const [hoveredPanel, setHoveredPanel] = useState<number | null>(null);
   const [selectedPanel, setSelectedPanel] = useState<number | null>(null);
   const [editingPanel, setEditingPanel] = useState<number | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ shotSize: string; cameraAngle: string; description: string }>({
     shotSize: '', cameraAngle: '', description: ''
   });
@@ -48,6 +99,10 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
     }
   }, [editingPanel, nineGrid?.panels]);
 
+  useEffect(() => {
+    setValidationError(null);
+  }, [isOpen, nineGrid?.status]);
+
   if (!isOpen) return null;
 
   const isGeneratingPanels = nineGrid?.status === 'generating_panels';
@@ -63,6 +118,7 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
   const activePanels = nineGrid?.panels?.slice(0, panelCount) || [];
 
   const handlePanelClick = (index: number) => {
+    setValidationError(null);
     if (isPanelsReady) {
       // 在 panels_ready 模式下，点击进入编辑
       setEditingPanel(editingPanel === index ? null : index);
@@ -79,16 +135,40 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
   };
 
   const handleSaveEdit = () => {
-    if (editingPanel !== null) {
-      onUpdatePanel(editingPanel, editForm);
-      setEditingPanel(null);
+    if (editingPanel === null) return;
+
+    const normalizedPanel = {
+      shotSize: String(editForm.shotSize || '').trim(),
+      cameraAngle: String(editForm.cameraAngle || '').trim(),
+      description: String(editForm.description || '').trim(),
+    };
+    if (!normalizedPanel.shotSize || !normalizedPanel.cameraAngle || !normalizedPanel.description) {
+      setValidationError(`第 ${editingPanel + 1} 格存在空字段，请补全后再保存。`);
+      return;
     }
+    const wordCount = countEnglishWords(normalizedPanel.description);
+    if (wordCount < 10 || wordCount > 30) {
+      setValidationError(`第 ${editingPanel + 1} 格 description 需为 10-30 个英文词（当前 ${wordCount}）。`);
+      return;
+    }
+
+    setValidationError(null);
+    onUpdatePanel(editingPanel, normalizedPanel);
+    setEditingPanel(null);
   };
 
   const handleConfirmAndGenerate = () => {
-    if (activePanels.length === panelCount) {
-      onConfirmPanels(activePanels);
+    if (editingPanel !== null) {
+      setValidationError('请先保存或取消当前正在编辑的面板。');
+      return;
     }
+    const validationMessage = validateNineGridPanels(activePanels, panelCount);
+    if (validationMessage) {
+      setValidationError(validationMessage);
+      return;
+    }
+    setValidationError(null);
+    onConfirmPanels(activePanels);
   };
 
   return (
@@ -207,6 +287,11 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
                   : '镜头描述生成失败，请重试'
                 }
               </p>
+              {validationError && (
+                <div className="mb-4 max-w-2xl px-4 py-3 bg-[var(--warning-bg)] border border-[var(--warning-border)] rounded-lg text-xs text-[var(--warning-text)]">
+                  {validationError}
+                </div>
+              )}
               <div className="flex items-center gap-3">
                 <button
                   onClick={onRegenerate}
@@ -244,6 +329,11 @@ const NineGridPreview: React.FC<NineGridPreviewProps> = ({
                   </p>
                 </div>
               </div>
+              {validationError && (
+                <div className="px-4 py-3 bg-[var(--error-bg)] border border-[var(--error-border)] rounded-lg text-xs text-[var(--error-text)]">
+                  {validationError}
+                </div>
+              )}
 
               {/* 面板列表 - 可编辑 */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
