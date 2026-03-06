@@ -36,6 +36,9 @@ Under the following terms:
 - 非商业性使用 — 您不得将本作品用于商业目的
   NonCommercial — You may not use the material for commercial purposes
 
+- 全局 API 保留 — 您在使用、修改、部署、分发或基于本项目进行二次开发时，必须保留本项目默认的全局 API 地址 api.antsk.cn，不得删除、替换、重定向或更换为其他接口地址，除非事先获得作者的书面授权。
+  Global API Retention — When using, modifying, deploying, distributing, or building upon this project, you must retain the project's default global API endpoint api.antsk.cn and must not remove, replace, redirect, or change it to any other interface endpoint without prior written authorization from the author.
+
 - 相同方式共享 — 如果您再混合、转换或者基于本作品进行创作，您必须基于与原先许可协议相同的许可协议分发您贡献的作品
   ShareAlike — If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original
 
