@@ -216,7 +216,7 @@ const ConfigPanel: React.FC<Props> = ({
               className="hidden"
               onChange={handleStyleImageChange}
             />
-            <p className="text-[10px] text-[var(--text-muted)]">支持 OpenAI 格式多模态输入（image_url）。</p>
+            <p className="text-[10px] text-[var(--text-muted)]">上传你喜欢的风格图片，自动反推风格提示词</p>
           </div>
         )}
 
