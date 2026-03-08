@@ -460,7 +460,7 @@ export const BillingPanel: React.FC<BillingPanelProps> = ({
                                   className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border-primary)] px-4 py-2.5 text-sm transition-colors hover:border-[var(--border-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-60"
                                 >
                                   {paymentLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />}
-                                  {reachedLimit ? '已达上限' : `立即订阅 · ${method.label}`}
+                                  {reachedLimit ? '已达上限' : `${method.label}`}
                                 </button>
                               ))}
                             </div>
