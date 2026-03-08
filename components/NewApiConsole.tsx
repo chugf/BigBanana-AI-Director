@@ -118,6 +118,7 @@ const NewApiConsole: React.FC = () => {
   const [logType, setLogType] = useState(2);
   const [logStart, setLogStart] = useState(defaultStart);
   const [logEnd, setLogEnd] = useState(defaultEnd);
+  const [logChannelId, setLogChannelId] = useState('');
   const [logTokenName, setLogTokenName] = useState('');
   const [logModelName, setLogModelName] = useState('');
   const [logs, setLogs] = useState<NewApiLog[]>([]);
@@ -159,6 +160,7 @@ const NewApiConsole: React.FC = () => {
     setLogPage(1);
     setLogTotal(0);
     setLogStats(null);
+    setLogChannelId('');
     setProfileLoaded(false);
     setTopupLoaded(false);
     setTokensLoaded(false);
@@ -270,8 +272,8 @@ const NewApiConsole: React.FC = () => {
       const startTimestamp = toUnixTimestamp(logStart);
       const endTimestamp = toUnixTimestamp(logEnd);
       const [pageData, statsData] = await Promise.all([
-        getNewApiLogs({ page, pageSize: logPageSize, type: logType, tokenName: logTokenName, modelName: logModelName, startTimestamp, endTimestamp }),
-        getNewApiLogsStat({ type: logType, tokenName: logTokenName, modelName: logModelName, startTimestamp, endTimestamp }),
+        getNewApiLogs({ page, pageSize: logPageSize, type: logType, channelId: logChannelId, tokenName: logTokenName, modelName: logModelName, startTimestamp, endTimestamp }),
+        getNewApiLogsStat({ type: logType, channelId: logChannelId, tokenName: logTokenName, modelName: logModelName, startTimestamp, endTimestamp }),
       ]);
       setLogs(pageData.items || []);
       setLogPage(pageData.page || page);
@@ -284,7 +286,7 @@ const NewApiConsole: React.FC = () => {
     } finally {
       setLogsLoading(false);
     }
-  }, [logEnd, logModelName, logPageSize, logStart, logTokenName, logType, showAlert]);
+  }, [logChannelId, logEnd, logModelName, logPageSize, logStart, logTokenName, logType, showAlert]);
 
   useEffect(() => {
     loadStatusAndSession(activeEndpoint, true).catch(() => undefined);
@@ -649,23 +651,25 @@ const NewApiConsole: React.FC = () => {
         </header>
 
         {!session ? (
-          <div className="mx-auto max-w-2xl">
-            <AuthView
-              status={status}
-              authTab={authTab}
-              setAuthTab={setAuthTab}
-              needsTwoFactor={needsTwoFactor}
-              authLoading={authLoading}
-              verificationLoading={verificationLoading}
-              loginForm={loginForm}
-              setLoginForm={setLoginForm}
-              registerForm={registerForm}
-              setRegisterForm={setRegisterForm}
-              onLogin={handleLogin}
-              onVerifyTwoFactor={handleVerifyTwoFactor}
-              onRegister={handleRegister}
-              onSendVerificationCode={handleSendVerificationCode}
-            />
+          <div className="flex min-h-[calc(100vh-15rem)] items-center justify-center py-4">
+            <div className="w-full max-w-2xl">
+              <AuthView
+                status={status}
+                authTab={authTab}
+                setAuthTab={setAuthTab}
+                needsTwoFactor={needsTwoFactor}
+                authLoading={authLoading}
+                verificationLoading={verificationLoading}
+                loginForm={loginForm}
+                setLoginForm={setLoginForm}
+                registerForm={registerForm}
+                setRegisterForm={setRegisterForm}
+                onLogin={handleLogin}
+                onVerifyTwoFactor={handleVerifyTwoFactor}
+                onRegister={handleRegister}
+                onSendVerificationCode={handleSendVerificationCode}
+              />
+            </div>
           </div>
         ) : (
           <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
@@ -701,7 +705,7 @@ const NewApiConsole: React.FC = () => {
               {activeTab === 'overview' && <OverviewPanel status={status} session={session} walletLoading={walletLoading} onRefreshProfile={refreshProfile} onTabChange={setActiveTab} />}
               {activeTab === 'billing' && <BillingPanel status={status} session={session} topupInfo={topupInfo} topupInfoLoading={topupInfoLoading} walletLoading={walletLoading} paymentLoading={paymentLoading} estimateLoading={estimateLoading} estimateError={estimateError} topupMethods={topupMethods} subscriptionPlans={subscriptionPlans} subscriptionLoading={subscriptionLoading} billingPreference={billingPreference} activeSubscriptions={activeSubscriptions} allSubscriptions={allSubscriptions} selectedPaymentMethod={selectedPaymentMethod} setSelectedPaymentMethod={setSelectedPaymentMethod} topupAmount={topupAmount} setTopupAmount={setTopupAmount} payableAmount={payableAmount} redeemCode={redeemCode} setRedeemCode={setRedeemCode} onOnlinePay={handleOnlinePay} onSubscriptionPay={handleSubscriptionPay} onRedeemCode={handleRedeemCode} onRefreshProfile={refreshProfile} onRefreshSubscriptions={refreshSubscriptionSelf} />}
               {activeTab === 'tokens' && <TokensPanel status={status} tokens={tokens} tokensLoading={tokensLoading} tokenPage={tokenPage} tokenTotal={tokenTotal} tokenPageSize={tokenPageSize} createTokenLoading={createTokenLoading} tokenForm={tokenForm} setTokenForm={setTokenForm} onCreateToken={handleCreateToken} onRefreshTokens={() => loadTokens(tokenPage)} onPageChange={loadTokens} onToggleToken={handleToggleToken} onDeleteToken={handleDeleteToken} onCopyToken={handleCopyToken} onUseTokenInProject={handleUseTokenInProject} />}
-              {activeTab === 'logs' && <LogsPanel status={status} logs={logs} logsLoading={logsLoading} logStats={logStats} logType={logType} setLogType={setLogType} logStart={logStart} setLogStart={setLogStart} logEnd={logEnd} setLogEnd={setLogEnd} logTokenName={logTokenName} setLogTokenName={setLogTokenName} logModelName={logModelName} setLogModelName={setLogModelName} logPage={logPage} logPageSize={logPageSize} logTotal={logTotal} onSearch={() => loadLogs(1)} onPageChange={loadLogs} />}
+              {activeTab === 'logs' && <LogsPanel status={status} logs={logs} logsLoading={logsLoading} logStats={logStats} logType={logType} setLogType={setLogType} logStart={logStart} setLogStart={setLogStart} logEnd={logEnd} setLogEnd={setLogEnd} logChannelId={logChannelId} setLogChannelId={setLogChannelId} logTokenName={logTokenName} setLogTokenName={setLogTokenName} logModelName={logModelName} setLogModelName={setLogModelName} logPage={logPage} logPageSize={logPageSize} logTotal={logTotal} onSearch={() => loadLogs(1)} onPageChange={loadLogs} />}
             </main>
           </div>
         )}

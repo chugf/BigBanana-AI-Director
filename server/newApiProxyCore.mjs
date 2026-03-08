@@ -633,6 +633,7 @@ export const createNewApiProxyHandler = () => {
             p: requestUrl.searchParams.get('p'),
             page_size: requestUrl.searchParams.get('page_size'),
             type: requestUrl.searchParams.get('type'),
+            channel: requestUrl.searchParams.get('channel'),
             token_name: requestUrl.searchParams.get('token_name'),
             model_name: requestUrl.searchParams.get('model_name'),
             group: requestUrl.searchParams.get('group'),
@@ -650,6 +651,7 @@ export const createNewApiProxyHandler = () => {
           res,
           `/api/log/self/stat${buildQueryString({
             type: requestUrl.searchParams.get('type'),
+            channel: requestUrl.searchParams.get('channel'),
             token_name: requestUrl.searchParams.get('token_name'),
             model_name: requestUrl.searchParams.get('model_name'),
             group: requestUrl.searchParams.get('group'),

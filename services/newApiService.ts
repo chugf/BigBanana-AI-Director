@@ -228,6 +228,7 @@ export interface NewApiLogsQuery {
   page?: number;
   pageSize?: number;
   type?: number;
+  channelId?: number | string;
   tokenName?: string;
   modelName?: string;
   group?: string;
@@ -502,6 +503,7 @@ export const getNewApiLogs = async (query: NewApiLogsQuery): Promise<NewApiPage<
     p: query.page ?? 1,
     page_size: query.pageSize ?? 20,
     type: query.type ?? 2,
+    channel: query.channelId,
     token_name: query.tokenName,
     model_name: query.modelName,
     group: query.group,
@@ -515,6 +517,7 @@ export const getNewApiLogs = async (query: NewApiLogsQuery): Promise<NewApiPage<
 export const getNewApiLogsStat = async (query: Omit<NewApiLogsQuery, 'page' | 'pageSize' | 'requestId'>): Promise<NewApiLogStats> => {
   const payload = await proxyFetch<NewApiEnvelope<NewApiLogStats>>(`/api/new-api/logs/stat${buildQueryString({
     type: query.type ?? 2,
+    channel: query.channelId,
     token_name: query.tokenName,
     model_name: query.modelName,
     group: query.group,
