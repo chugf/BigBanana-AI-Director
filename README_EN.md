@@ -16,6 +16,7 @@ Moving away from the traditional "slot machine" style of random generation, BigB
 Due to repeated plagiarism, reposting without attribution, and several severe abuse cases, future updates will be delivered only through official Docker images and will no longer be published as updated public source code.
 
 This repository remains available as public documentation and a historical reference snapshot. For deployment and upgrades, use `docker-compose.yaml` with the official images.
+We still provide full source code delivery for commercial edition customers.
 
 ## UI Showcase
 
@@ -119,6 +120,7 @@ This project deeply integrates [**AntSK API Platform**](https://api.antsk.cn/), 
 
 * **How future updates are delivered**: Because of repeated plagiarism, unattributed reposting, and malicious misuse, future feature updates will be distributed only through official Docker images and will no longer be synced as public source code.
 * **What this repository is now**: This public repository remains as documentation and a historical reference snapshot. For deployment and upgrades, use `docker-compose.yaml` to pull the official images.
+* **Commercial edition source access**: We still provide full source code delivery to commercial edition customers. If you need commercial cooperation or licensing, please use the contact information at the end of this document.
 * **Model usage note**: The currently runnable version still requires a capability-matched model stack, for example an LLM (such as **GPT-5.2**), an image model (such as **Nano Banana Pro**), and a video model (such as **Sora-2** / **Veo-3.1**). If you want to connect other providers or models, you can modify and adapt it yourself.
 * **About our API service**: The API we provide is mainly for quick experience and integration, not as a core profit source.
 * **Freedom of choice**: If our API does not meet your expectations, you can absolutely use official OpenAI or Google services directly (even at a higher price). That is a normal and respected choice.
